@@ -1,3 +1,7 @@
+/**
+ * Mağaza app'i kaldırınca Shopify webhook gönderir.
+ * O shop'un Shopify access token'ını SQLite Session tablosundan sileriz.
+ */
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 

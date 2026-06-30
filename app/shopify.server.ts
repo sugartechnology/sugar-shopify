@@ -1,3 +1,8 @@
+/**
+ * Shopify auth merkezi.
+ * Token ÜRETME ve VALIDATE işinin çoğu @shopify/shopify-app-remix içinde;
+ * biz sadece sessionStorage = SQLite (Prisma) bağlantısını veriyoruz.
+ */
 import "@shopify/shopify-app-remix/adapters/node";
 import {
   ApiVersion,
@@ -13,7 +18,9 @@ const shopify = shopifyApp({
   apiVersion: ApiVersion.January25,
   scopes: process.env.SCOPES?.split(","),
   appUrl: process.env.SHOPIFY_APP_URL || "",
+  // OAuth callback rotaları /auth/* altında (auth.$.tsx)
   authPathPrefix: "/auth",
+  // Shopify access token buraya yazılır/okunur (Session tablosu, SQLite)
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
   future: {
@@ -28,6 +35,7 @@ const shopify = shopifyApp({
 export default shopify;
 export const apiVersion = ApiVersion.January25;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
+/** Route'larda kullan: authenticate.admin / appProxy / webhook */
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;
 export const login = shopify.login;

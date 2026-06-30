@@ -35,6 +35,8 @@ function parseMetafieldValue(key: keyof ShopConfig, value: string): unknown {
 export async function getShopConfig(
   admin: AdminApiContext["admin"],
 ): Promise<ShopConfig> {
+  // sugarApiKey vb. Shopify shop metafield'da (namespace: sugar_shopify)
+  // SQLite Session tablosunda DEĞİL
   const response = await admin.graphql(
     `#graphql
       query ShopSugarConfig($namespace: String!) {

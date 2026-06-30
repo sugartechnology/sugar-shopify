@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import {
   generateProductImage,
+  getSugarApiBaseUrl,
   isSugarApiMockMode,
 } from "./sugar-api.server";
 import type { GenerateImageRequest, ShopConfig } from "../types/sugar";
@@ -28,6 +29,7 @@ const sampleRequest: GenerateImageRequest = {
 
 describe("isSugarApiMockMode", () => {
   const originalMock = process.env.SUGAR_API_MOCK;
+  const originalBaseUrl = process.env.SUGAR_API_BASE_URL;
 
   afterEach(() => {
     if (originalMock === undefined) {
@@ -35,28 +37,57 @@ describe("isSugarApiMockMode", () => {
     } else {
       process.env.SUGAR_API_MOCK = originalMock;
     }
+    if (originalBaseUrl === undefined) {
+      delete process.env.SUGAR_API_BASE_URL;
+    } else {
+      process.env.SUGAR_API_BASE_URL = originalBaseUrl;
+    }
   });
 
-  it("returns true when SUGAR_API_MOCK is not false", () => {
+  it("returns true when SUGAR_API_MOCK is true", () => {
     process.env.SUGAR_API_MOCK = "true";
+    process.env.SUGAR_API_BASE_URL = "https://api.example.com";
     const config: ShopConfig = {
       ...DEFAULT_SHOP_CONFIG,
-      sugarApiBaseUrl: "https://api.example.com",
+      sugarApiKey: "secret-key",
     };
     assert.equal(isSugarApiMockMode(config), true);
   });
 
-  it("returns true when API base URL is empty even if mock env is false", () => {
+  it("returns true when API key is empty even if mock env is false", () => {
     process.env.SUGAR_API_MOCK = "false";
-    const config: ShopConfig = { ...DEFAULT_SHOP_CONFIG, sugarApiBaseUrl: "" };
+    process.env.SUGAR_API_BASE_URL = "https://api.example.com";
+    const config: ShopConfig = { ...DEFAULT_SHOP_CONFIG, sugarApiKey: "" };
     assert.equal(isSugarApiMockMode(config), true);
   });
 
-  it("returns false when mock env is false and base URL is set", () => {
+  it("returns true when SUGAR_API_BASE_URL is empty even if mock env is false", () => {
     process.env.SUGAR_API_MOCK = "false";
+    delete process.env.SUGAR_API_BASE_URL;
     const config: ShopConfig = {
       ...DEFAULT_SHOP_CONFIG,
-      sugarApiBaseUrl: "https://api.example.com",
+      sugarApiKey: "secret-key",
+    };
+    assert.equal(isSugarApiMockMode(config), true);
+    assert.equal(getSugarApiBaseUrl(), "");
+  });
+
+  it("returns false when mock env is false, base URL and API key are set", () => {
+    process.env.SUGAR_API_MOCK = "false";
+    process.env.SUGAR_API_BASE_URL = "https://api.example.com";
+    const config: ShopConfig = {
+      ...DEFAULT_SHOP_CONFIG,
+      sugarApiKey: "secret-key",
+    };
+    assert.equal(isSugarApiMockMode(config), false);
+  });
+
+  it("returns false when mock env is unset but base URL and API key are set", () => {
+    delete process.env.SUGAR_API_MOCK;
+    process.env.SUGAR_API_BASE_URL = "https://api.example.com";
+    const config: ShopConfig = {
+      ...DEFAULT_SHOP_CONFIG,
+      sugarApiKey: "secret-key",
     };
     assert.equal(isSugarApiMockMode(config), false);
   });

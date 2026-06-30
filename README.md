@@ -45,9 +45,23 @@ Mock modda:
 
 Gerçek API'ye geçmek için `SUGAR_API_MOCK=false` yapın ve admin ayarlarından Sugar API bilgilerini doldurun.
 
+## Docker (local / production)
+
+```bash
+# Local
+cp .env.local.example .env.local
+docker compose up --build
+
+# Production
+cp .env.production.example .env.production
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Detay: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#51-docker-compose)
+
 ## Admin ayarları
 
-`/app/settings` sayfasından:
+`/pdp-ai/settings` sayfasından:
 
 - Sugar API Base URL, Company ID, API Key
 - Popup metinleri (başlık, açıklama, loading metinleri)
@@ -183,11 +197,13 @@ Varyant değişimi: müşteri PDP'de farklı varyant seçtiğinde block, o varya
 
 ## Proje yapısı
 
+Detaylı mimari, deploy adımları ve “hangi parça nereye gider” tabloları için: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**
+
 ```
 sugar-shopify/
 ├── app/                              # Remix backend (admin + app proxy)
 │   ├── routes/apps.sugar.generate.tsx
-│   ├── routes/app.settings.tsx
+│   ├── routes/pdp-ai.settings.tsx
 │   └── services/sugar-api.server.ts
 ├── extensions/sugar-pdp/             # Theme App Extension (PDP UI)
 │   ├── blocks/product-customizer.liquid

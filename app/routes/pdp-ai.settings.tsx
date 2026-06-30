@@ -21,28 +21,61 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import { getShopConfig, saveShopConfig } from "../services/shop-config.server";
+import { provisionSugarApiKey } from "../services/provision-sugar-api-key.server";
 import { isSugarApiMockMode } from "../services/sugar-api.server";
 import type { ShopConfig, ThemePreset } from "../types/sugar";
 import { DEFAULT_SHOP_CONFIG } from "../types/sugar";
 
+/** Sayfa açılınca: Shopify auth + shop metafield'dan ayarları oku */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
   const config = await getShopConfig(admin);
+  const { sugarApiKey: _key, ...publicConfig } = config;
   return json({
-    config,
+    config: publicConfig,
+    hasApiKey: Boolean(config.sugarApiKey.trim()),
+    keyPrefix: config.sugarApiKeyPrefix,
     apiMockMode: isSugarApiMockMode(config),
-    sugarApiMockEnv: process.env.SUGAR_API_MOCK !== "false",
+    sugarApiMockEnv: process.env.SUGAR_API_MOCK === "true",
   });
 };
 
+/** Form kaydedilince veya API key oluşturulunca shop metafield güncellenir */
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
+  const intent = String(formData.get("intent") ?? "save");
+
+  if (intent === "provisionKey") {
+    try {
+      const { keyPrefix } = await provisionSugarApiKey(admin, session.shop);
+      const config = await getShopConfig(admin);
+      const { sugarApiKey: _key, ...publicConfig } = config;
+      return json({
+        config: publicConfig,
+        hasApiKey: true,
+        keyPrefix,
+        apiMockMode: isSugarApiMockMode(config),
+        success: true,
+        keyProvisioned: true,
+        error: null,
+      });
+    } catch (error) {
+      return json({
+        config: null,
+        hasApiKey: false,
+        keyPrefix: "",
+        success: false,
+        keyProvisioned: false,
+        error: error instanceof Error ? error.message : "API key oluşturulamadı",
+      });
+    }
+  }
+
+  const existing = await getShopConfig(admin);
 
   const config: ShopConfig = {
-    sugarApiBaseUrl: String(formData.get("sugarApiBaseUrl") ?? ""),
-    sugarCompanyId: String(formData.get("sugarCompanyId") ?? ""),
-    sugarApiKey: String(formData.get("sugarApiKey") ?? ""),
+    ...existing,
     buttonLabel: String(formData.get("buttonLabel") ?? DEFAULT_SHOP_CONFIG.buttonLabel),
     buttonHelperText: String(formData.get("buttonHelperText") ?? DEFAULT_SHOP_CONFIG.buttonHelperText),
     modalTitle: String(formData.get("modalTitle") ?? DEFAULT_SHOP_CONFIG.modalTitle),
@@ -78,32 +111,56 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   try {
     await saveShopConfig(admin, config);
-    return json({ config, success: true, error: null });
-  } catch (error) {
+    const { sugarApiKey: _key, ...publicConfig } = config;
     return json({
-      config,
+      config: publicConfig,
+      hasApiKey: Boolean(config.sugarApiKey.trim()),
+      keyPrefix: config.sugarApiKeyPrefix,
+      apiMockMode: isSugarApiMockMode(config),
+      success: true,
+      keyProvisioned: false,
+      error: null,
+    });
+  } catch (error) {
+    const { sugarApiKey: _key, ...publicConfig } = config;
+    return json({
+      config: publicConfig,
+      hasApiKey: Boolean(config.sugarApiKey.trim()),
+      keyPrefix: config.sugarApiKeyPrefix,
       success: false,
+      keyProvisioned: false,
       error: error instanceof Error ? error.message : "Kayıt başarısız",
     });
   }
 };
 
 export default function SettingsPage() {
-  const { config, apiMockMode, sugarApiMockEnv } =
-    useLoaderData<typeof loader>();
+  const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const [form, setForm] = useState<ShopConfig>(config);
+  const [form, setForm] = useState<Omit<ShopConfig, "sugarApiKey">>(
+    actionData?.config ?? loaderData.config,
+  );
+  const hasApiKey = actionData?.hasApiKey ?? loaderData.hasApiKey;
+  const keyPrefix = actionData?.keyPrefix ?? loaderData.keyPrefix;
+  const apiMockMode = actionData?.apiMockMode ?? loaderData.apiMockMode;
+  const sugarApiMockEnv = loaderData.sugarApiMockEnv;
 
-  const update = (key: keyof ShopConfig, value: string | number | boolean) => {
+  const update = (
+    key: keyof Omit<ShopConfig, "sugarApiKey">,
+    value: string | number | boolean,
+  ) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
   return (
     <Page>
-      <TitleBar title="Sugar PDP Ayarları" />
+      <TitleBar title="PDP AI Ayarları" />
       <Layout>
         <Layout.Section>
-          {actionData?.success && (
+          {actionData?.keyProvisioned && (
+            <Banner tone="success" title="API key oluşturuldu ve kaydedildi" />
+          )}
+          {actionData?.success && !actionData?.keyProvisioned && (
             <Banner tone="success" title="Ayarlar kaydedildi" />
           )}
           {actionData?.error && (
@@ -112,58 +169,42 @@ export default function SettingsPage() {
           {apiMockMode ? (
             <Banner tone="info" title="Demo mod aktif">
               <p>
-                AI üretimi mock olarak çalışıyor. Gerçek API için admin&apos;de
-                Sugar API Base URL doldurun ve sunucu `.env` dosyasında{" "}
-                <code>SUGAR_API_MOCK=false</code> ayarlayın.
+                AI üretimi mock olarak çalışıyor.
                 {sugarApiMockEnv
-                  ? " (SUGAR_API_MOCK env değişkeni mock'u zorluyor.)"
-                  : !form.sugarApiBaseUrl.trim()
-                    ? " (API Base URL boş.)"
+                  ? " (SUGAR_API_MOCK=true ayarlı.)"
+                  : !hasApiKey
+                    ? ' Gerçek API için admin\'den "Key oluştur" kullanın.'
                     : ""}
               </p>
             </Banner>
           ) : (
             <Banner tone="success" title="Sugar API bağlı">
-              <p>
-                Gerçek AI üretimi aktif: {form.sugarApiBaseUrl}
-              </p>
+              <p>Gerçek AI üretimi aktif.</p>
             </Banner>
           )}
-          <Form method="post">
-            <BlockStack gap="500">
-              <Card>
-                <BlockStack gap="400">
-                  <Text as="h2" variant="headingMd">
-                    Sugar API
-                  </Text>
-                  <FormLayout>
-                    <TextField
-                      label="API Base URL"
-                      name="sugarApiBaseUrl"
-                      value={form.sugarApiBaseUrl}
-                      onChange={(value) => update("sugarApiBaseUrl", value)}
-                      autoComplete="off"
-                      helpText="Örn: https://api.sugartech.io"
-                    />
-                    <TextField
-                      label="Company ID"
-                      name="sugarCompanyId"
-                      value={form.sugarCompanyId}
-                      onChange={(value) => update("sugarCompanyId", value)}
-                      autoComplete="off"
-                    />
-                    <TextField
-                      label="API Key"
-                      name="sugarApiKey"
-                      type="password"
-                      value={form.sugarApiKey}
-                      onChange={(value) => update("sugarApiKey", value)}
-                      autoComplete="off"
-                    />
-                  </FormLayout>
-                </BlockStack>
-              </Card>
+          <BlockStack gap="500">
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">
+                  Sugar API
+                </Text>
+                <Text as="p" variant="bodyMd">
+                  {hasApiKey
+                    ? `Key aktif (…${keyPrefix || "****"})`
+                    : "Key yok — oluşturun"}
+                </Text>
+                <Form method="post">
+                  <input type="hidden" name="intent" value="provisionKey" />
+                  <Button submit variant="primary">
+                    {hasApiKey ? "Key yenile" : "Key oluştur"}
+                  </Button>
+                </Form>
+              </BlockStack>
+            </Card>
 
+          <Form method="post">
+            <input type="hidden" name="intent" value="save" />
+            <BlockStack gap="500">
               <Card>
                 <BlockStack gap="400">
                   <Text as="h2" variant="headingMd">
@@ -448,6 +489,7 @@ export default function SettingsPage() {
               </Button>
             </BlockStack>
           </Form>
+          </BlockStack>
         </Layout.Section>
       </Layout>
     </Page>

@@ -2,10 +2,15 @@ node_modules
 /build
 /public/build
 .env
+.env.local
+.env.production
 .env.*
 !.env.example
+!.env.local.example
+!.env.production.example
 .shopify
 prisma/dev.sqlite
 prisma/dev.sqlite-journal
+prisma/prisma/
 *.log
 .DS_Store

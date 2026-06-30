@@ -8,8 +8,12 @@
     "deploy": "shopify app deploy",
     "start": "remix-serve ./build/server/index.js",
     "setup": "prisma generate && prisma migrate deploy",
+    "docker:local": "sh -c 'test -f .env.local || cp .env.local.example .env.local' && docker compose up --build",
+    "docker:local:down": "docker compose down",
+    "docker:prod": "sh -c 'test -f .env.production || cp .env.production.example .env.production' && docker compose -f docker-compose.prod.yml up -d --build",
+    "docker:prod:down": "docker compose -f docker-compose.prod.yml down",
     "lint": "eslint --ignore-path .gitignore --cache --cache-location ./node_modules/.cache/eslint .",
-    "test": "tsx --test app/services/sugar-api.server.test.ts && node scripts/verify-pdp-flow.mjs",
+    "test": "tsx --test app/services/sugar-api.server.test.ts && node scripts/verify-pdp-flow.mjs && node scripts/verify-shopify-api-contract.mjs",
     "shopify": "shopify",
     "prisma": "prisma"
   },

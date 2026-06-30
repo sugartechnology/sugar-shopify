@@ -6,10 +6,15 @@ import type {
 } from "../types/sugar";
 import { BLANK_DESIGN_IMAGE } from "../types/sugar";
 
+export function getSugarApiBaseUrl(): string {
+  return (process.env.SUGAR_API_BASE_URL ?? "").trim();
+}
+
 export function isSugarApiMockMode(config: ShopConfig): boolean {
-  return (
-    process.env.SUGAR_API_MOCK !== "false" || !config.sugarApiBaseUrl.trim()
-  );
+  if (!config.sugarApiKey.trim() || !getSugarApiBaseUrl()) {
+    return true;
+  }
+  return process.env.SUGAR_API_MOCK === "true";
 }
 
 function mockImageUrl(request: GenerateImageRequest): string {
@@ -49,14 +54,16 @@ export async function generateProductImage(
   config: ShopConfig,
   request: GenerateImageRequest,
 ): Promise<GenerateImageResponse> {
-  // Mock when SUGAR_API_MOCK !== "false" or sugarApiBaseUrl is empty.
-  // Real API: set SUGAR_API_MOCK=false in .env and configure admin settings.
+  // Mock when SUGAR_API_MOCK=true, API key missing, or SUGAR_API_BASE_URL unset.
   if (isSugarApiMockMode(config)) {
     await new Promise((r) => setTimeout(r, 1200));
     return mockResponse(request);
   }
 
-  const endpoint = `${config.sugarApiBaseUrl.replace(/\/$/, "")}/api/shopify/pdp/generate`;
+  // --- Gerçek AI server çağrısı ---
+  // sugarApiKey: admin'den kaydedilen key (senin AI server'ında validate edilir)
+  // Biz burada key ÜRETMİYORUZ ve VALIDATE ETMİYORUZ — sadece header'a koyuyoruz.
+  const endpoint = `${getSugarApiBaseUrl().replace(/\/$/, "")}/api/shopify/pdp/generate`;
   const formData = new FormData();
   formData.append("shopDomain", request.shopDomain);
   formData.append("products", JSON.stringify(request.products));
@@ -75,9 +82,6 @@ export async function generateProductImage(
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.sugarApiKey}`,
-      ...(config.sugarCompanyId
-        ? { "X-Company-Id": config.sugarCompanyId }
-        : {}),
     },
     body: formData,
   });

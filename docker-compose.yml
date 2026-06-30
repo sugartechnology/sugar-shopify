@@ -1,0 +1,24 @@
+# Local Docker — app only (SQLite session DB)
+# Usage:
+#   cp .env.local.example .env.local
+#   docker compose up --build
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.local
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - sqlite_data_local:/app/prisma
+    environment:
+      DATABASE_URL: file:/app/prisma/dev.sqlite
+      HOST: 0.0.0.0
+      PORT: 3000
+
+volumes:
+  sqlite_data_local:

@@ -19,6 +19,12 @@ function parseProducts(raw: unknown): DesignProductInput[] {
 }
 
 async function handleGenerate(request: Request) {
+  /**
+   * Storefront: POST /apps/sugar/generate (App Proxy)
+   * Shopify isteği imzalar; kütüphane imzayı + shop session'ını validate eder.
+   * session.shop → hangi mağazadan geldi (AI'ya shopDomain olarak gider)
+   * admin → Shopify Admin API client (metafield okumak için)
+   */
   const { admin, session } = await authenticate.public.appProxy(request);
   const config = await getShopConfig(admin);
   const contentType = request.headers.get("content-type") || "";

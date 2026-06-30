@@ -1,16 +1,21 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "9f37ab0684014a8cb4f645c253ccbee3"
-application_url = "https://shopify.dev/apps/default-app-home"
+application_url = "https://storefront.sugartech.io"
 embedded = true
-name = "PDP AI Generator"
+name = "PDP AI"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
+redirect_urls = [ "https://storefront.sugartech.io/auth/callback" ]
+
+[app_proxy]
+url = "/apps/sugar"
+subpath = "sugar"
+prefix = "apps"
 
 [webhooks]
 api_version = "2026-07"

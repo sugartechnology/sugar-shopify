@@ -18,9 +18,8 @@ export const DEFAULT_SUGAR_THEME = {
 } as const;
 
 export interface ShopConfig {
-  sugarApiBaseUrl: string;
-  sugarCompanyId: string;
   sugarApiKey: string;
+  sugarApiKeyPrefix: string;
   buttonLabel: string;
   buttonHelperText: string;
   modalTitle: string;
@@ -55,9 +54,8 @@ export interface ShopConfig {
 }
 
 export const DEFAULT_SHOP_CONFIG: ShopConfig = {
-  sugarApiBaseUrl: "",
-  sugarCompanyId: "",
   sugarApiKey: "",
+  sugarApiKeyPrefix: "",
   buttonLabel: "Design Your Space with AI",
   buttonHelperText:
     "Odanın fotoğrafını yükle, bu ürünü kendi mekanında gör.",

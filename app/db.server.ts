@@ -1,3 +1,7 @@
+/**
+ * Prisma client — yalnızca Shopify Session (access token) tablosu için.
+ * AI verisi veya sugarApiKey burada tutulmaz.
+ */
 import { PrismaClient } from "@prisma/client";
 
 declare global {

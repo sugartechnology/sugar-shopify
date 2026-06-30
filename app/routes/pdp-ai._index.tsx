@@ -16,16 +16,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return null;
 };
 
-export default function AppIndex() {
+export default function PdpAiIndex() {
   return (
     <Page>
-      <TitleBar title="Sugar PDP" />
+      <TitleBar title="PDP AI" />
       <Layout>
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
               <Text as="h2" variant="headingMd">
-                Sugar PDP eklentisi
+                PDP AI eklentisi
               </Text>
               <Text as="p" variant="bodyMd">
                 Bu uygulama ürün sayfasına (PDP) bir buton ve popup ekler.
@@ -38,12 +38,12 @@ export default function AppIndex() {
                   (Shopify CLI tunnel + app proxy gerekli).
                 </List.Item>
                 <List.Item>
-                  <Link url="/app/settings">Ayarlar</Link> sayfasından Sugar
+                  <Link url="/pdp-ai/settings">Ayarlar</Link> sayfasından Sugar
                   API bilgilerini kaydedin. Geliştirmede mock mod yeterlidir.
                 </List.Item>
                 <List.Item>
                   Theme Editor → sol alt **App embeds** (puzzle ikonu) →
-                  <strong>Sugar PDP AI</strong> embed&apos;ini açın. Add block
+                  <strong>PDP AI</strong> embed&apos;ini açın. Add block
                   gerekmez.
                 </List.Item>
                 <List.Item>

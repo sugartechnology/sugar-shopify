@@ -1,0 +1,25 @@
+# Production Docker — storefront.sugartech.io
+# Usage:
+#   cp .env.production.example .env.production
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - sqlite_data_prod:/app/prisma
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: file:/app/prisma/prod.sqlite
+      HOST: 0.0.0.0
+      PORT: 3000
+
+volumes:
+  sqlite_data_prod:

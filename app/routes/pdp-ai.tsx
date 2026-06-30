@@ -9,6 +9,7 @@ import { authenticate } from "../shopify.server";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
+/** Her /pdp-ai/* sayfası yüklenmeden önce: Shopify session var mı? (DB'den token oku) */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
   return json({ apiKey: process.env.SHOPIFY_API_KEY || "" });
@@ -20,10 +21,10 @@ export default function AppLayout() {
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
       <NavMenu>
-        <Link to="/app" rel="home">
+        <Link to="/pdp-ai" rel="home">
           Ana Sayfa
         </Link>
-        <Link to="/app/settings">Ayarlar</Link>
+        <Link to="/pdp-ai/settings">Ayarlar</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>
