@@ -573,27 +573,23 @@
       this.setStep("upload");
       return;
     }
-    if (this.mockup.placements.length === 0) {
-      this.showError(
-        this.t("errorPlacementRequired", "En az bir ürünü oda fotoğrafına yerleştirin."),
-      );
-      this.setStep("products");
-      return;
-    }
 
     this.syncPrimaryToSelectedVariant();
     this.hideMessage();
     this.setStep("loading");
 
     try {
+      var payload = this.mockup.buildGeneratePayload();
       var base64 = await core.fileToBase64(this.mockup.roomFile);
-      var mockupBlob = await this.mockup.exportBlob();
       var formData = new FormData();
-      formData.append("selections", JSON.stringify(this.mockup.getSelectionsPayload()));
+      formData.append("selections", JSON.stringify(payload.selections));
       formData.append("roomImageBase64", base64);
       formData.append("roomImageName", this.mockup.roomFile.name);
-      if (mockupBlob) {
-        formData.append("mockupImage", mockupBlob, "mockup.jpg");
+      if (payload.includeMockup) {
+        var mockupBlob = await this.mockup.exportBlob();
+        if (mockupBlob) {
+          formData.append("mockupImage", mockupBlob, "mockup.jpg");
+        }
       }
 
       var response = await fetch(this.config.proxyUrl || "/apps/sugar/generate", {
@@ -607,9 +603,7 @@
       }
 
       this.designResult = data;
-      this.resultPlacements = this.mockup.placements.map(function (p) {
-        return Object.assign({}, p);
-      });
+      this.resultPlacements = this.mockup.getResultPlacementsSnapshot();
       this.resultSelections = {};
       this.resultQuantities = {};
       this.compare.setImages(this.mockup.roomPreviewUrl || "", data.imageUrl || "");

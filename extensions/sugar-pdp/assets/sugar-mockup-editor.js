@@ -288,6 +288,47 @@
     });
   };
 
+  MockupEditor.prototype.buildGeneratePayload = function () {
+    if (this.placements.length > 0) {
+      return {
+        selections: this.getSelectionsPayload(),
+        includeMockup: true,
+      };
+    }
+
+    var primary = this.pdp.primaryProduct;
+    return {
+      selections: [
+        {
+          productId: String(primary.productId || ""),
+          variantId: String(primary.variantId || ""),
+          isPrimary: true,
+        },
+      ],
+      includeMockup: false,
+    };
+  };
+
+  MockupEditor.prototype.getResultPlacementsSnapshot = function () {
+    if (this.placements.length > 0) {
+      return this.placements.map(function (placement) {
+        return Object.assign({}, placement);
+      });
+    }
+
+    var primary = this.pdp.primaryProduct;
+    return [
+      {
+        id: "default-primary",
+        productId: String(primary.productId || ""),
+        variantId: String(primary.variantId || ""),
+        title: primary.title || "",
+        imageUrl: primary.imageUrl || "",
+        isPrimary: true,
+      },
+    ];
+  };
+
   MockupEditor.prototype.exportBlob = async function () {
     var base64 = await this.exportBase64();
     if (base64) {

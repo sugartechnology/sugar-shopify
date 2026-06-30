@@ -838,7 +838,7 @@
 .sugar-compare {
   position: absolute;
   inset: 0;
-  --compare: 50%;
+  --compare: 0%;
   touch-action: none;
   user-select: none;
 }
@@ -867,7 +867,12 @@
   position: absolute;
   inset: 0;
   z-index: 2;
-  clip-path: inset(0 calc(100% - var(--compare, 50%)) 0 0);
+  clip-path: inset(0 calc(100% - var(--compare, 0%)) 0 0);
+  will-change: clip-path;
+}
+
+.sugar-compare.is-intro-animating .sugar-compare__clip {
+  transition: clip-path 0.08s linear;
 }
 
 .sugar-compare__img--design {
@@ -882,13 +887,25 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: var(--compare, 50%);
+  left: clamp(1.25rem, var(--compare, 0%), calc(100% - 1.25rem));
   width: 3px;
+  min-height: 100%;
   transform: translateX(-50%);
-  background: #fff;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
-  z-index: 3;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.22),
+    0 0 14px rgba(0, 0, 0, 0.28);
+  z-index: 6;
   pointer-events: none;
+  opacity: 0.62;
+  transition: opacity 0.25s ease;
+}
+
+.sugar-compare.is-intro-animating .sugar-compare__handle,
+.sugar-compare.is-dragging .sugar-compare__handle,
+.sugar-compare:hover .sugar-compare__handle,
+.sugar-compare:focus-within .sugar-compare__handle {
+  opacity: 0.92;
 }
 
 .sugar-compare__handle::after {
@@ -897,12 +914,12 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 2.75rem;
-  height: 2.75rem;
+  width: 1.75rem;
+  height: 1.75rem;
   border-radius: 999px;
-  background: #fff;
-  border: 2px solid var(--sugar-accent, #c4a574);
-  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.22);
+  background: rgba(255, 255, 255, 0.96);
+  border: 2px solid rgba(0, 0, 0, 0.18);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.24);
 }
 
 .sugar-compare__range {
@@ -922,14 +939,21 @@
   position: absolute;
   bottom: 0.5rem;
   z-index: 4;
-  font-size: 0.625em;
-  font-weight: 700;
+  font-size: 0.5625em;
+  font-weight: 600;
   letter-spacing: 0.04em;
-  padding: 0.25rem 0.5rem;
-  background: rgba(0, 0, 0, 0.58);
-  color: #fff;
+  padding: 0.2rem 0.4rem;
+  background: rgba(0, 0, 0, 0.38);
+  color: rgba(255, 255, 255, 0.88);
   border-radius: 4px;
   pointer-events: none;
+  opacity: 0.72;
+  transition: opacity 0.25s ease;
+}
+
+.sugar-compare:hover .sugar-compare__tag,
+.sugar-compare:focus-within .sugar-compare__tag {
+  opacity: 0.92;
 }
 
 .sugar-compare__tag--origin {
