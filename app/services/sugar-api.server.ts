@@ -1,10 +1,50 @@
 import type {
+  DesignProductInput,
   DesignProductOutput,
   GenerateImageRequest,
   GenerateImageResponse,
   ShopConfig,
 } from "../types/sugar";
 import { BLANK_DESIGN_IMAGE } from "../types/sugar";
+
+/**
+ * Storefront business rule: max images per product in the AI payload.
+ * tagservicee downloads whatever is in images[] — no limit there.
+ */
+export const MAX_PRODUCT_IMAGES = 3;
+
+export function normalizeCdnUrl(url: string | undefined): string {
+  if (!url) return "";
+  if (url.startsWith("//")) return `https:${url}`;
+  return url;
+}
+
+export function normalizeProductsForApi(
+  products: DesignProductInput[],
+): DesignProductInput[] {
+  return products.map((product) => {
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    const push = (url: string | undefined) => {
+      const normalized = normalizeCdnUrl(url);
+      if (!normalized || seen.has(normalized)) return;
+      seen.add(normalized);
+      ordered.push(normalized);
+    };
+
+    push(product.imageUrl);
+    for (const url of product.images || []) {
+      push(url);
+    }
+
+    const limited = ordered.slice(0, MAX_PRODUCT_IMAGES);
+    return {
+      ...product,
+      imageUrl: limited[0] ?? "",
+      images: limited,
+    };
+  });
+}
 
 export function getSugarApiBaseUrl(): string {
   return (process.env.SUGAR_API_BASE_URL ?? "").trim();
@@ -64,9 +104,11 @@ export async function generateProductImage(
   // sugarApiKey: admin'den kaydedilen key (senin AI server'ında validate edilir)
   // Biz burada key ÜRETMİYORUZ ve VALIDATE ETMİYORUZ — sadece header'a koyuyoruz.
   const endpoint = `${getSugarApiBaseUrl().replace(/\/$/, "")}/api/shopify/pdp/generate`;
+  const apiProducts = normalizeProductsForApi(request.products || []);
+
   const formData = new FormData();
   formData.append("shopDomain", request.shopDomain);
-  formData.append("products", JSON.stringify(request.products));
+  formData.append("products", JSON.stringify(apiProducts));
 
   if (request.roomImageBase64) {
     const binary = Buffer.from(request.roomImageBase64, "base64");

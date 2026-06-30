@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
-import { getShopConfig, saveShopConfig } from "./shop-config.server";
+import { getShopConfig, saveShopConfigFields } from "./shop-config.server";
 import type { ShopConfig } from "../types/sugar";
 
 function generateShopApiKey(): string {
@@ -58,7 +58,7 @@ export async function provisionSugarApiKey(
     sugarApiKey: apiKey,
     sugarApiKeyPrefix: result.keyPrefix ?? apiKey.slice(-4),
   };
-  await saveShopConfig(admin, config);
+  await saveShopConfigFields(admin, config, ["sugarApiKey", "sugarApiKeyPrefix"]);
 
   return { keyPrefix: config.sugarApiKeyPrefix };
 }

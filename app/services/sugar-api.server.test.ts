@@ -4,6 +4,8 @@ import {
   generateProductImage,
   getSugarApiBaseUrl,
   isSugarApiMockMode,
+  normalizeCdnUrl,
+  normalizeProductsForApi,
 } from "./sugar-api.server";
 import type { GenerateImageRequest, ShopConfig } from "../types/sugar";
 import { DEFAULT_SHOP_CONFIG } from "../types/sugar";
@@ -90,6 +92,63 @@ describe("isSugarApiMockMode", () => {
       sugarApiKey: "secret-key",
     };
     assert.equal(isSugarApiMockMode(config), false);
+  });
+});
+
+describe("normalizeProductsForApi", () => {
+  it("normalizes protocol-relative urls and keeps up to 3 images on one product row", () => {
+    const rows = normalizeProductsForApi([
+      {
+        productId: "1",
+        variantId: "2",
+        title: "Klem Sofa",
+        handle: "klem",
+        price: "100",
+        currency: "TRY",
+        imageUrl: "//cdn.shopify.com/a.webp",
+        images: [
+          "//cdn.shopify.com/a.webp",
+          "//cdn.shopify.com/b.webp",
+          "//cdn.shopify.com/c.webp",
+          "//cdn.shopify.com/d.webp",
+        ],
+      },
+    ]);
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.imageUrl, "https://cdn.shopify.com/a.webp");
+    assert.deepEqual(rows[0]?.images, [
+      "https://cdn.shopify.com/a.webp",
+      "https://cdn.shopify.com/b.webp",
+      "https://cdn.shopify.com/c.webp",
+    ]);
+  });
+
+  it("dedupes identical urls", () => {
+    const rows = normalizeProductsForApi([
+      {
+        productId: "1",
+        variantId: "2",
+        title: "Test",
+        handle: "test",
+        price: "100",
+        currency: "TRY",
+        imageUrl: "https://cdn.shopify.com/same.jpg",
+        images: ["https://cdn.shopify.com/same.jpg"],
+      },
+    ]);
+
+    assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0]?.images, ["https://cdn.shopify.com/same.jpg"]);
+  });
+});
+
+describe("normalizeCdnUrl", () => {
+  it("adds https to protocol-relative shopify cdn urls", () => {
+    assert.equal(
+      normalizeCdnUrl("//cdn.shopify.com/x.jpg"),
+      "https://cdn.shopify.com/x.jpg",
+    );
   });
 });
 

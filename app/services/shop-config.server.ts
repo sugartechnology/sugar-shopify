@@ -8,6 +8,8 @@ import {
 } from "../types/sugar";
 
 const METAFIELD_KEYS = Object.keys(DEFAULT_SHOP_CONFIG) as (keyof ShopConfig)[];
+/** Shopify metafieldsSet mutation limit per request */
+const METAFIELDS_BATCH_SIZE = 25;
 
 function parseMetafieldValue(key: keyof ShopConfig, value: string): unknown {
   if (key === "skipProductSelection") {
@@ -69,10 +71,7 @@ export async function getShopConfig(
   return config;
 }
 
-export async function saveShopConfig(
-  admin: AdminApiContext["admin"],
-  config: ShopConfig,
-): Promise<void> {
+async function getShopId(admin: AdminApiContext["admin"]): Promise<string> {
   const shopResponse = await admin.graphql(
     `#graphql
       query ShopId {
@@ -83,48 +82,79 @@ export async function saveShopConfig(
     `,
   );
   const shopJson = await shopResponse.json();
-  const shopId = shopJson.data?.shop?.id;
+  const shopId = shopJson.data?.shop?.id as string | undefined;
   if (!shopId) {
     throw new Error("Shop ID not found");
   }
+  return shopId;
+}
 
-  const metafields = METAFIELD_KEYS.map((key) => ({
-    namespace: SHOP_CONFIG_NAMESPACE,
-    key,
-    type: "single_line_text_field",
-    value: String(config[key] ?? ""),
-  }));
-
-  const response = await admin.graphql(
-    `#graphql
-      mutation SaveShopSugarConfig($metafields: [MetafieldsSetInput!]!) {
-        metafieldsSet(metafields: $metafields) {
-          metafields {
-            key
-            value
-          }
-          userErrors {
-            field
-            message
+async function setShopMetafields(
+  admin: AdminApiContext["admin"],
+  shopId: string,
+  fields: Array<{ key: keyof ShopConfig; value: string }>,
+): Promise<void> {
+  for (let offset = 0; offset < fields.length; offset += METAFIELDS_BATCH_SIZE) {
+    const batch = fields.slice(offset, offset + METAFIELDS_BATCH_SIZE);
+    const response = await admin.graphql(
+      `#graphql
+        mutation SaveShopSugarConfig($metafields: [MetafieldsSetInput!]!) {
+          metafieldsSet(metafields: $metafields) {
+            metafields {
+              key
+              value
+            }
+            userErrors {
+              field
+              message
+            }
           }
         }
-      }
-    `,
-    {
-      variables: {
-        metafields: metafields.map((field) => ({
-          ...field,
-          ownerId: shopId,
-        })),
+      `,
+      {
+        variables: {
+          metafields: batch.map(({ key, value }) => ({
+            namespace: SHOP_CONFIG_NAMESPACE,
+            key,
+            type: "single_line_text_field",
+            value,
+            ownerId: shopId,
+          })),
+        },
       },
-    },
-  );
+    );
 
-  const result = await response.json();
-  const errors = result.data?.metafieldsSet?.userErrors ?? [];
-  if (errors.length > 0) {
-    throw new Error(errors.map((e: { message: string }) => e.message).join(", "));
+    const result = await response.json();
+    const errors = result.data?.metafieldsSet?.userErrors ?? [];
+    if (errors.length > 0) {
+      throw new Error(errors.map((e: { message: string }) => e.message).join(", "));
+    }
   }
+}
+
+export async function saveShopConfigFields(
+  admin: AdminApiContext["admin"],
+  config: ShopConfig,
+  keys: (keyof ShopConfig)[],
+): Promise<void> {
+  const shopId = await getShopId(admin);
+  const fields = keys.map((key) => ({
+    key,
+    value: String(config[key] ?? ""),
+  }));
+  await setShopMetafields(admin, shopId, fields);
+}
+
+export async function saveShopConfig(
+  admin: AdminApiContext["admin"],
+  config: ShopConfig,
+): Promise<void> {
+  const shopId = await getShopId(admin);
+  const fields = METAFIELD_KEYS.map((key) => ({
+    key,
+    value: String(config[key] ?? ""),
+  }));
+  await setShopMetafields(admin, shopId, fields);
 }
 
 export function resolveThemeClasses(
