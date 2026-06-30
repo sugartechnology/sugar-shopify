@@ -10,7 +10,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
 
   if (url.searchParams.get("shop")) {
-    throw redirect(`/pdp-ai?${url.searchParams.toString()}`);
+    throw redirect(`/srs?${url.searchParams.toString()}`);
   }
 
   // Mağaza domain'i gir → Shopify OAuth başlat (kütüphane)

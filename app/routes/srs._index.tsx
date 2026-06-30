@@ -16,16 +16,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return null;
 };
 
-export default function PdpAiIndex() {
+export default function SrsIndex() {
   return (
     <Page>
-      <TitleBar title="PDP AI" />
+      <TitleBar title="Sugar Room Studio" />
       <Layout>
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
               <Text as="h2" variant="headingMd">
-                PDP AI eklentisi
+                Sugar Room Studio
               </Text>
               <Text as="p" variant="bodyMd">
                 Bu uygulama ürün sayfasına (PDP) bir buton ve popup ekler.
@@ -38,12 +38,12 @@ export default function PdpAiIndex() {
                   (Shopify CLI tunnel + app proxy gerekli).
                 </List.Item>
                 <List.Item>
-                  <Link url="/pdp-ai/settings">Ayarlar</Link> sayfasından Sugar
+                  <Link url="/srs/settings">Ayarlar</Link> sayfasından Sugar
                   API bilgilerini kaydedin. Geliştirmede mock mod yeterlidir.
                 </List.Item>
                 <List.Item>
                   Theme Editor → sol alt **App embeds** (puzzle ikonu) →
-                  <strong>PDP AI</strong> embed&apos;ini açın. Add block
+                  <strong>Sugar Room Studio</strong> embed&apos;ini açın. Add block
                   gerekmez.
                 </List.Item>
                 <List.Item>

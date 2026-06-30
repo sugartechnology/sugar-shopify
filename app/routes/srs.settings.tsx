@@ -154,7 +154,7 @@ export default function SettingsPage() {
 
   return (
     <Page>
-      <TitleBar title="PDP AI Ayarları" />
+      <TitleBar title="Sugar Room Studio Ayarları" />
       <Layout>
         <Layout.Section>
           {actionData?.keyProvisioned && (

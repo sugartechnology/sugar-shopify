@@ -12,9 +12,9 @@ Remix backend (B1) production adresi:
 |------|--------|
 | **App URL (B1)** | `https://storefront.sugartech.io` |
 | **`SHOPIFY_APP_URL` env** | `https://storefront.sugartech.io` |
-| **Uygulama adı (Partners / Admin)** | **PDP AI** |
-| **Embedded admin** | `https://storefront.sugartech.io/pdp-ai` |
-| **Admin ayarlar** | `https://storefront.sugartech.io/pdp-ai/settings` |
+| **Uygulama adı (Partners / Admin)** | **Sugar Room Studio** |
+| **Embedded admin** | `https://storefront.sugartech.io/srs` |
+| **Admin ayarlar** | `https://storefront.sugartech.io/srs/settings` |
 | **OAuth callback** | `https://storefront.sugartech.io/auth/callback` (Remix auth prefix) |
 | **App Proxy (storefront)** | `https://{shop}.myshopify.com/apps/sugar/generate` → Shopify proxy → `https://storefront.sugartech.io/apps/sugar/generate` |
 
@@ -27,7 +27,7 @@ Partners → **App setup** alanında güncellenecekler:
 
 > **Not:** Storefront müşterisi `storefront.sugartech.io` adresini **görmez**. PDP istekleri mağaza domain’i üzerinden App Proxy ile bu sunucuya gider.
 >
-> **İsimlendirme:** Embedded admin yolu `/pdp-ai` (genel `/app` değil). Storefront proxy yolu `/apps/sugar/...` — bu Shopify App Proxy convention’ıdır, uygulama adından bağımsızdır.
+> **İsimlendirme:** Embedded admin yolu `/srs` (Sugar Room Studio). Storefront proxy yolu `/apps/sugar/...` — bu Shopify App Proxy convention’ıdır, uygulama adından bağımsızdır.
 
 ---
 
@@ -86,8 +86,8 @@ Bu çözüm **tek monorepo** içinde iki Shopify parçası + harici bir AI backe
 | `app/routes/apps.sugar.generate.tsx` | App Proxy girişi (`POST /apps/sugar/generate`) | Evet — Node bundle içinde |
 | `app/services/sugar-api.server.ts` | Mock veya gerçek Sugar API çağrısı | Evet — Node bundle içinde |
 | `app/services/shop-config.server.ts` | Admin ayarlarını metafield’dan okur/yazar | Evet |
-| `app/routes/pdp-ai.settings.tsx` | Embedded admin ayar sayfası | Evet |
-| `app/routes/pdp-ai.tsx`, `pdp-ai._index.tsx` | Admin shell / ana sayfa | Evet |
+| `app/routes/srs.settings.tsx` | Embedded admin ayar sayfası | Evet |
+| `app/routes/srs.tsx`, `srs._index.tsx` | Admin shell / ana sayfa | Evet |
 | `app/shopify.server.ts` | Shopify auth, session | Evet |
 | `prisma/` | OAuth session DB (SQLite) | Docker volume ile kalıcı |
 | `shopify.app.toml` | App kimliği, scope, **app proxy config** | Partners + CLI deploy |
@@ -99,7 +99,8 @@ Bu çözüm **tek monorepo** içinde iki Shopify parçası + harici bir AI backe
 
 | Dosya / klasör | Rol | Deploy edilir mi? |
 |-----------------|-----|-------------------|
-| `assets/sugar-pdp.js` | Storefront mantığı (modal, fetch proxy, sepet) | Evet — Shopify asset |
+| `assets/sugar-pdp.js` | Storefront orchestrator (modal, proxy, sepet) | Evet — Shopify asset |
+| `assets/sugar-pdp-core.js`, `sugar-mockup-editor.js`, … | Modüler UI bileşenleri | Evet |
 | `assets/sugar-pdp.css` | Modal / buton stilleri, CSS variables | Evet |
 | `snippets/sugar-pdp-root.liquid` | Markup + config JSON + i18n | Evet |
 | `blocks/product-customizer.liquid` | App block şeması (Theme Editor) | Evet |
@@ -176,7 +177,7 @@ Production host: **`https://storefront.sugartech.io`**
 
    ```bash
    curl -I https://storefront.sugartech.io
-   # Admin embed açılıyor mu: Shopify Admin → Apps → PDP AI
+   # Admin embed açılıyor mu: Shopify Admin → Apps → Sugar Room Studio
    # Proxy: PDP’den “Tasarla” → Network’te POST .../apps/sugar/generate → 200
    ```
 
@@ -217,12 +218,12 @@ Bu komut:
 ### Adım 4 — Mağazada extension’ı aç
 
 1. Online Store → Customize
-2. **App embeds** → “PDP AI” aç **veya**
-3. Product template → Add block → Apps → “PDP AI”
+2. **App embeds** → “Sugar Room Studio” aç **veya**
+3. Product template → Add block → Apps → “Sugar Room Studio”
 
 ### Adım 5 — Sugar AI API’yi bağla (C)
 
-1. Shopify Admin → **PDP AI** → **Ayarlar** (`/pdp-ai/settings`)
+1. Shopify Admin → **Sugar Room Studio** → **Ayarlar** (`/srs/settings`)
 2. Sugar API Base URL, Company ID, API Key doldur
 3. `.env` → `SUGAR_API_MOCK=false`
 4. Backend’i yeniden deploy et

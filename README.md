@@ -1,4 +1,4 @@
-# Sugar Shopify PDP App
+# Sugar Room Studio — Shopify PDP App
 
 Shopify Remix uygulaması + Theme App Extension. PDP'de buton açar, popup'ta müşteriden oda fotoğrafı ister (galeri veya kamera), ürün görsellerini Sugar API'ye gönderir ve üretilen görseli sepete line item property olarak ekler.
 
@@ -61,7 +61,7 @@ Detay: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#51-docker-compose)
 
 ## Admin ayarları
 
-`/pdp-ai/settings` sayfasından:
+`/srs/settings` sayfasından:
 
 - Sugar API Base URL, Company ID, API Key
 - Popup metinleri (başlık, açıklama, loading metinleri)
@@ -74,7 +74,7 @@ Detay: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#51-docker-compose)
 ## Theme Editor
 
 1. Online Store → Customize
-2. Product template → Add block → **Sugar PDP**
+2. Product template → Add block → **Sugar Room Studio**
 3. İsteğe bağlı: block ayarlarından buton metni, popup metinleri, ek ürün collection, tema CSS class'ları
 4. Tema buton class'larını (Dawn: `button button--primary` vb.) block veya admin preset'inden eşleştirin
 
@@ -203,11 +203,11 @@ Detaylı mimari, deploy adımları ve “hangi parça nereye gider” tabloları
 sugar-shopify/
 ├── app/                              # Remix backend (admin + app proxy)
 │   ├── routes/apps.sugar.generate.tsx
-│   ├── routes/pdp-ai.settings.tsx
+│   ├── routes/srs.tsx, srs._index.tsx, srs.settings.tsx
 │   └── services/sugar-api.server.ts
-├── extensions/sugar-pdp/             # Theme App Extension (PDP UI)
+├── extensions/sugar-pdp/             # Theme App Extension (storefront UI)
 │   ├── blocks/product-customizer.liquid
-│   └── assets/sugar-pdp.js
+│   └── assets/                     # sugar-pdp.js + modüller (core, mockup, compare, …)
 ├── prisma/                           # Session storage
 └── shopify.app.toml
 ```
