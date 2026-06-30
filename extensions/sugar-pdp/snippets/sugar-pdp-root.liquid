@@ -1,0 +1,356 @@
+{% comment %}
+  Shared Sugar PDP markup. Render with:
+  {% render 'sugar-pdp-root', settings: section.settings, sugar_attributes: section.shopify_attributes %}
+{% endcomment %}
+
+{{ 'sugar-pdp.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'sugar-pdp.js' | asset_url }}" defer></script>
+
+{%- liquid
+  assign selected_variant = product.selected_or_first_available_variant
+  assign mf = shop.metafields.sugar_shopify
+  assign collection_handle = settings.collection | default: mf.product_collection_handle
+  assign shop_locale = request.locale.iso_code | default: localization.language.iso_code | default: 'tr'
+
+  assign button_label = settings.button_label | default: mf.button_label
+  if button_label == blank
+    assign button_label = 'sugar.button_label' | t
+  endif
+  assign button_helper = settings.button_helper | default: mf.button_helper_text
+  if button_helper == blank
+    assign button_helper = 'sugar.button_helper' | t
+  endif
+  assign modal_title = settings.modal_title | default: mf.modal_title
+  if modal_title == blank
+    assign modal_title = 'sugar.modal_title' | t
+  endif
+  assign modal_subtitle = settings.modal_subtitle | default: mf.modal_subtitle
+  if modal_subtitle == blank
+    assign modal_subtitle = 'sugar.modal_subtitle' | t
+  endif
+  assign modal_description = settings.modal_description | default: mf.modal_description
+  if modal_description == blank
+    assign modal_description = 'sugar.modal_description' | t
+  endif
+  assign instruction = settings.instruction | default: mf.instruction_template
+  if instruction == blank
+    assign instruction = 'sugar.instruction' | t
+  endif
+  assign add_cart_label = settings.add_cart_label | default: mf.add_design_to_cart_label
+  if add_cart_label == blank
+    assign add_cart_label = 'sugar.add_cart_label' | t
+  endif
+  assign loading_title = mf.loading_title
+  if loading_title == blank
+    assign loading_title = 'sugar.loading_title' | t
+  endif
+  assign loading_subtitle = mf.loading_subtitle
+  if loading_subtitle == blank
+    assign loading_subtitle = 'sugar.loading_subtitle' | t
+  endif
+  assign image_property_key = mf.image_property_key | default: '_sugar_design_image'
+  assign generation_id_key = mf.generation_id_property_key | default: '_sugar_generation_id'
+  assign max_upload_mb = mf.max_upload_size_mb | default: '10'
+  assign max_additional = mf.max_additional_products | default: '4'
+  assign custom_css = mf.custom_css
+  assign hero_url = mf.hero_image_url
+  assign header_icon_url = settings.header_icon | default: mf.header_icon_url
+
+  assign ai_btn_classes = settings.ai_button_classes | default: mf.ai_button_classes | default: 'sugar-ai-btn'
+  assign secondary_classes = settings.secondary_button_classes | default: mf.secondary_button_classes | default: 'button button--secondary'
+  assign primary_classes = settings.primary_button_classes | default: mf.primary_button_classes | default: 'button button--primary'
+  assign modal_panel_classes = settings.modal_panel_classes | default: mf.modal_panel_classes
+
+  assign theme_preset = settings.theme_preset | default: mf.theme_preset | default: 'dawn'
+  if theme_preset == 'dawn'
+    if settings.ai_button_classes == blank and mf.ai_button_classes == blank
+      assign ai_btn_classes = 'sugar-ai-btn'
+    endif
+    if settings.primary_button_classes == blank and mf.primary_button_classes == blank
+      assign primary_classes = 'button button--primary'
+    endif
+    if settings.secondary_button_classes == blank and mf.secondary_button_classes == blank
+      assign secondary_classes = 'button button--secondary'
+    endif
+  elsif theme_preset == 'normod'
+    if settings.primary_button_classes == blank and mf.primary_button_classes == blank
+      assign primary_classes = 'button button--primary'
+    endif
+    if settings.secondary_button_classes == blank and mf.secondary_button_classes == blank
+      assign secondary_classes = 'button button--secondary'
+    endif
+  endif
+
+  assign skip_product_selection = settings.skip_product_selection
+  if skip_product_selection == false and mf.skip_product_selection == 'true'
+    assign skip_product_selection = true
+  endif
+
+  assign product_images = product.media | where: 'media_type', 'image'
+  assign primary_image = selected_variant.featured_media | default: product.featured_media
+  if primary_image == blank and product_images.size > 0
+    assign primary_image = product_images.first
+  endif
+
+  assign modal_bg_color = settings.modal_bg_color | default: mf.modal_bg_color
+  assign modal_text_color = settings.modal_text_color | default: mf.modal_text_color
+  assign accent_color = settings.accent_color | default: mf.accent_color | default: '#c4a574'
+  assign overlay_color = settings.overlay_color | default: mf.overlay_color | default: 'rgba(0, 0, 0, 0.55)'
+  assign modal_radius_setting = settings.modal_radius | default: mf.modal_radius | default: 16
+  assign font_scale_pct = settings.font_scale | default: mf.font_scale | default: 100
+  assign file_uid = product.id
+-%}
+
+{%- capture sugar_css_vars -%}
+{%- if theme_preset == 'dawn' -%}
+--sugar-modal-bg: rgb(var(--color-background, 255 255 255));
+--sugar-text: rgb(var(--color-foreground, 18 18 18));
+--sugar-muted: rgba(var(--color-foreground, 18 18 18), 0.65);
+--sugar-border: rgba(var(--color-foreground, 18 18 18), 0.12);
+--sugar-modal-radius: var(--buttons-radius, var(--button-border-radius, 16px));
+--sugar-btn-bg: rgb(var(--color-background, 255 255 255));
+--sugar-btn-color: rgb(var(--color-foreground, 18 18 18));
+{%- elsif theme_preset == 'normod' -%}
+--sugar-modal-bg: rgb(var(--color-background, 255 255 255));
+--sugar-text: rgb(var(--color-foreground, 18 18 18));
+--sugar-muted: rgba(var(--color-foreground, 18 18 18), 0.65);
+--sugar-border: rgba(var(--color-foreground, 18 18 18), 0.12);
+--sugar-modal-radius: var(--buttons-radius, 16px);
+--sugar-btn-bg: rgb(var(--color-background, 255 255 255));
+--sugar-btn-color: rgb(var(--color-foreground, 18 18 18));
+{%- else -%}
+--sugar-modal-bg: {{ modal_bg_color | default: mf.modal_bg_color | default: '#ffffff' }};
+--sugar-text: {{ modal_text_color | default: mf.modal_text_color | default: '#121212' }};
+--sugar-muted: #6b7280;
+--sugar-border: rgba(0, 0, 0, 0.12);
+--sugar-modal-radius: {{ modal_radius_setting }}px;
+--sugar-btn-bg: {{ modal_bg_color | default: mf.modal_bg_color | default: '#ffffff' }};
+--sugar-btn-color: {{ modal_text_color | default: mf.modal_text_color | default: '#121212' }};
+{%- endif -%}
+--sugar-accent: {{ accent_color }};
+--sugar-overlay-bg: {{ overlay_color }};
+--sugar-modal-max-width: 480px;
+--sugar-modal-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+--sugar-font-scale: {{ font_scale_pct | divided_by: 100.0 }};
+{%- if theme_preset == 'dawn' or theme_preset == 'normod' -%}
+{%- if settings.modal_bg_color != blank or mf.modal_bg_color != blank -%}
+--sugar-modal-bg: {{ modal_bg_color }};
+--sugar-btn-bg: {{ modal_bg_color }};
+{%- endif -%}
+{%- if settings.modal_text_color != blank or mf.modal_text_color != blank -%}
+--sugar-text: {{ modal_text_color }};
+--sugar-btn-color: {{ modal_text_color }};
+{%- endif -%}
+{%- if settings.modal_radius != blank or mf.modal_radius != blank -%}
+--sugar-modal-radius: {{ modal_radius_setting }}px;
+{%- endif -%}
+{%- endif -%}
+{%- if settings.accent_color != blank or mf.accent_color != blank -%}
+--sugar-accent: {{ accent_color }};
+{%- endif -%}
+{%- if settings.overlay_color != blank or mf.overlay_color != blank -%}
+--sugar-overlay-bg: {{ overlay_color }};
+{%- endif -%}
+{%- endcapture -%}
+
+{%- capture product_images_json -%}
+[
+{%- for media in product_images -%}
+  {{ media | image_url: width: 1600 | json }}{% unless forloop.last %},{% endunless %}
+{%- endfor -%}
+]
+{%- endcapture -%}
+
+{%- capture variants_json -%}
+[
+{%- for variant in product.variants -%}
+  {%- assign v_img = variant.featured_media | default: product.featured_media -%}
+  {%- if v_img == blank and product_images.size > 0 -%}
+    {%- assign v_img = product_images.first -%}
+  {%- endif -%}
+  {
+    "variantId": {{ variant.id | json }},
+    "price": {{ variant.price | json }},
+    "imageUrl": {{ v_img | image_url: width: 800 | json }},
+    "images": [{{ v_img | image_url: width: 1600 | json }}]
+  }{% unless forloop.last %},{% endunless %}
+{%- endfor -%}
+]
+{%- endcapture -%}
+
+{%- capture catalog_json -%}
+[
+{%- if collection_handle != blank and collections[collection_handle] -%}
+  {%- for cat_product in collections[collection_handle].products limit: 20 -%}
+    {%- assign cat_variant = cat_product.selected_or_first_available_variant -%}
+    {%- assign cat_img = cat_variant.featured_media | default: cat_product.featured_media -%}
+    {
+      "productId": {{ cat_product.id | json }},
+      "variantId": {{ cat_variant.id | json }},
+      "title": {{ cat_product.title | json }},
+      "handle": {{ cat_product.handle | json }},
+      "price": {{ cat_variant.price | json }},
+      "currency": {{ cart.currency.iso_code | default: 'TRY' | json }},
+      "imageUrl": {{ cat_img | image_url: width: 400 | json }},
+      "images": [{{ cat_img | image_url: width: 800 | json }}]
+    }{% unless forloop.last %},{% endunless %}
+  {%- endfor -%}
+{%- endif -%}
+]
+{%- endcapture -%}
+
+<div
+  class="sugar-root{% if embed_mode %} sugar-root--embed{% endif %}"
+  data-sugar-root
+  data-sugar-theme="{{ theme_preset }}"
+  style="{{ sugar_css_vars | strip }}"
+  {% if embed_mode %}data-sugar-embed="true"{% endif %}
+  {{ sugar_attributes }}
+  data-sugar-config='{
+    "proxyUrl": "/apps/sugar/generate",
+    "imagePropertyKey": {{ image_property_key | json }},
+    "generationIdPropertyKey": {{ generation_id_key | json }},
+    "maxUploadSizeMb": {{ max_upload_mb | json }},
+    "maxAdditionalProducts": {{ max_additional | json }},
+    "customCss": {{ custom_css | json }},
+    "modalTitle": {{ modal_title | json }},
+    "modalSubtitle": {{ modal_subtitle | json }},
+    "modalDescription": {{ modal_description | default: '' | json }},
+    "instructionTemplate": {{ instruction | json }},
+    "addDesignToCartLabel": {{ add_cart_label | json }},
+    "loadingTitle": {{ loading_title | json }},
+    "loadingSubtitle": {{ loading_subtitle | json }},
+    "heroImageUrl": {% if settings.hero_image != blank %}{{ settings.hero_image | image_url: width: 800 | json }}{% else %}{{ hero_url | json }}{% endif %},
+    "headerIconUrl": {% if settings.header_icon != blank %}{{ settings.header_icon | image_url: width: 64 | json }}{% else %}{{ header_icon_url | json }}{% endif %},
+    "primaryButtonClasses": {{ primary_classes | json }},
+    "secondaryButtonClasses": {{ secondary_classes | json }},
+    "skipProductSelection": {% if skip_product_selection %}true{% else %}false{% endif %},
+    "locale": {{ shop_locale | json }},
+    "i18n": {
+      "modalDescription": {{ modal_description | json }},
+      "errorUpload": {{ 'sugar.error_upload' | t | json }},
+      "errorSize": {{ 'sugar.error_size' | t | json }},
+      "errorRoomRequired": {{ 'sugar.error_room_required' | t | json }},
+      "errorSelectProduct": {{ 'sugar.error_select_product' | t | json }},
+      "errorGenerate": {{ 'sugar.error_generate' | t | json }},
+      "errorGeneric": {{ 'sugar.error_generic' | t | json }},
+      "errorCart": {{ 'sugar.error_cart' | t | json }},
+      "errorCartRetry": {{ 'sugar.error_cart_retry' | t | json }},
+      "checklistDesign": {{ 'sugar.checklist_design' | t | json }},
+      "checklistProducts": {{ 'sugar.checklist_products' | t | json }},
+      "aiPreviewTitle": {{ 'sugar.ai_preview_title' | t | json }},
+      "previewAlt": {{ 'sugar.preview_alt' | t | json }}
+    }
+  }'
+  data-sugar-product='{
+    "productId": {{ product.id | json }},
+    "variantId": {{ selected_variant.id | json }},
+    "title": {{ product.title | json }},
+    "handle": {{ product.handle | json }},
+    "price": {{ selected_variant.price | json }},
+    "currency": {{ cart.currency.iso_code | default: 'TRY' | json }},
+    "imageUrl": {{ primary_image | image_url: width: 800 | json }},
+    "images": {{ product_images_json }},
+    "isPrimary": true
+  }'
+  data-sugar-catalog='{{ catalog_json | strip_newlines }}'
+  data-sugar-variants='{{ variants_json | strip_newlines }}'
+>
+  <div class="sugar-trigger-wrap">
+    <button type="button" class="{{ ai_btn_classes }}" data-sugar-open>
+      <span class="sugar-ai-btn__sparkle" aria-hidden="true">✦</span>
+      {{ button_label }}
+      <span class="sugar-ai-btn__sparkle" aria-hidden="true">✦</span>
+    </button>
+    <p class="sugar-trigger-helper">{{ button_helper }}</p>
+  </div>
+
+  <dialog
+    class="sugar-dialog {{ modal_panel_classes }}"
+    data-sugar-dialog
+    data-sugar-theme="{{ theme_preset }}"
+    style="{{ sugar_css_vars | strip }}"
+  >
+    <div class="sugar-modal">
+      <div class="sugar-modal__header">
+        <div class="sugar-modal__header-icon" data-sugar-header-icon>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2zm0 8l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3z"/></svg>
+        </div>
+        <div class="sugar-modal__header-text">
+          <h2 class="sugar-modal__title">{{ modal_title }}</h2>
+          <p class="sugar-modal__subtitle">{{ modal_subtitle }}</p>
+        </div>
+        <button type="button" class="sugar-modal__close" data-sugar-close aria-label="{{ 'sugar.close_aria' | t }}">×</button>
+      </div>
+
+      <div class="sugar-modal__body">
+        <div class="sugar-error" data-sugar-error></div>
+
+        <div class="sugar-step is-active" data-sugar-step="upload">
+          <hr class="sugar-divider">
+          {%- if settings.hero_image != blank -%}
+            <img class="sugar-hero" src="{{ settings.hero_image | image_url: width: 800 }}" alt="" loading="lazy" width="800" height="500">
+          {%- elsif hero_url != blank -%}
+            <img class="sugar-hero" src="{{ hero_url }}" alt="" loading="lazy" width="800" height="500">
+          {%- endif -%}
+          <div class="sugar-steps-label">
+            <span class="is-active">{{ 'sugar.step_upload' | t }}</span>
+            <span>{{ 'sugar.step_design' | t }}</span>
+            <span>{{ 'sugar.step_view' | t }}</span>
+          </div>
+          <p class="sugar-instruction" data-sugar-upload-instruction></p>
+          <div class="sugar-action-cards">
+            <label class="sugar-action-card" for="sugar-gallery-{{ file_uid }}">
+              <span class="sugar-action-card__icon">🖼</span>
+              <span class="sugar-action-card__label">{{ 'sugar.gallery_label' | t }}</span>
+              <span class="sugar-action-card__sub">{{ 'sugar.gallery_sub' | t }}</span>
+            </label>
+            <label class="sugar-action-card" for="sugar-camera-{{ file_uid }}">
+              <span class="sugar-action-card__icon">📷</span>
+              <span class="sugar-action-card__label">{{ 'sugar.camera_label' | t }}</span>
+              <span class="sugar-action-card__sub">{{ 'sugar.camera_sub' | t }}</span>
+            </label>
+          </div>
+          <input class="sugar-hidden-input" type="file" accept="image/*" id="sugar-gallery-{{ file_uid }}" data-sugar-file-gallery>
+          <input class="sugar-hidden-input" type="file" accept="image/*" capture="environment" id="sugar-camera-{{ file_uid }}" data-sugar-file-camera>
+        </div>
+
+        <div class="sugar-step" data-sugar-step="products">
+          <hr class="sugar-divider">
+          <p class="sugar-instruction">{{ instruction }}</p>
+          <img class="sugar-room-preview" data-sugar-room-preview alt="" width="600" height="450">
+          <p class="sugar-products-label">{{ 'sugar.products_label' | t }}</p>
+          <div class="sugar-product-strip" data-sugar-product-strip></div>
+          <div class="sugar-modal__actions">
+            <button type="button" class="sugar-btn {{ secondary_classes }}" data-sugar-back-upload>{{ 'sugar.change_photo' | t }}</button>
+            <button type="button" class="sugar-btn {{ primary_classes }}" data-sugar-design>{{ 'sugar.design_button' | t }}</button>
+          </div>
+        </div>
+
+        <div class="sugar-step" data-sugar-step="loading">
+          <div class="sugar-loading-wrap">
+            <div class="sugar-spinner"></div>
+            <p class="sugar-loading-title">{{ loading_title }}</p>
+            <p class="sugar-loading-sub">{{ loading_subtitle }}</p>
+          </div>
+        </div>
+
+        <div class="sugar-step" data-sugar-step="result">
+          <div class="sugar-result-bar">
+            <span class="sugar-result-bar__status">{{ 'sugar.result_ready' | t }}</span>
+            <button type="button" class="sugar-result-bar__redo" data-sugar-redo>{{ 'sugar.redo_button' | t }}</button>
+          </div>
+          <div class="sugar-design-preview">
+            <span class="sugar-design-preview__badge">{{ 'sugar.ai_preview_badge' | t }}</span>
+            <span class="sugar-design-preview__demo-badge" data-sugar-demo-badge hidden>{{ 'sugar.demo_mode_badge' | t }}</span>
+            <img data-sugar-design-image alt="" width="800" height="600">
+          </div>
+          <div class="sugar-checklist" data-sugar-checklist></div>
+          <button type="button" class="sugar-btn-primary" data-sugar-add-design disabled>
+            🛍 {{ add_cart_label }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+</div>

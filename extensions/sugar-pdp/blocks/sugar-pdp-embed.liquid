@@ -1,0 +1,157 @@
+{% comment %}
+  App embed — Theme Editor → App embeds → açın (Add block gerekmez)
+  Yalnızca ürün sayfasında render edilir.
+{% endcomment %}
+{% if template.name == 'product' and product %}
+  {% render 'sugar-pdp-root',
+    settings: block.settings,
+    sugar_attributes: block.shopify_attributes,
+    embed_mode: true
+  %}
+{% endif %}
+
+{% schema %}
+{
+  "name": "Sugar PDP AI",
+  "target": "body",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Bu embed'i Theme Editor sol menü → App embeds bölümünden açın. Buton otomatik olarak sepete ekle alanına yerleşir."
+    },
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "Buton metni",
+      "default": "Design Your Space with AI"
+    },
+    {
+      "type": "text",
+      "id": "button_helper",
+      "label": "Buton alt metni"
+    },
+    {
+      "type": "text",
+      "id": "modal_title",
+      "label": "Popup başlık"
+    },
+    {
+      "type": "text",
+      "id": "modal_subtitle",
+      "label": "Popup alt başlık"
+    },
+    {
+      "type": "textarea",
+      "id": "modal_description",
+      "label": "Upload açıklama ({productTitle} kullanılabilir)"
+    },
+    {
+      "type": "textarea",
+      "id": "instruction",
+      "label": "Ürün seçim açıklama"
+    },
+    {
+      "type": "text",
+      "id": "add_cart_label",
+      "label": "Sepete ekle butonu"
+    },
+    {
+      "type": "collection",
+      "id": "collection",
+      "label": "Ek ürün collection"
+    },
+    {
+      "type": "checkbox",
+      "id": "skip_product_selection",
+      "label": "Ürün seçim adımını atla",
+      "default": true
+    },
+    {
+      "type": "select",
+      "id": "theme_preset",
+      "label": "Tema preset",
+      "options": [
+        { "value": "custom", "label": "Custom" },
+        { "value": "dawn", "label": "Dawn" },
+        { "value": "normod", "label": "Normod" }
+      ],
+      "default": "dawn"
+    },
+    {
+      "type": "header",
+      "content": "Renkler (boş = preset varsayılanı)"
+    },
+    {
+      "type": "color",
+      "id": "modal_bg_color",
+      "label": "Modal arka plan",
+      "info": "Boş bırakın → preset/admin varsayılanı (#ffffff)"
+    },
+    {
+      "type": "color",
+      "id": "modal_text_color",
+      "label": "Modal metin rengi",
+      "info": "Boş → #121212"
+    },
+    {
+      "type": "color",
+      "id": "accent_color",
+      "label": "Vurgu rengi (accent)",
+      "info": "Boş → #c4a574"
+    },
+    {
+      "type": "range",
+      "id": "modal_radius",
+      "label": "Modal köşe radius (px)",
+      "min": 0,
+      "max": 32,
+      "step": 1,
+      "default": 16
+    },
+    {
+      "type": "range",
+      "id": "font_scale",
+      "label": "Font ölçeği",
+      "min": 75,
+      "max": 150,
+      "step": 5,
+      "default": 100,
+      "unit": "%",
+      "info": "100 = tema boyutu. Küçük görünüyorsa 110–125 deneyin."
+    },
+    {
+      "type": "image_picker",
+      "id": "hero_image",
+      "label": "Upload adımı hero görsel"
+    },
+    {
+      "type": "image_picker",
+      "id": "header_icon",
+      "label": "Header ikon"
+    },
+    {
+      "type": "text",
+      "id": "ai_button_classes",
+      "label": "AI button CSS classes",
+      "default": "sugar-ai-btn"
+    },
+    {
+      "type": "text",
+      "id": "primary_button_classes",
+      "label": "Primary button classes",
+      "default": "button button--primary"
+    },
+    {
+      "type": "text",
+      "id": "secondary_button_classes",
+      "label": "Secondary button classes",
+      "default": "button button--secondary"
+    },
+    {
+      "type": "text",
+      "id": "modal_panel_classes",
+      "label": "Modal panel classes"
+    }
+  ]
+}
+{% endschema %}
