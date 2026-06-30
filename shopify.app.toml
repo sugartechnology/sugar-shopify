@@ -1,6 +1,6 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "2cf91d7fa557ce32bcd0b2d7a1dc218f"
+client_id = "fb637727ba79d899ffbefcf10aa09f69"
 application_url = "https://storefront.sugartech.io"
 embedded = true
 name = "Sugar Room Studio"
