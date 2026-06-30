@@ -64,7 +64,7 @@ export const DEFAULT_SHOP_CONFIG: ShopConfig = {
   modalDescription:
     "Odanın bir fotoğrafını yükle. Yapay zeka {productTitle} ürününü senin mekanına yerleştirsin.",
   instructionTemplate:
-    "Ürünleri seç, oda fotoğrafında yerleştir.",
+    "Ürünleri seç, oda fotoğrafında sürükleyerek yerleştir.",
   addDesignToCartLabel: "Tasarımı Sepete Ekle",
   loadingTitle: "AI mekanını tasarlıyor...",
   loadingSubtitle: "Ürün ölçüleri ve ışık analiz ediliyor",
@@ -119,10 +119,20 @@ export const THEME_PRESET_CLASSES: Record<
   },
 };
 
+export interface ProductPlacement {
+  /** Normalized center X on room image (0–1) */
+  x: number;
+  /** Normalized center Y on room image (0–1) */
+  y: number;
+  /** Product width as fraction of room image width */
+  scale?: number;
+}
+
 export interface DesignProductSelection {
   productId: string;
   variantId: string;
   isPrimary?: boolean;
+  position?: ProductPlacement | null;
 }
 
 export interface DesignProductInput {
@@ -135,13 +145,15 @@ export interface DesignProductInput {
   images: string[];
   imageUrl?: string;
   isPrimary?: boolean;
-  position?: { x: number; y: number; scale?: number } | null;
+  position?: ProductPlacement | null;
 }
 
 export interface GenerateImageRequest {
   shopDomain: string;
   roomImageBase64?: string;
   roomImageName?: string;
+  mockupImageName?: string;
+  mockupImageBytes?: Buffer;
   products: DesignProductInput[];
 }
 

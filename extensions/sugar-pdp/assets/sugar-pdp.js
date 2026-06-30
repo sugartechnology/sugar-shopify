@@ -1,155 +1,31 @@
 (function () {
   "use strict";
 
+  var Kit = window.SugarPdpKit;
+  var core = Kit.core;
   var STEPS = ["upload", "pick-source", "camera", "products", "loading", "result"];
-  var DESIGN_STORAGE_KEY = "sugar_pdp_visitor_designs";
-  var DEFAULT_MAX_SAVED_DESIGNS = 20;
-
-  function readDesignStore() {
-    try {
-      var raw = localStorage.getItem(DESIGN_STORAGE_KEY);
-      if (!raw) return { version: 1, byProduct: {} };
-      var parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") {
-        return { version: 1, byProduct: {} };
-      }
-      if (!parsed.byProduct || typeof parsed.byProduct !== "object") {
-        parsed.byProduct = {};
-      }
-      return parsed;
-    } catch {
-      return { version: 1, byProduct: {} };
-    }
-  }
-
-  function writeDesignStore(store) {
-    try {
-      localStorage.setItem(DESIGN_STORAGE_KEY, JSON.stringify(store));
-    } catch {
-      /* quota exceeded — ignore */
-    }
-  }
-
-  function getDesignsForProduct(productId) {
-    var store = readDesignStore();
-    var list = store.byProduct[String(productId)] || [];
-    return list.slice().sort(function (a, b) {
-      return (b.createdAt || 0) - (a.createdAt || 0);
-    });
-  }
-
-  function saveDesignForProduct(productId, record, maxCount) {
-    var store = readDesignStore();
-    var key = String(productId);
-    var list = store.byProduct[key] || [];
-    var id = String(record.id || record.generationId || Date.now());
-    list = list.filter(function (item) {
-      return String(item.id) !== id;
-    });
-    list.unshift({
-      id: id,
-      generationId: record.generationId || id,
-      imageUrl: record.imageUrl || "",
-      thumbnailUrl: record.thumbnailUrl || record.imageUrl || "",
-      status: record.status || "completed",
-      createdAt: record.createdAt || Date.now(),
-      productId: String(productId),
-      variantId: String(record.variantId || ""),
-      productTitle: record.productTitle || "",
-      products: record.products || [],
-    });
-    list = list.slice(0, maxCount || DEFAULT_MAX_SAVED_DESIGNS);
-    store.byProduct[key] = list;
-    writeDesignStore(store);
-    return list;
-  }
-
-  function removeDesignForProduct(productId, designId) {
-    var store = readDesignStore();
-    var key = String(productId);
-    var list = store.byProduct[key] || [];
-    list = list.filter(function (item) {
-      return String(item.id) !== String(designId);
-    });
-    if (list.length) store.byProduct[key] = list;
-    else delete store.byProduct[key];
-    writeDesignStore(store);
-    return list;
-  }
-
-  function parseJson(raw, fallback) {
-    try {
-      return JSON.parse(raw || "");
-    } catch {
-      return fallback;
-    }
-  }
-
-  function formatMoney(cents, currency, locale) {
-    var amount = Number(cents) / 100;
-    try {
-      return new Intl.NumberFormat(locale || undefined, {
-        style: "currency",
-        currency: currency || "TRY",
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2,
-      }).format(amount);
-    } catch {
-      return amount + " " + (currency || "TRY");
-    }
-  }
-
-  function getI18n(config) {
-    return config.i18n || {};
-  }
-
-  function ensureMediaDevices() {
-    if (typeof navigator === "undefined") return false;
-    if (!navigator.mediaDevices) {
-      navigator.mediaDevices = {};
-    }
-    if (!navigator.mediaDevices.getUserMedia) {
-      var legacy =
-        navigator.getUserMedia ||
-        navigator.webkitGetUserMedia ||
-        navigator.mozGetUserMedia;
-      if (!legacy) return false;
-      navigator.mediaDevices.getUserMedia = function (constraints) {
-        return new Promise(function (resolve, reject) {
-          legacy.call(navigator, constraints, resolve, reject);
-        });
-      };
-    }
-    return true;
-  }
-
-  function fileToBase64(file) {
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function () {
-        resolve(String(reader.result || "").split(",")[1] || "");
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
 
   function SugarPdp(root) {
     this.root = root;
-    this.config = parseJson(root.dataset.sugarConfig, {});
-    this.i18n = getI18n(this.config);
+    this.config = core.parseJson(root.dataset.sugarConfig, {});
+    this.i18n = core.getI18n(this.config);
     this.locale = this.config.locale || undefined;
-    this.primaryProduct = parseJson(root.dataset.sugarProduct, {});
-    this.catalog = parseJson(root.dataset.sugarCatalog, []);
-    this.variants = parseJson(root.dataset.sugarVariants, []);
+    this.primaryProduct = core.parseJson(root.dataset.sugarProduct, {});
+    this.catalog = core.parseJson(root.dataset.sugarCatalog, []);
+    this.variants = core.parseJson(root.dataset.sugarVariants, []);
     this.step = "upload";
-    this.roomFile = null;
-    this.roomPreviewUrl = "";
-    this.selectedProductIds = new Set();
+    this.resultPlacements = [];
     this.designResult = null;
     this.resultSelections = {};
+    this.resultQuantities = {};
     this.cameraStream = null;
     this.toastTimer = null;
+
+    this.uploadHero = new Kit.UploadHero(root, this.config);
+    this.mockup = new Kit.MockupEditor(this);
+    this.compare = new Kit.CompareSlider(root, this.t.bind(this));
+    this.savedDesigns = new Kit.SavedDesigns(this);
+
     this.init();
   }
 
@@ -158,12 +34,14 @@
     this.initPrimarySelection();
     this.renderUploadInstruction();
     this.renderProductStrip();
-    this.renderSavedDesigns();
     this.bindEvents();
+    this.mockup.bind();
+    this.compare.bind();
     this.bindVariantSync();
     this.mountEmbedTrigger();
+    this.savedDesigns.renderPage();
+    this.uploadHero.init();
     this.applyBrandingAssets();
-    this.initMediaReveal();
     if (this.config.customCss) {
       var style = document.createElement("style");
       style.textContent = this.config.customCss;
@@ -179,10 +57,8 @@
       self.steps[step] = self.root.querySelector('[data-sugar-step="' + step + '"]');
     });
     this.toastEl = this.root.querySelector("[data-sugar-toast]");
-    this.roomPreview = this.root.querySelector("[data-sugar-room-preview]");
     this.productStrip = this.root.querySelector("[data-sugar-product-strip]");
     this.checklist = this.root.querySelector("[data-sugar-checklist]");
-    this.designImage = this.root.querySelector("[data-sugar-design-image]");
     this.demoBadge = this.root.querySelector("[data-sugar-demo-badge]");
     this.addDesignBtn = this.root.querySelector("[data-sugar-add-design]");
     this.fileGallery = this.root.querySelector("[data-sugar-file-gallery]");
@@ -193,59 +69,6 @@
     this.cameraCanvas = this.root.querySelector("[data-sugar-camera-canvas]");
     this.cameraWrap = this.root.querySelector("[data-sugar-camera-wrap]");
     this.headerIcon = this.root.querySelector("[data-sugar-header-icon]");
-    this.uploadIllustration = this.root.querySelector("[data-sugar-upload-illustration]");
-  };
-
-  SugarPdp.prototype.getMediaContainer = function (img) {
-    if (!img) return null;
-    return img.closest("[data-sugar-upload-hero], .sugar-design-preview");
-  };
-
-  SugarPdp.prototype.markMediaLoaded = function (img) {
-    if (!img) return;
-    var container = this.getMediaContainer(img);
-    img.classList.add("is-loaded");
-    if (container) container.classList.add("is-loaded");
-  };
-
-  SugarPdp.prototype.markMediaLoading = function (img) {
-    if (!img) return;
-    var container = this.getMediaContainer(img);
-    img.classList.remove("is-loaded");
-    if (container) container.classList.remove("is-loaded");
-  };
-
-  SugarPdp.prototype.bindMediaReveal = function (img) {
-    if (!img || img.__sugarRevealBound) return;
-    img.__sugarRevealBound = true;
-    var self = this;
-    img.addEventListener("load", function () {
-      self.markMediaLoaded(img);
-    });
-    img.addEventListener("error", function () {
-      self.markMediaLoaded(img);
-    });
-    if (img.complete && img.naturalWidth > 0) {
-      this.markMediaLoaded(img);
-    } else {
-      this.markMediaLoading(img);
-    }
-  };
-
-  SugarPdp.prototype.initMediaReveal = function () {
-    var self = this;
-    [this.uploadIllustration, this.roomPreview, this.designImage].forEach(function (img) {
-      if (img) self.bindMediaReveal(img);
-    });
-  };
-
-  SugarPdp.prototype.setMediaSrc = function (img, src) {
-    if (!img || !src) return;
-    this.markMediaLoading(img);
-    img.src = src;
-    if (img.complete && img.naturalWidth > 0) {
-      this.markMediaLoaded(img);
-    }
   };
 
   SugarPdp.prototype.animateModalHeight = function (startHeight) {
@@ -274,20 +97,6 @@
   };
 
   SugarPdp.prototype.applyBrandingAssets = function () {
-    var illustrationUrl =
-      this.config.uploadIllustrationUrl || this.config.heroImageUrl || "";
-    var illustrationFit = this.config.uploadIllustrationFit === "contain" ? "contain" : "cover";
-    this.root.style.setProperty("--sugar-upload-fit", illustrationFit);
-    if (this.uploadIllustration) {
-      var hero = this.uploadIllustration.closest("[data-sugar-upload-hero]");
-      if (hero) {
-        hero.classList.remove("sugar-upload-hero--cover", "sugar-upload-hero--contain");
-        hero.classList.add("sugar-upload-hero--" + illustrationFit);
-      }
-    }
-    if (illustrationUrl && this.uploadIllustration) {
-      this.setMediaSrc(this.uploadIllustration, illustrationUrl);
-    }
     if (this.config.headerIconUrl && this.headerIcon) {
       var hasImg = this.headerIcon.querySelector("img");
       if (!hasImg || this.config.headerIconUrl !== hasImg.getAttribute("src")) {
@@ -332,9 +141,8 @@
     if (!variant) return;
     this.primaryProduct.variantId = String(variant.variantId);
     this.primaryProduct.price = String(variant.price);
-    if (variant.imageUrl) {
-      this.primaryProduct.imageUrl = variant.imageUrl;
-    }
+    if (variant.imageUrl) this.primaryProduct.imageUrl = variant.imageUrl;
+    this.mockup.syncPrimaryVariant(variant.variantId, variant.imageUrl);
     this.renderProductStrip();
     this.renderUploadInstruction();
   };
@@ -345,9 +153,6 @@
   };
 
   SugarPdp.prototype.initPrimarySelection = function () {
-    if (this.primaryProduct.productId) {
-      this.selectedProductIds.add(String(this.primaryProduct.productId));
-    }
     this.syncPrimaryToSelectedVariant();
   };
 
@@ -364,161 +169,9 @@
     return this.i18n[key] || fallback || "";
   };
 
-  SugarPdp.prototype.getProductDesignKey = function () {
-    return String(this.primaryProduct.productId || "");
-  };
-
-  SugarPdp.prototype.getMaxSavedDesigns = function () {
-    return Number(this.config.maxSavedDesignsPerProduct || DEFAULT_MAX_SAVED_DESIGNS);
-  };
-
-  SugarPdp.prototype.loadProductDesigns = function () {
-    return getDesignsForProduct(this.getProductDesignKey());
-  };
-
-  SugarPdp.prototype.persistCurrentDesign = function (data) {
-    var productId = this.getProductDesignKey();
-    if (!productId || !data || !data.imageUrl) return;
-    saveDesignForProduct(
-      productId,
-      {
-        id: data.generationId || "design-" + Date.now(),
-        generationId: data.generationId,
-        imageUrl: data.imageUrl,
-        thumbnailUrl: data.thumbnailUrl,
-        status: data.status,
-        variantId: this.primaryProduct.variantId,
-        productTitle: this.primaryProduct.title,
-        products: data.products || [],
-      },
-      this.getMaxSavedDesigns(),
-    );
-    this.renderSavedDesigns();
-  };
-
-  SugarPdp.prototype.formatSavedDesignDate = function (timestamp) {
-    try {
-      return new Intl.DateTimeFormat(this.locale || undefined, {
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(new Date(timestamp));
-    } catch {
-      return new Date(timestamp).toLocaleString();
-    }
-  };
-
-  SugarPdp.prototype.createSavedDesignCard = function (design) {
-    var card = document.createElement("div");
-    card.className = "sugar-saved-design";
-    card.setAttribute("role", "button");
-    card.tabIndex = 0;
-    card.dataset.designId = design.id;
-    card.innerHTML =
-      '<img class="sugar-saved-design__img" src="' +
-      (design.thumbnailUrl || design.imageUrl) +
-      '" alt="">' +
-      '<span class="sugar-saved-design__date">' +
-      this.formatSavedDesignDate(design.createdAt) +
-      "</span>" +
-      '<span class="sugar-saved-design__delete" role="button" tabindex="0" aria-label="' +
-      this.t("savedDesignDelete", "Tasarımı sil") +
-      '" data-sugar-delete-design="' +
-      design.id +
-      '">×</span>';
-    return card;
-  };
-
-  SugarPdp.prototype.renderSavedDesigns = function () {
-    var designs = this.loadProductDesigns();
-    var section = this.root.querySelector("[data-sugar-saved-designs-page]");
-    var strip = section && section.querySelector("[data-sugar-saved-strip]");
-    var self = this;
-
-    if (section) {
-      section.hidden = designs.length === 0;
-    }
-    if (!strip) return;
-
-    strip.innerHTML = "";
-    designs.forEach(function (design) {
-      strip.appendChild(self.createSavedDesignCard(design));
-    });
-  };
-
-  SugarPdp.prototype.renderPickSourceDesigns = function () {
-    var strip = this.root.querySelector("[data-sugar-pick-source-strip]");
-    if (!strip) return;
-    var self = this;
-    strip.innerHTML = "";
-    this.loadProductDesigns().forEach(function (design) {
-      strip.appendChild(self.createSavedDesignCard(design));
-    });
-  };
-
-  SugarPdp.prototype.openGalleryPicker = function () {
-    if (this.fileGallery) {
-      this.fileGallery.click();
-    }
-  };
-
-  SugarPdp.prototype.openGalleryFlow = function () {
-    if (this.loadProductDesigns().length > 0) {
-      this.renderPickSourceDesigns();
-      this.setStep("pick-source");
-      return;
-    }
-    this.openGalleryPicker();
-  };
-
-  SugarPdp.prototype.openSavedDesign = function (designId) {
-    var designs = this.loadProductDesigns();
-    var record = designs.find(function (item) {
-      return String(item.id) === String(designId);
-    });
-    if (!record) return;
-
-    this.hideMessage();
-    this.designResult = {
-      generationId: record.generationId,
-      imageUrl: record.imageUrl,
-      thumbnailUrl: record.thumbnailUrl,
-      status: record.status || "completed",
-      products: record.products || [],
-    };
-    this.resultSelections = {};
-    if (this.designImage) {
-      this.setMediaSrc(this.designImage, record.imageUrl || "");
-      this.designImage.alt = this.t("previewAlt", "AI preview");
-    }
-    if (this.demoBadge) {
-      var isMock = String(record.generationId || "").indexOf("mock-") === 0;
-      if (isMock) this.demoBadge.removeAttribute("hidden");
-      else this.demoBadge.setAttribute("hidden", "");
-    }
-    if (!this.dialog.open) {
-      this.stopCameraStream();
-      this.dialog.showModal();
-    }
-    this.renderResultChecklist();
-    this.setStep("result");
-  };
-
-  SugarPdp.prototype.deleteSavedDesign = function (designId) {
-    removeDesignForProduct(this.getProductDesignKey(), designId);
-    this.renderSavedDesigns();
-    this.renderPickSourceDesigns();
-    if (this.step === "pick-source" && this.loadProductDesigns().length === 0) {
-      this.setStep("upload");
-    }
-  };
-
   SugarPdp.prototype.renderUploadInstruction = function () {
     if (!this.uploadInstruction) return;
-    var template =
-      this.config.modalDescription ||
-      this.t("modalDescription", "");
+    var template = this.config.modalDescription || this.t("modalDescription", "");
     this.uploadInstruction.innerHTML = template.replace(
       /\{productTitle\}/g,
       "<strong>" + (this.primaryProduct.title || "") + "</strong>",
@@ -541,7 +194,7 @@
       var chip = document.createElement("button");
       chip.type = "button";
       chip.className =
-        "sugar-product-chip" + (self.selectedProductIds.has(id) ? " is-selected" : "");
+        "sugar-product-chip" + (self.mockup.isProductPlaced(id) ? " is-placed" : "");
       chip.dataset.productId = id;
       if (product.isPrimary) chip.dataset.primary = "true";
       chip.innerHTML =
@@ -554,55 +207,132 @@
     });
   };
 
+  SugarPdp.prototype.resolveResultProduct = function (placement) {
+    var apiProduct = (this.designResult.products || []).find(function (p) {
+      return String(p.variantId) === String(placement.variantId);
+    });
+    var catalogProduct = this.mockup.findCatalogProduct(placement.productId);
+    var priceSource =
+      apiProduct ||
+      (placement.isPrimary ? this.primaryProduct : null) ||
+      catalogProduct;
+    return {
+      placementId: placement.id,
+      productId: String(placement.productId),
+      variantId: String(placement.variantId),
+      title:
+        (apiProduct && apiProduct.title) ||
+        placement.title ||
+        (catalogProduct && catalogProduct.title) ||
+        "",
+      price: String((priceSource && priceSource.price) || "0"),
+      currency:
+        (apiProduct && apiProduct.currency) ||
+        (catalogProduct && catalogProduct.currency) ||
+        this.primaryProduct.currency ||
+        "TRY",
+      imageUrl:
+        (apiProduct && apiProduct.imageUrl) ||
+        placement.imageUrl ||
+        (catalogProduct && catalogProduct.imageUrl) ||
+        "",
+    };
+  };
+
+  SugarPdp.prototype.getResultCartProducts = function () {
+    var self = this;
+    return (this.resultPlacements || []).map(function (placement) {
+      return self.resolveResultProduct(placement);
+    });
+  };
+
+  SugarPdp.prototype.getGroupedResultProducts = function () {
+    var lines = this.getResultCartProducts();
+    var grouped = new Map();
+
+    lines.forEach(function (line) {
+      var vid = String(line.variantId);
+      if (!grouped.has(vid)) {
+        grouped.set(vid, {
+          variantId: vid,
+          productId: line.productId,
+          title: line.title,
+          price: line.price,
+          currency: line.currency,
+          imageUrl: line.imageUrl,
+          placedCount: 0,
+        });
+      }
+      grouped.get(vid).placedCount += 1;
+    });
+
+    if (grouped.size === 0 && this.designResult && this.designResult.products) {
+      this.designResult.products.forEach(function (p) {
+        var vid = String(p.variantId);
+        if (!grouped.has(vid)) {
+          grouped.set(vid, {
+            variantId: vid,
+            productId: String(p.productId),
+            title: p.title || "",
+            price: String(p.price || "0"),
+            currency: p.currency || "TRY",
+            imageUrl: p.imageUrl || "",
+            placedCount: 1,
+          });
+        } else {
+          grouped.get(vid).placedCount += 1;
+        }
+      });
+    }
+
+    return Array.from(grouped.values());
+  };
+
   SugarPdp.prototype.renderResultChecklist = function () {
     if (!this.checklist || !this.designResult) return;
     this.checklist.innerHTML = "";
     var self = this;
-
-    var designSection = document.createElement("p");
-    designSection.className = "sugar-checklist__section-title";
-    designSection.textContent = this.t("checklistDesign", "DESIGN");
-    this.checklist.appendChild(designSection);
-
-    var designRow = document.createElement("label");
-    designRow.className = "sugar-check-item";
-    designRow.innerHTML =
-      '<input type="checkbox" checked disabled>' +
-      '<div class="sugar-check-item__info"><p class="sugar-check-item__title">' +
-      this.t("aiPreviewTitle", "AI Preview") +
-      "</p>" +
-      '<p class="sugar-check-item__price">' +
-      this.designResult.generationId +
-      "</p></div>";
-    this.checklist.appendChild(designRow);
+    var grouped = this.getGroupedResultProducts();
 
     var productsSection = document.createElement("p");
     productsSection.className = "sugar-checklist__section-title";
     productsSection.textContent = this.t("checklistProducts", "PRODUCTS");
     this.checklist.appendChild(productsSection);
 
-    (this.designResult.products || []).forEach(function (p) {
-      var vid = String(p.variantId);
-      if (self.resultSelections[vid] === undefined) {
-        self.resultSelections[vid] = p.selectedByDefault !== false;
+    grouped.forEach(function (g) {
+      var vid = String(g.variantId);
+      if (self.resultQuantities[vid] === undefined) {
+        self.resultQuantities[vid] = g.placedCount || 1;
       }
-      var label = document.createElement("label");
-      label.className = "sugar-check-item";
-      label.innerHTML =
+      if (self.resultSelections[vid] === undefined) {
+        self.resultSelections[vid] = true;
+      }
+
+      var qty = self.resultQuantities[vid] || 0;
+      var lineTotal = core.formatMoney(
+        core.normalizePriceToCents(g.price) * qty,
+        g.currency,
+        self.locale,
+      );
+
+      var row = document.createElement("label");
+      row.className = "sugar-check-item";
+      row.dataset.variantId = vid;
+      row.innerHTML =
         '<input type="checkbox" data-sugar-product-check data-variant-id="' +
         vid +
         '"' +
-        (self.resultSelections[vid] ? " checked" : "") +
-        ">" +
-        '<img class="sugar-check-item__img" src="' +
-        (p.imageUrl || "") +
-        '" alt="">' +
-        '<div class="sugar-check-item__info"><p class="sugar-check-item__title">' +
-        p.title +
-        '</p><p class="sugar-check-item__price">' +
-        formatMoney(p.price, p.currency, self.locale) +
-        "</p></div>";
-      self.checklist.appendChild(label);
+        (self.resultSelections[vid] && qty > 0 ? " checked" : "") +
+        '><img class="sugar-check-item__img" src="' +
+        (g.imageUrl || "") +
+        '" alt=""><span class="sugar-check-item__body"><span class="sugar-check-item__title">' +
+        (g.title || "") +
+        '</span></span><span class="sugar-check-item__qty sugar-qty-stepper"><button type="button" class="sugar-qty-stepper__btn" data-sugar-qty-down aria-label="-">−</button><span class="sugar-qty-stepper__value">' +
+        qty +
+        '</span><button type="button" class="sugar-qty-stepper__btn" data-sugar-qty-up aria-label="+">+</button></span><span class="sugar-check-item__price">' +
+        lineTotal +
+        "</span>";
+      self.checklist.appendChild(row);
     });
 
     this.updateAddButtonState();
@@ -626,9 +356,7 @@
   };
 
   SugarPdp.prototype.setStep = function (step) {
-    if (step !== "camera") {
-      this.stopCameraStream();
-    }
+    if (step !== "camera") this.stopCameraStream();
     var modal = this.root.querySelector(".sugar-modal");
     var canAnimate = !!(modal && this.dialog && this.dialog.open);
     var startHeight = canAnimate ? modal.getBoundingClientRect().height : 0;
@@ -637,30 +365,17 @@
     STEPS.forEach(function (s) {
       if (self.steps[s]) self.steps[s].classList.toggle("is-active", s === step);
     });
-    if (step === "products") {
-      this.updateReviewStep();
-    }
-    if (canAnimate) {
-      this.animateModalHeight(startHeight);
-    }
+    if (step === "products") this.updateReviewStep();
+    if (canAnimate) this.animateModalHeight(startHeight);
   };
 
   SugarPdp.prototype.updateReviewStep = function () {
-    var skipProducts = this.shouldSkipProductStep();
-    if (this.productsSection) {
-      this.productsSection.hidden = skipProducts;
-    }
+    var hasCatalog = this.allProducts().length > 0;
+    if (this.productsSection) this.productsSection.hidden = !hasCatalog;
     if (this.reviewInstruction) {
-      this.reviewInstruction.textContent = skipProducts
-        ? this.t(
-            "reviewInstructionOnly",
-            "Oda fotoğrafınızı kontrol edin, ardından tasarlayın.",
-          )
-        : this.config.instructionTemplate ||
-          this.t(
-            "reviewInstruction",
-            "Oda fotoğrafınızı ve seçili ürünleri kontrol edin, ardından tasarlayın.",
-          );
+      this.reviewInstruction.textContent =
+        this.config.instructionTemplate ||
+        this.t("reviewInstruction", "Ürünleri seç, oda fotoğrafında sürükleyerek yerleştir.");
     }
   };
 
@@ -670,9 +385,7 @@
       track.stop();
     });
     this.cameraStream = null;
-    if (this.cameraVideo) {
-      this.cameraVideo.srcObject = null;
-    }
+    if (this.cameraVideo) this.cameraVideo.srcObject = null;
   };
 
   SugarPdp.prototype.setCameraLoading = function (loading) {
@@ -694,7 +407,7 @@
 
   SugarPdp.prototype.openCameraStep = function () {
     this.hideMessage();
-    if (!ensureMediaDevices()) {
+    if (!core.ensureMediaDevices()) {
       this.showError(
         this.t("errorCamera", "Kamera açılamadı. Galeriden fotoğraf seçebilirsiniz."),
       );
@@ -766,9 +479,8 @@
           self.showError(self.t("errorGeneric", "Something went wrong"));
           return;
         }
-        var file = new File([blob], "room-camera.jpg", { type: "image/jpeg" });
         self.stopCameraStream();
-        self.handleRoomFile(file);
+        self.handleRoomFile(new File([blob], "room-camera.jpg", { type: "image/jpeg" }));
       },
       "image/jpeg",
       0.92,
@@ -797,9 +509,7 @@
 
   SugarPdp.prototype.showMessage = function (message, type, duration) {
     if (!this.toastEl || !message) return;
-    if (this.dialog && !this.dialog.open) {
-      this.dialog.showModal();
-    }
+    if (this.dialog && !this.dialog.open) this.dialog.showModal();
     var toastType =
       type === "success" || type === "error" || type === "info" ? type : "info";
     var ms = duration === undefined ? this.getToastDuration() : duration;
@@ -828,10 +538,6 @@
     this.showMessage(message, "error", duration);
   };
 
-  SugarPdp.prototype.showInfo = function (message, duration) {
-    this.showMessage(message, "info", duration);
-  };
-
   SugarPdp.prototype.openModal = function () {
     if (!this.dialog || this.dialog.open) return;
     this.hideMessage();
@@ -846,15 +552,6 @@
     if (this.dialog && this.dialog.open) this.dialog.close();
   };
 
-  SugarPdp.prototype.shouldSkipProductStep = function () {
-    if (this.config.skipProductSelection) return true;
-    return this.catalog.length === 0;
-  };
-
-  SugarPdp.prototype.afterRoomUpload = function () {
-    this.setStep("products");
-  };
-
   SugarPdp.prototype.handleRoomFile = function (file) {
     this.hideMessage();
     if (!file || !file.type.startsWith("image/")) {
@@ -866,38 +563,20 @@
       this.showError(this.t("errorSize", "File is too large."));
       return;
     }
-    this.roomFile = file;
-    if (this.roomPreviewUrl) URL.revokeObjectURL(this.roomPreviewUrl);
-    this.roomPreviewUrl = URL.createObjectURL(file);
-    if (this.roomPreview) {
-      this.setMediaSrc(this.roomPreview, this.roomPreviewUrl);
-    }
-    this.afterRoomUpload();
-  };
-
-  SugarPdp.prototype.getSelectedSelectionsPayload = function () {
-    var payload = [];
-    var self = this;
-    this.allProducts().forEach(function (p) {
-      var id = String(p.productId);
-      if (!self.selectedProductIds.has(id)) return;
-      payload.push({
-        productId: id,
-        variantId: String(p.variantId),
-        isPrimary: !!p.isPrimary,
-      });
-    });
-    return payload;
+    this.mockup.setRoomFile(file);
+    this.setStep("products");
   };
 
   SugarPdp.prototype.runDesign = async function () {
-    if (!this.roomFile) {
+    if (!this.mockup.roomFile) {
       this.showError(this.t("errorRoomRequired", "A room photo is required."));
       this.setStep("upload");
       return;
     }
-    if (this.getSelectedSelectionsPayload().length === 0) {
-      this.showError(this.t("errorSelectProduct", "Select at least one product."));
+    if (this.mockup.placements.length === 0) {
+      this.showError(
+        this.t("errorPlacementRequired", "En az bir ürünü oda fotoğrafına yerleştirin."),
+      );
       this.setStep("products");
       return;
     }
@@ -907,11 +586,15 @@
     this.setStep("loading");
 
     try {
-      var base64 = await fileToBase64(this.roomFile);
+      var base64 = await core.fileToBase64(this.mockup.roomFile);
+      var mockupBlob = await this.mockup.exportBlob();
       var formData = new FormData();
-      formData.append("selections", JSON.stringify(this.getSelectedSelectionsPayload()));
+      formData.append("selections", JSON.stringify(this.mockup.getSelectionsPayload()));
       formData.append("roomImageBase64", base64);
-      formData.append("roomImageName", this.roomFile.name);
+      formData.append("roomImageName", this.mockup.roomFile.name);
+      if (mockupBlob) {
+        formData.append("mockupImage", mockupBlob, "mockup.jpg");
+      }
 
       var response = await fetch(this.config.proxyUrl || "/apps/sugar/generate", {
         method: "POST",
@@ -924,18 +607,19 @@
       }
 
       this.designResult = data;
+      this.resultPlacements = this.mockup.placements.map(function (p) {
+        return Object.assign({}, p);
+      });
       this.resultSelections = {};
-      if (this.designImage) {
-        this.setMediaSrc(this.designImage, data.imageUrl || "");
-        this.designImage.alt = this.t("previewAlt", "AI preview");
-      }
+      this.resultQuantities = {};
+      this.compare.setImages(this.mockup.roomPreviewUrl || "", data.imageUrl || "");
       if (this.demoBadge) {
         var isMock = String(data.generationId || "").indexOf("mock-") === 0;
         if (isMock) this.demoBadge.removeAttribute("hidden");
         else this.demoBadge.setAttribute("hidden", "");
       }
       this.renderResultChecklist();
-      this.persistCurrentDesign(data);
+      await this.savedDesigns.persist(data, this.resultPlacements);
       this.setStep("result");
     } catch (err) {
       this.showError(err instanceof Error ? err.message : this.t("errorGeneric", "Something went wrong"));
@@ -965,13 +649,15 @@
     var genKey = this.config.generationIdPropertyKey || "_sugar_generation_id";
     var self = this;
 
-    (this.designResult.products || []).forEach(function (p) {
-      var vid = String(p.variantId);
+    this.getGroupedResultProducts().forEach(function (g) {
+      var vid = String(g.variantId);
       if (!self.resultSelections[vid]) return;
+      var qty = self.resultQuantities[vid] || 0;
+      if (qty < 1) return;
       var props = {};
       props[imageKey] = self.designResult.imageUrl;
       props[genKey] = self.designResult.generationId;
-      items.push({ id: Number(p.variantId), quantity: 1, properties: props });
+      items.push({ id: Number(g.variantId), quantity: qty, properties: props });
     });
 
     if (items.length === 0) {
@@ -998,9 +684,12 @@
       })
       .then(function () {
         self.addDesignBtn.disabled = false;
+        var addedQty = items.reduce(function (sum, item) {
+          return sum + (item.quantity || 0);
+        }, 0);
         var detail = self
           .t("cartSuccessDetail", "{{count}} ürün sepetinize eklendi.")
-          .replace(/\{\{count\}\}/g, String(items.length));
+          .replace(/\{\{count\}\}/g, String(addedQty));
         self.showSuccess(self.t("cartSuccess", "Sepete eklendi!") + " " + detail);
         self.notifyThemeCartUpdated();
       })
@@ -1016,12 +705,22 @@
 
   SugarPdp.prototype.updateAddButtonState = function () {
     if (!this.addDesignBtn) return;
-    var any = Object.keys(this.resultSelections).some(
-      function (k) {
-        return this.resultSelections[k];
-      }.bind(this),
-    );
+    var self = this;
+    var any = this.getGroupedResultProducts().some(function (g) {
+      var vid = String(g.variantId);
+      return self.resultSelections[vid] && (self.resultQuantities[vid] || 0) > 0;
+    });
     this.addDesignBtn.disabled = !any;
+  };
+
+  SugarPdp.prototype.adjustResultQuantity = function (variantId, delta) {
+    var vid = String(variantId);
+    var current = this.resultQuantities[vid] || 0;
+    var next = Math.min(99, Math.max(0, current + delta));
+    this.resultQuantities[vid] = next;
+    if (next === 0) this.resultSelections[vid] = false;
+    else this.resultSelections[vid] = true;
+    this.renderResultChecklist();
   };
 
   SugarPdp.prototype.bindEvents = function () {
@@ -1049,11 +748,11 @@
 
     this.root.querySelector("[data-sugar-open-gallery]")?.addEventListener("click", function (e) {
       e.preventDefault();
-      self.openGalleryFlow();
+      self.savedDesigns.openGalleryFlow();
     });
 
     this.root.querySelector("[data-sugar-pick-new-photo]")?.addEventListener("click", function () {
-      self.openGalleryPicker();
+      if (self.fileGallery) self.fileGallery.click();
     });
 
     this.root.querySelector("[data-sugar-pick-source-back]")?.addEventListener("click", function () {
@@ -1084,7 +783,7 @@
 
     this.root.querySelector("[data-sugar-redo]")?.addEventListener("click", function () {
       self.hideMessage();
-      self.setStep(self.roomFile ? "products" : "upload");
+      self.setStep(self.mockup.roomFile ? "products" : "upload");
     });
 
     this.addDesignBtn?.addEventListener("click", function () {
@@ -1093,18 +792,43 @@
 
     this.productStrip?.addEventListener("click", function (e) {
       var chip = e.target.closest(".sugar-product-chip");
-      if (!chip || chip.dataset.primary === "true") return;
-      var id = chip.dataset.productId;
-      if (self.selectedProductIds.has(id)) self.selectedProductIds.delete(id);
-      else self.selectedProductIds.add(id);
-      self.renderProductStrip();
+      if (!chip || !chip.dataset.productId) return;
+      self.mockup.addFromProduct(chip.dataset.productId);
     });
 
     this.checklist?.addEventListener("change", function (e) {
       var input = e.target;
       if (!input.matches("[data-sugar-product-check]")) return;
-      self.resultSelections[input.dataset.variantId] = input.checked;
+      var vid = input.dataset.variantId;
+      if (!vid) return;
+      var qty = self.resultQuantities[vid] || 0;
+      self.resultSelections[vid] = input.checked && qty > 0;
+      if (input.checked && qty < 1) {
+        self.resultQuantities[vid] = 1;
+        self.renderResultChecklist();
+        return;
+      }
       self.updateAddButtonState();
+    });
+
+    this.checklist?.addEventListener("click", function (e) {
+      if (e.target.closest("[data-sugar-qty-down]")) {
+        e.preventDefault();
+        e.stopPropagation();
+        var row = e.target.closest(".sugar-check-item");
+        if (row && row.dataset.variantId) {
+          self.adjustResultQuantity(row.dataset.variantId, -1);
+        }
+        return;
+      }
+      if (e.target.closest("[data-sugar-qty-up]")) {
+        e.preventDefault();
+        e.stopPropagation();
+        var upRow = e.target.closest(".sugar-check-item");
+        if (upRow && upRow.dataset.variantId) {
+          self.adjustResultQuantity(upRow.dataset.variantId, 1);
+        }
+      }
     });
 
     this.root.addEventListener("click", function (e) {
@@ -1112,12 +836,12 @@
       if (deleteBtn) {
         e.preventDefault();
         e.stopPropagation();
-        self.deleteSavedDesign(deleteBtn.getAttribute("data-sugar-delete-design"));
+        self.savedDesigns.remove(deleteBtn.getAttribute("data-sugar-delete-design"));
         return;
       }
       var card = e.target.closest(".sugar-saved-design");
       if (!card || !card.dataset.designId) return;
-      self.openSavedDesign(card.dataset.designId);
+      self.savedDesigns.open(card.dataset.designId);
     });
 
     this.root.addEventListener("keydown", function (e) {
@@ -1125,11 +849,12 @@
       var card = e.target.closest(".sugar-saved-design");
       if (!card || !card.dataset.designId) return;
       e.preventDefault();
-      self.openSavedDesign(card.dataset.designId);
+      self.savedDesigns.open(card.dataset.designId);
     });
   };
 
   function initAll() {
+    if (!window.SugarPdpKit) return;
     document.querySelectorAll("[data-sugar-root]").forEach(function (root) {
       if (root.__sugarInitialized) return;
       root.__sugarInitialized = true;

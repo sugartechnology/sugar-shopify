@@ -8,8 +8,8 @@ import type {
 import { BLANK_DESIGN_IMAGE } from "../types/sugar";
 
 /**
- * Storefront business rule: max images per product in the AI payload.
- * tagservicee downloads whatever is in images[] — no limit there.
+ * Max images per product in the AI payload (not a global cap).
+ * Fewer than 3 available images are sent as-is.
  */
 export const MAX_PRODUCT_IMAGES = 3;
 
@@ -117,6 +117,16 @@ export async function generateProductImage(
       "roomImage",
       blob,
       request.roomImageName || "room.jpg",
+    );
+  }
+
+  if (request.mockupImageBytes?.length) {
+    formData.append(
+      "mockupImage",
+      new Blob([new Uint8Array(request.mockupImageBytes)], {
+        type: "image/jpeg",
+      }),
+      request.mockupImageName || "mockup.jpg",
     );
   }
 

@@ -11,6 +11,11 @@ type VariantNode = {
     id?: string;
     title?: string;
     handle?: string;
+    media?: {
+      nodes?: Array<{
+        image?: { url?: string | null } | null;
+      } | null>;
+    } | null;
   } | null;
   media?: {
     nodes?: Array<{
@@ -47,6 +52,9 @@ export function collectVariantImageUrls(variant: VariantNode): string[] {
     push(node?.image?.url ?? undefined);
   }
   push(variant.image?.url ?? undefined);
+  for (const node of variant.product?.media?.nodes ?? []) {
+    push(node?.image?.url ?? undefined);
+  }
 
   return urls.slice(0, MAX_PRODUCT_IMAGES);
 }
@@ -78,6 +86,15 @@ export async function resolveDesignProductsFromShopify(
               id
               title
               handle
+              media(first: 10) {
+                nodes {
+                  ... on MediaImage {
+                    image {
+                      url
+                    }
+                  }
+                }
+              }
             }
             media(first: 10) {
               nodes {
@@ -129,6 +146,7 @@ export async function resolveDesignProductsFromShopify(
       imageUrl: images[0] ?? "",
       images,
       isPrimary: selection.isPrimary === true,
+      position: selection.position ?? null,
     });
   }
 

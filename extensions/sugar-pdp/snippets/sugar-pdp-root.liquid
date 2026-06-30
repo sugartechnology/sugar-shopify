@@ -4,6 +4,11 @@
 {% endcomment %}
 
 {{ 'sugar-pdp.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'sugar-pdp-core.js' | asset_url }}" defer></script>
+<script src="{{ 'sugar-upload-hero.js' | asset_url }}" defer></script>
+<script src="{{ 'sugar-mockup-editor.js' | asset_url }}" defer></script>
+<script src="{{ 'sugar-compare-slider.js' | asset_url }}" defer></script>
+<script src="{{ 'sugar-saved-designs.js' | asset_url }}" defer></script>
 <script src="{{ 'sugar-pdp.js' | asset_url }}" defer></script>
 
 {%- liquid
@@ -131,6 +136,11 @@
   assign modal_radius_setting = settings.modal_radius | default: mf.modal_radius | default: 16
   assign font_scale_pct = settings.font_scale | default: mf.font_scale | default: 100
   assign file_uid = product.id
+  assign shop_currency = cart.currency.iso_code | default: shop.currency
+
+  assign related_ns = settings.related_products_namespace | default: mf.related_products_namespace | default: 'custom'
+  assign related_key = settings.related_products_key | default: mf.related_products_key | default: 'related_products'
+  assign related_products = product.metafields[related_ns][related_key].value
 -%}
 
 {%- capture sugar_css_vars -%}
@@ -206,18 +216,71 @@
 ]
 {%- endcapture -%}
 
+{%- capture primary_images_json -%}
+[
+{%- assign primary_img_count = 0 -%}
+{%- for media in product.media -%}
+  {%- if primary_img_count >= 3 -%}{%- break -%}{%- endif -%}
+  {%- if media.media_type == 'image' -%}
+    {%- if primary_img_count > 0 -%},{%- endif -%}
+    {{ media | image_url: width: 800 | json }}
+    {%- assign primary_img_count = primary_img_count | plus: 1 -%}
+  {%- endif -%}
+{%- endfor -%}
+]
+{%- endcapture -%}
+
 {%- capture catalog_json -%}
 [
-{%- if collection_handle != blank and collections[collection_handle] -%}
-  {%- for cat_product in collections[collection_handle].products limit: 20 -%}
+{%- if related_products != blank -%}
+  {%- for cat_product in related_products limit: 12 -%}
     {%- assign cat_variant = cat_product.selected_or_first_available_variant -%}
     {%- assign cat_img = cat_variant.featured_media | default: cat_product.featured_media -%}
+    {%- unless forloop.first -%},{%- endunless -%}
     {
       "productId": {{ cat_product.id | json }},
       "variantId": {{ cat_variant.id | json }},
       "title": {{ cat_product.title | json }},
-      "imageUrl": {{ cat_img | image_url: width: 400 | json }}
-    }{% unless forloop.last %},{% endunless %}
+      "price": {{ cat_variant.price | json }},
+      "currency": {{ shop_currency | json }},
+      "imageUrl": {{ cat_img | image_url: width: 400 | json }},
+      "images": [
+        {%- assign rel_img_count = 0 -%}
+        {%- for media in cat_product.media -%}
+          {%- if rel_img_count >= 3 -%}{%- break -%}{%- endif -%}
+          {%- if media.media_type == 'image' -%}
+            {%- if rel_img_count > 0 -%},{%- endif -%}
+            {{ media | image_url: width: 800 | json }}
+            {%- assign rel_img_count = rel_img_count | plus: 1 -%}
+          {%- endif -%}
+        {%- endfor -%}
+      ]
+    }
+  {%- endfor -%}
+{%- elsif collection_handle != blank and collections[collection_handle] -%}
+  {%- for cat_product in collections[collection_handle].products limit: 20 -%}
+    {%- assign cat_variant = cat_product.selected_or_first_available_variant -%}
+    {%- assign cat_img = cat_variant.featured_media | default: cat_product.featured_media -%}
+    {%- unless forloop.first -%},{%- endunless -%}
+    {
+      "productId": {{ cat_product.id | json }},
+      "variantId": {{ cat_variant.id | json }},
+      "title": {{ cat_product.title | json }},
+      "price": {{ cat_variant.price | json }},
+      "currency": {{ shop_currency | json }},
+      "imageUrl": {{ cat_img | image_url: width: 400 | json }},
+      "images": [
+        {%- assign col_img_count = 0 -%}
+        {%- for media in cat_product.media -%}
+          {%- if col_img_count >= 3 -%}{%- break -%}{%- endif -%}
+          {%- if media.media_type == 'image' -%}
+            {%- if col_img_count > 0 -%},{%- endif -%}
+            {{ media | image_url: width: 800 | json }}
+            {%- assign col_img_count = col_img_count | plus: 1 -%}
+          {%- endif -%}
+        {%- endfor -%}
+      ]
+    }
   {%- endfor -%}
 {%- endif -%}
 ]
@@ -271,6 +334,7 @@
       "addCartLabel": {{ add_cart_label | json }},
       "savedDesignsLabel": {{ 'sugar.saved_designs_label' | t | json }},
       "savedDesignDelete": {{ 'sugar.saved_design_delete' | t | json }},
+      "savedDesignProductCount": {{ 'sugar.saved_design_product_count' | t | json }},
       "galleryChoiceInstruction": {{ 'sugar.gallery_choice_instruction' | t | json }},
       "pickSavedDesigns": {{ 'sugar.pick_saved_designs' | t | json }},
       "pickNewPhoto": {{ 'sugar.pick_new_photo' | t | json }},
@@ -279,12 +343,19 @@
       "checklistProducts": {{ 'sugar.checklist_products' | t | json }},
       "aiPreviewTitle": {{ 'sugar.ai_preview_title' | t | json }},
       "previewAlt": {{ 'sugar.preview_alt' | t | json }},
+      "compareAria": {{ 'sugar.compare_aria' | t | json }},
+      "compareOrigin": {{ 'sugar.compare_origin' | t | json }},
+      "compareDesign": {{ 'sugar.compare_design' | t | json }},
       "cameraInstruction": {{ 'sugar.camera_instruction' | t | json }},
       "cameraCapture": {{ 'sugar.camera_capture' | t | json }},
       "cameraCancel": {{ 'sugar.camera_cancel' | t | json }},
       "roomPreviewLabel": {{ 'sugar.room_preview_label' | t | json }},
       "reviewInstruction": {{ 'sugar.review_instruction' | t | json }},
       "reviewInstructionOnly": {{ 'sugar.review_instruction_only' | t | json }},
+      "mockupLabel": {{ 'sugar.mockup_label' | t | json }},
+      "mockupSize": {{ 'sugar.mockup_size' | t | json }},
+      "mockupRemove": {{ 'sugar.mockup_remove' | t | json }},
+      "errorPlacementRequired": {{ 'sugar.error_placement_required' | t | json }},
       "errorCamera": {{ 'sugar.error_camera' | t | json }}
     }
   }'
@@ -293,7 +364,9 @@
     "variantId": {{ selected_variant.id | json }},
     "title": {{ product.title | json }},
     "price": {{ selected_variant.price | json }},
+    "currency": {{ shop_currency | json }},
     "imageUrl": {{ primary_image | image_url: width: 800 | json }},
+    "images": {{ primary_images_json | strip_newlines }},
     "isPrimary": true
   }'
   data-sugar-catalog='{{ catalog_json | strip_newlines }}'
@@ -414,8 +487,16 @@
         <div class="sugar-step" data-sugar-step="products">
           <hr class="sugar-divider">
           <p class="sugar-instruction" data-sugar-review-instruction></p>
-          <p class="sugar-room-preview-label">{{ 'sugar.room_preview_label' | t }}</p>
-          <img class="sugar-room-preview" data-sugar-room-preview alt="" width="600" height="450">
+          <p class="sugar-room-preview-label">{{ 'sugar.mockup_label' | t }}</p>
+          <div class="sugar-mockup-stage" data-sugar-mockup-stage>
+            <img class="sugar-mockup-stage__origin sugar-room-preview" data-sugar-room-preview alt="" width="600" height="450">
+            <div class="sugar-mockup-stage__layers" data-sugar-mockup-layers></div>
+          </div>
+          <div class="sugar-mockup-scale" data-sugar-mockup-scale hidden>
+            <button type="button" class="sugar-mockup-scale__btn" data-sugar-mockup-scale-down aria-label="-">−</button>
+            <span class="sugar-mockup-scale__label" data-sugar-mockup-scale-label>{{ 'sugar.mockup_size' | t }}</span>
+            <button type="button" class="sugar-mockup-scale__btn" data-sugar-mockup-scale-up aria-label="+">+</button>
+          </div>
           <div data-sugar-products-section>
             <p class="sugar-products-label">{{ 'sugar.products_label' | t }}</p>
             <div class="sugar-product-strip" data-sugar-product-strip></div>
@@ -439,10 +520,27 @@
             <span class="sugar-result-bar__status">{{ 'sugar.result_ready' | t }}</span>
             <button type="button" class="sugar-result-bar__redo" data-sugar-redo>{{ 'sugar.redo_button' | t }}</button>
           </div>
-          <div class="sugar-design-preview">
+          <div class="sugar-design-preview" data-sugar-design-preview>
             <span class="sugar-design-preview__badge">{{ 'sugar.ai_preview_badge' | t }}</span>
             <span class="sugar-design-preview__demo-badge" data-sugar-demo-badge hidden>{{ 'sugar.demo_mode_badge' | t }}</span>
-            <img data-sugar-design-image alt="" width="800" height="600">
+            <div class="sugar-compare" data-sugar-compare style="--compare: 50%;">
+              <img class="sugar-compare__img sugar-compare__img--origin" data-sugar-compare-origin alt="" width="800" height="600">
+              <div class="sugar-compare__clip" data-sugar-compare-clip>
+                <img class="sugar-compare__img sugar-compare__img--design" data-sugar-compare-design alt="" width="800" height="600">
+              </div>
+              <div class="sugar-compare__handle" data-sugar-compare-handle aria-hidden="true"></div>
+              <input
+                type="range"
+                class="sugar-compare__range"
+                data-sugar-compare-range
+                min="0"
+                max="100"
+                value="50"
+                aria-label="{{ 'sugar.compare_aria' | t }}"
+              >
+              <span class="sugar-compare__tag sugar-compare__tag--origin">{{ 'sugar.compare_origin' | t }}</span>
+              <span class="sugar-compare__tag sugar-compare__tag--design">{{ 'sugar.compare_design' | t }}</span>
+            </div>
           </div>
           <div class="sugar-checklist" data-sugar-checklist></div>
           <button type="button" class="sugar-btn-primary" data-sugar-add-design disabled>
