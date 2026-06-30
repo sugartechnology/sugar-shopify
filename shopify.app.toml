@@ -1,13 +1,11 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-# Yeni Partners app oluşturduktan sonra: npx shopify app config link
-client_id = "9f37ab0684014a8cb4f645c253ccbee3"
+client_id = "2cf91d7fa557ce32bcd0b2d7a1dc218f"
 application_url = "https://storefront.sugartech.io"
 embedded = true
 name = "Sugar Room Studio"
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_products,write_products"
 
 [auth]

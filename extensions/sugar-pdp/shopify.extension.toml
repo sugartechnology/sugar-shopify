@@ -3,4 +3,6 @@ api_version = "2025-01"
 [[extensions]]
 name = "Sugar Room Studio"
 handle = "sugar-pdp"
+
+uid = "98052278-0f50-5273-2986-41eede5c529565f9b3f9"
 type = "theme"
