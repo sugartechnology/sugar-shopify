@@ -115,14 +115,65 @@
       "info": "100 = tema boyutu. Küçük görünüyorsa 110–125 deneyin."
     },
     {
+      "type": "header",
+      "content": "Upload adımı görseli"
+    },
+    {
+      "type": "image_picker",
+      "id": "upload_illustration",
+      "label": "Akış görseli (upload adımı)",
+      "info": "Ürün → AI → sonuç akışını gösteren görsel. Boş bırakılırsa varsayılan veya URL kullanılır."
+    },
+    {
+      "type": "text",
+      "id": "upload_illustration_url",
+      "label": "Akış görseli URL",
+      "info": "Harici CDN URL. Image picker doluysa picker önceliklidir."
+    },
+    {
+      "type": "select",
+      "id": "upload_illustration_fit",
+      "label": "Akış görseli yerleşimi",
+      "default": "cover",
+      "options": [
+        { "value": "cover", "label": "Cover — alanı doldur" },
+        { "value": "contain", "label": "Contain — tamamını göster" }
+      ]
+    },
+    {
       "type": "image_picker",
       "id": "hero_image",
-      "label": "Upload adımı hero görsel"
+      "label": "Upload hero (eski alan)",
+      "info": "Geriye dönük uyumluluk. upload_illustration kullanın."
+    },
+    {
+      "type": "header",
+      "content": "İkonlar"
     },
     {
       "type": "image_picker",
       "id": "header_icon",
-      "label": "Header ikon"
+      "label": "Header ikon (sol üst)"
+    },
+    {
+      "type": "image_picker",
+      "id": "gallery_icon",
+      "label": "Galeri buton ikonu"
+    },
+    {
+      "type": "image_picker",
+      "id": "camera_icon",
+      "label": "Kamera buton ikonu"
+    },
+    {
+      "type": "text",
+      "id": "gallery_icon_url",
+      "label": "Galeri ikon URL (alternatif)"
+    },
+    {
+      "type": "text",
+      "id": "camera_icon_url",
+      "label": "Kamera ikon URL (alternatif)"
     },
     {
       "type": "text",

@@ -1,5 +1,5 @@
 /**
- * Storefront JS akış mantığını doğrular (SugarPdp skip/step logic).
+ * Storefront JS akış mantığını doğrular (SugarPdp step logic).
  * Node ortamında çalışır; tarayıcı gerektirmez.
  */
 import assert from "node:assert/strict";
@@ -9,28 +9,29 @@ function shouldSkipProductStep(config, catalog) {
   return catalog.length === 0;
 }
 
-function designErrorStep(config, catalog) {
-  return shouldSkipProductStep(config, catalog) ? "upload" : "products";
+function afterRoomUploadStep() {
+  return "products";
 }
 
-function afterRoomUploadStep(config, catalog) {
-  return shouldSkipProductStep(config, catalog) ? "loading" : "products";
+function designErrorStep(hasRoomFile) {
+  return hasRoomFile ? "products" : "upload";
 }
 
 const cases = [
   {
-    name: "no catalog → skip to loading",
-    config: { skipProductSelection: false },
+    name: "no catalog → review step (not AI)",
     catalog: [],
-    expectedNext: "loading",
-    expectedError: "upload",
+    expectedNext: "products",
+    expectedError: "products",
+    hasRoom: true,
   },
   {
-    name: "skip flag → skip to loading",
+    name: "skip flag → review step (not AI)",
     config: { skipProductSelection: true },
     catalog: [{ productId: "1" }],
-    expectedNext: "loading",
-    expectedError: "upload",
+    expectedNext: "products",
+    expectedError: "products",
+    hasRoom: true,
   },
   {
     name: "catalog + no skip → products step",
@@ -38,6 +39,14 @@ const cases = [
     catalog: [{ productId: "2" }],
     expectedNext: "products",
     expectedError: "products",
+    hasRoom: true,
+  },
+  {
+    name: "generate error without room → upload",
+    catalog: [],
+    expectedNext: "products",
+    expectedError: "upload",
+    hasRoom: false,
   },
 ];
 
@@ -48,10 +57,17 @@ for (const testCase of cases) {
     `${testCase.name}: afterRoomUpload`,
   );
   assert.equal(
-    designErrorStep(testCase.config, testCase.catalog),
+    designErrorStep(testCase.hasRoom),
     testCase.expectedError,
     `${testCase.name}: designErrorStep`,
   );
 }
+
+assert.equal(shouldSkipProductStep({ skipProductSelection: true }, [{ productId: "1" }]), true);
+assert.equal(shouldSkipProductStep({ skipProductSelection: false }, []), true);
+assert.equal(
+  shouldSkipProductStep({ skipProductSelection: false }, [{ productId: "1" }]),
+  false,
+);
 
 console.log("verify-pdp-flow: all checks passed");

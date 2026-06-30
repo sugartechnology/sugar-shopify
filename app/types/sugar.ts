@@ -119,6 +119,12 @@ export const THEME_PRESET_CLASSES: Record<
   },
 };
 
+export interface DesignProductSelection {
+  productId: string;
+  variantId: string;
+  isPrimary?: boolean;
+}
+
 export interface DesignProductInput {
   productId: string;
   variantId: string;
