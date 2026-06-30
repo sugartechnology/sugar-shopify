@@ -27,7 +27,7 @@ COPY prisma ./prisma
 COPY --from=production-dependencies-env /app/node_modules ./node_modules
 COPY --from=build-env /app/build ./build
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 EXPOSE 3000
 ENTRYPOINT ["/entrypoint.sh"]
