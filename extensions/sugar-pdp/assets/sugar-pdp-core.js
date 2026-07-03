@@ -106,18 +106,42 @@
   function readDesignStore() {
     try {
       var raw = localStorage.getItem(DESIGN_STORAGE_KEY);
-      if (!raw) return { version: 1, byProduct: {} };
+      if (!raw) return { version: 2, byProduct: {}, attemptCounts: {} };
       var parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object") {
-        return { version: 1, byProduct: {} };
+        return { version: 2, byProduct: {}, attemptCounts: {} };
       }
       if (!parsed.byProduct || typeof parsed.byProduct !== "object") {
         parsed.byProduct = {};
       }
+      if (!parsed.attemptCounts || typeof parsed.attemptCounts !== "object") {
+        parsed.attemptCounts = {};
+      }
+      parsed.version = 2;
       return parsed;
     } catch {
-      return { version: 1, byProduct: {} };
+      return { version: 2, byProduct: {}, attemptCounts: {} };
     }
+  }
+
+  function getDesignAttemptCount(productId) {
+    var store = readDesignStore();
+    var count = Number(store.attemptCounts[String(productId)] || 0);
+    return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+  }
+
+  function recordDesignAttempt(productId) {
+    var store = readDesignStore();
+    var key = String(productId);
+    var next = getDesignAttemptCount(key) + 1;
+    store.attemptCounts[key] = next;
+    writeDesignStore(store);
+    return next;
+  }
+
+  function hasDesignAttemptsRemaining(productId, maxCount) {
+    var max = Math.max(1, Number(maxCount || 3));
+    return getDesignAttemptCount(productId) < max;
   }
 
   function writeDesignStore(store) {
@@ -208,6 +232,9 @@
     loadImageElement: loadImageElement,
     fetchImageForCanvas: fetchImageForCanvas,
     getDesignsForProduct: getDesignsForProduct,
+    getDesignAttemptCount: getDesignAttemptCount,
+    recordDesignAttempt: recordDesignAttempt,
+    hasDesignAttemptsRemaining: hasDesignAttemptsRemaining,
     saveDesignForProduct: saveDesignForProduct,
     removeDesignForProduct: removeDesignForProduct,
     compressDesignImage: compressDesignImage,

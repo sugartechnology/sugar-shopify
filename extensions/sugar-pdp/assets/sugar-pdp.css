@@ -745,6 +745,11 @@
   border-radius: calc(var(--sugar-modal-radius) * 0.6);
 }
 
+.sugar-modal__actions .sugar-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .sugar-loading-wrap {
   text-align: center;
   padding: 2.5rem 1rem;
@@ -792,7 +797,8 @@
   font-weight: 500;
 }
 
-.sugar-result-bar__redo {
+.sugar-result-bar__redo,
+.sugar-result-bar__edit {
   background: none;
   border: none;
   font: inherit;
@@ -802,6 +808,78 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.sugar-result-bar__edit:hover {
+  color: var(--sugar-text);
+}
+
+.sugar-redesign {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin: -0.25rem 0 1rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: calc(var(--sugar-modal-radius) * 0.75);
+  background: color-mix(in srgb, var(--sugar-accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sugar-accent) 28%, transparent);
+}
+
+.sugar-redesign__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0.5rem 1.125rem;
+  border: none;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.875em;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(
+    135deg,
+    var(--sugar-accent) 0%,
+    color-mix(in srgb, var(--sugar-accent) 72%, #000) 100%
+  );
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--sugar-accent) 35%, transparent);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.sugar-redesign__btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--sugar-accent) 42%, transparent);
+}
+
+.sugar-redesign__btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.sugar-redesign__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.sugar-redesign__icon {
+  font-size: 1.05em;
+  line-height: 1;
+}
+
+.sugar-redesign__count {
+  font-size: 0.75em;
+  font-weight: 500;
+  color: var(--sugar-muted);
+  white-space: nowrap;
+}
+
+.sugar-redesign.is-limit .sugar-redesign__count {
+  color: color-mix(in srgb, var(--sugar-text) 70%, var(--sugar-muted));
 }
 
 .sugar-design-preview {

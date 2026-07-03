@@ -20,6 +20,8 @@
     this.resultQuantities = {};
     this.cameraStream = null;
     this.toastTimer = null;
+    this.designAttemptCount = 0;
+    this.maxDesignAttempts = Math.max(1, Number(this.config.maxDesignAttempts || 3));
 
     this.uploadHero = new Kit.UploadHero(root, this.config);
     this.mockup = new Kit.MockupEditor(this);
@@ -41,6 +43,7 @@
     this.mountEmbedTrigger();
     this.savedDesigns.renderPage();
     this.uploadHero.init();
+    this.syncDesignAttemptCount();
     this.applyBrandingAssets();
     if (this.config.customCss) {
       var style = document.createElement("style");
@@ -69,6 +72,10 @@
     this.cameraCanvas = this.root.querySelector("[data-sugar-camera-canvas]");
     this.cameraWrap = this.root.querySelector("[data-sugar-camera-wrap]");
     this.headerIcon = this.root.querySelector("[data-sugar-header-icon]");
+    this.redesignWrap = this.root.querySelector("[data-sugar-redesign-wrap]");
+    this.redesignBtn = this.root.querySelector("[data-sugar-redesign]");
+    this.redesignCountEl = this.root.querySelector("[data-sugar-redesign-count]");
+    this.designBtn = this.root.querySelector("[data-sugar-design]");
   };
 
   SugarPdp.prototype.animateModalHeight = function (startHeight) {
@@ -366,7 +373,94 @@
       if (self.steps[s]) self.steps[s].classList.toggle("is-active", s === step);
     });
     if (step === "products") this.updateReviewStep();
+    if (step === "result" || step === "products") this.syncDesignLimitUi();
     if (canAnimate) this.animateModalHeight(startHeight);
+  };
+
+  SugarPdp.prototype.getProductKey = function () {
+    return this.savedDesigns.getProductKey();
+  };
+
+  SugarPdp.prototype.syncDesignAttemptCount = function () {
+    this.designAttemptCount = core.getDesignAttemptCount(this.getProductKey());
+  };
+
+  SugarPdp.prototype.getRedesignRemaining = function () {
+    return Math.max(0, this.maxDesignAttempts - this.designAttemptCount);
+  };
+
+  SugarPdp.prototype.isDesignLimitReached = function () {
+    return this.designAttemptCount >= this.maxDesignAttempts;
+  };
+
+  SugarPdp.prototype.canGenerateDesign = function () {
+    return core.hasDesignAttemptsRemaining(
+      this.getProductKey(),
+      this.maxDesignAttempts,
+    );
+  };
+
+  SugarPdp.prototype.canRedesign = function () {
+    return (
+      this.canGenerateDesign() &&
+      !!this.mockup.roomFile &&
+      this.step === "result"
+    );
+  };
+
+  SugarPdp.prototype.formatDesignCount = function () {
+    var countTemplate = this.t("redesignCount", "{{current}} / {{max}} tasarım");
+    return countTemplate
+      .replace("{{current}}", String(this.designAttemptCount))
+      .replace("{{max}}", String(this.maxDesignAttempts));
+  };
+
+  SugarPdp.prototype.getDesignLimitMessage = function () {
+    return this.t(
+      "errorDesignLimit",
+      "Bu ürün için tasarım hakkın doldu.",
+    ).replace("{{max}}", String(this.maxDesignAttempts));
+  };
+
+  SugarPdp.prototype.syncDesignLimitUi = function () {
+    var atLimit = this.isDesignLimitReached();
+    var limitMessage = this.getDesignLimitMessage();
+
+    if (this.designBtn) {
+      this.designBtn.disabled = atLimit;
+      this.designBtn.title = atLimit ? limitMessage : "";
+      this.designBtn.setAttribute("aria-disabled", atLimit ? "true" : "false");
+    }
+
+    if (!this.redesignWrap || !this.redesignBtn) return;
+
+    var hasRoom = !!this.mockup.roomFile;
+    var disabled = atLimit || !hasRoom;
+
+    this.redesignBtn.disabled = disabled;
+    this.redesignWrap.classList.toggle("is-disabled", disabled);
+    this.redesignWrap.classList.toggle("is-limit", atLimit);
+
+    if (this.redesignCountEl) {
+      if (atLimit) {
+        this.redesignCountEl.textContent = this.t(
+          "redesignLimit",
+          "Deneme hakkın doldu",
+        );
+      } else {
+        this.redesignCountEl.textContent = this.formatDesignCount();
+      }
+    }
+  };
+
+  SugarPdp.prototype.runRedesign = function () {
+    if (!this.canRedesign()) {
+      if (this.isDesignLimitReached()) {
+        this.showError(this.getDesignLimitMessage());
+      }
+      return;
+    }
+    this.runDesign({ isRedesign: true });
   };
 
   SugarPdp.prototype.updateReviewStep = function () {
@@ -377,6 +471,7 @@
         this.config.instructionTemplate ||
         this.t("reviewInstruction", "Ürünleri seç, oda fotoğrafında sürükleyerek yerleştir.");
     }
+    this.syncDesignLimitUi();
   };
 
   SugarPdp.prototype.stopCameraStream = function () {
@@ -542,6 +637,7 @@
     if (!this.dialog || this.dialog.open) return;
     this.hideMessage();
     this.stopCameraStream();
+    this.syncDesignAttemptCount();
     this.dialog.showModal();
     this.setStep("upload");
   };
@@ -567,10 +663,20 @@
     this.setStep("products");
   };
 
-  SugarPdp.prototype.runDesign = async function () {
+  SugarPdp.prototype.runDesign = async function (options) {
+    options = options || {};
+    var isRedesign = options.isRedesign === true;
     if (!this.mockup.roomFile) {
       this.showError(this.t("errorRoomRequired", "A room photo is required."));
       this.setStep("upload");
+      return;
+    }
+
+    this.syncDesignAttemptCount();
+    if (!this.canGenerateDesign()) {
+      this.showError(this.getDesignLimitMessage());
+      this.syncDesignLimitUi();
+      this.setStep(isRedesign ? "result" : "products");
       return;
     }
 
@@ -614,10 +720,12 @@
       }
       this.renderResultChecklist();
       await this.savedDesigns.persist(data, this.resultPlacements);
+      this.designAttemptCount = core.recordDesignAttempt(this.getProductKey());
+      this.syncDesignLimitUi();
       this.setStep("result");
     } catch (err) {
       this.showError(err instanceof Error ? err.message : this.t("errorGeneric", "Something went wrong"));
-      this.setStep("products");
+      this.setStep(isRedesign ? "result" : "products");
     }
   };
 
@@ -778,6 +886,10 @@
     this.root.querySelector("[data-sugar-redo]")?.addEventListener("click", function () {
       self.hideMessage();
       self.setStep(self.mockup.roomFile ? "products" : "upload");
+    });
+
+    this.redesignBtn?.addEventListener("click", function () {
+      self.runRedesign();
     });
 
     this.addDesignBtn?.addEventListener("click", function () {

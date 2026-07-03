@@ -57,6 +57,7 @@
   assign generation_id_key = mf.generation_id_property_key | default: '_sugar_generation_id'
   assign max_upload_mb = mf.max_upload_size_mb | default: '10'
   assign max_additional = mf.max_additional_products | default: '4'
+  assign max_design_attempts = settings.max_design_attempts | default: 3
   assign custom_css = mf.custom_css
   assign hero_url = mf.hero_image_url
   assign upload_illustration_url = mf.upload_illustration_url | default: hero_url
@@ -316,6 +317,7 @@
     "skipProductSelection": {% if skip_product_selection %}true{% else %}false{% endif %},
     "shopDomain": {{ shop.permanent_domain | json }},
     "maxSavedDesignsPerProduct": 20,
+    "maxDesignAttempts": {{ max_design_attempts | json }},
     "toastDurationMs": 3500,
     "locale": {{ shop_locale | json }},
     "i18n": {
@@ -356,7 +358,12 @@
       "mockupSize": {{ 'sugar.mockup_size' | t | json }},
       "mockupRemove": {{ 'sugar.mockup_remove' | t | json }},
       "errorPlacementRequired": {{ 'sugar.error_placement_required' | t | json }},
-      "errorCamera": {{ 'sugar.error_camera' | t | json }}
+      "errorCamera": {{ 'sugar.error_camera' | t | json }},
+      "redesignButton": {{ 'sugar.redesign_button' | t | json }},
+      "redesignCount": {{ 'sugar.redesign_count' | t | json }},
+      "redesignLimit": {{ 'sugar.redesign_limit' | t | json }},
+      "editPlacement": {{ 'sugar.edit_placement' | t | json }},
+      "errorDesignLimit": {{ 'sugar.error_design_limit' | t | json }}
     }
   }'
   data-sugar-product='{
@@ -518,7 +525,7 @@
         <div class="sugar-step" data-sugar-step="result">
           <div class="sugar-result-bar">
             <span class="sugar-result-bar__status">{{ 'sugar.result_ready' | t }}</span>
-            <button type="button" class="sugar-result-bar__redo" data-sugar-redo>{{ 'sugar.redo_button' | t }}</button>
+            <button type="button" class="sugar-result-bar__edit" data-sugar-redo>{{ 'sugar.edit_placement' | t }}</button>
           </div>
           <div class="sugar-design-preview" data-sugar-design-preview>
             <span class="sugar-design-preview__badge">{{ 'sugar.ai_preview_badge' | t }}</span>
@@ -541,6 +548,13 @@
               <span class="sugar-compare__tag sugar-compare__tag--origin">{{ 'sugar.compare_origin' | t }}</span>
               <span class="sugar-compare__tag sugar-compare__tag--design">{{ 'sugar.compare_design' | t }}</span>
             </div>
+          </div>
+          <div class="sugar-redesign" data-sugar-redesign-wrap>
+            <button type="button" class="sugar-redesign__btn" data-sugar-redesign>
+              <span class="sugar-redesign__icon" aria-hidden="true">✦</span>
+              <span data-sugar-redesign-label>{{ 'sugar.redesign_button' | t }}</span>
+            </button>
+            <span class="sugar-redesign__count" data-sugar-redesign-count aria-live="polite"></span>
           </div>
           <div class="sugar-checklist" data-sugar-checklist></div>
           <button type="button" class="sugar-btn-primary" data-sugar-add-design disabled>
