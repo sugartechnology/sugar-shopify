@@ -201,11 +201,33 @@
     return list;
   }
 
-  async function compressDesignImage(imageUrl) {
+  var DESIGN_THUMBNAIL_MAX_WIDTH = 320;
+  var DESIGN_THUMBNAIL_QUALITY = 0.72;
+  var DESIGN_STORAGE_MAX_WIDTH = 1600;
+  var DESIGN_STORAGE_QUALITY = 0.88;
+  var DESIGN_ORIGIN_MAX_WIDTH = 1200;
+  var DESIGN_ORIGIN_QUALITY = 0.82;
+  var DESIGN_DATA_URL_STORAGE_LIMIT = 900000;
+  var CART_DESIGN_IMAGE_MAX_LENGTH = 2048;
+
+  function isRemoteImageUrl(imageUrl) {
+    return /^https?:\/\//i.test(String(imageUrl || ""));
+  }
+
+  function getCartSafeDesignImageUrl(imageUrl) {
+    var url = String(imageUrl || "");
+    if (!isRemoteImageUrl(url)) return "";
+    if (url.length > CART_DESIGN_IMAGE_MAX_LENGTH) return "";
+    return url;
+  }
+
+  async function compressDesignImage(imageUrl, options) {
     if (!imageUrl) return "";
+    options = options || {};
+    var maxW = options.maxWidth != null ? options.maxWidth : 420;
+    var quality = options.quality != null ? options.quality : 0.75;
     try {
       var img = await loadImageElement(imageUrl);
-      var maxW = 420;
       var w = img.naturalWidth || maxW;
       var h = img.naturalHeight || Math.round(maxW * 0.75);
       var scale = w > maxW ? maxW / w : 1;
@@ -213,10 +235,83 @@
       canvas.width = Math.max(1, Math.round(w * scale));
       canvas.height = Math.max(1, Math.round(h * scale));
       canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL("image/jpeg", 0.75);
+      return canvas.toDataURL("image/jpeg", quality);
     } catch {
       return imageUrl.length < 120000 ? imageUrl : "";
     }
+  }
+
+  async function createDesignThumbnail(imageUrl) {
+    return compressDesignImage(imageUrl, {
+      maxWidth: DESIGN_THUMBNAIL_MAX_WIDTH,
+      quality: DESIGN_THUMBNAIL_QUALITY,
+    });
+  }
+
+  async function resolveStoredDesignImageUrl(imageUrl) {
+    if (!imageUrl) return "";
+    if (isRemoteImageUrl(imageUrl)) return imageUrl;
+    if (imageUrl.length <= DESIGN_DATA_URL_STORAGE_LIMIT) return imageUrl;
+    return compressDesignImage(imageUrl, {
+      maxWidth: DESIGN_STORAGE_MAX_WIDTH,
+      quality: DESIGN_STORAGE_QUALITY,
+    });
+  }
+
+  function isShopifyAdminPreview() {
+    if (typeof window === "undefined") return false;
+
+    try {
+      if (/admin\.shopify\.com$/i.test(window.location.hostname)) return true;
+    } catch {
+      /* no-op */
+    }
+
+    try {
+      if (window.Shopify && window.Shopify.designMode) return true;
+    } catch {
+      /* no-op */
+    }
+
+    try {
+      var referrer = document.referrer || "";
+      if (referrer.indexOf("admin.shopify.com") !== -1) return true;
+    } catch {
+      /* no-op */
+    }
+
+    try {
+      if (window.location.ancestorOrigins && window.location.ancestorOrigins.length) {
+        for (var i = 0; i < window.location.ancestorOrigins.length; i++) {
+          if (String(window.location.ancestorOrigins[i]).indexOf("admin.shopify.com") !== -1) {
+            return true;
+          }
+        }
+      }
+    } catch {
+      /* no-op */
+    }
+
+    try {
+      if (
+        window.top &&
+        window.top !== window &&
+        /admin\.shopify\.com$/i.test(window.top.location.hostname)
+      ) {
+        return true;
+      }
+    } catch {
+      /* cross-origin iframe from admin */
+    }
+
+    try {
+      var params = new URLSearchParams(window.location.search);
+      if (params.has("preview_theme_id") || params.has("dev-console")) return true;
+    } catch {
+      /* no-op */
+    }
+
+    return false;
   }
 
   global.SugarPdpKit = global.SugarPdpKit || {};
@@ -238,5 +333,10 @@
     saveDesignForProduct: saveDesignForProduct,
     removeDesignForProduct: removeDesignForProduct,
     compressDesignImage: compressDesignImage,
+    createDesignThumbnail: createDesignThumbnail,
+    resolveStoredDesignImageUrl: resolveStoredDesignImageUrl,
+    isRemoteImageUrl: isRemoteImageUrl,
+    getCartSafeDesignImageUrl: getCartSafeDesignImageUrl,
+    isShopifyAdminPreview: isShopifyAdminPreview,
   };
 })(window);

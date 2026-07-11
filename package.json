@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "remix vite:build",
-    "dev": "shopify app dev",
-    "deploy": "shopify app deploy",
+    "dev": "sh scripts/with-node.sh shopify app dev",
+    "deploy": "sh scripts/with-node.sh shopify app deploy",
     "start": "remix-serve ./build/server/index.js",
     "setup": "prisma generate && prisma migrate deploy",
     "docker:local": "sh -c 'test -f .env.local || cp .env.local.example .env.local' && docker compose up --build",
@@ -14,11 +14,11 @@
     "docker:prod:down": "docker compose -f docker-compose.prod.yml down",
     "lint": "eslint --ignore-path .gitignore --cache --cache-location ./node_modules/.cache/eslint .",
     "test": "tsx --test app/services/sugar-api.server.test.ts app/services/resolve-shopify-products.server.test.ts && node scripts/verify-pdp-flow.mjs && node scripts/verify-saved-designs.mjs && node scripts/verify-shopify-api-contract.mjs",
-    "shopify": "shopify",
+    "shopify": "sh scripts/with-node.sh shopify",
     "prisma": "prisma"
   },
   "engines": {
-    "node": ">=20.19 <22 || >=22.12"
+    "node": ">=22.12"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1",

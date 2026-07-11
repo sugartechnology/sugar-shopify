@@ -44,7 +44,9 @@
   };
 
   SavedDesigns.prototype.renderPickSource = function () {
-    var strip = this.pdp.root.querySelector("[data-sugar-pick-source-strip]");
+    var strip =
+      (this.pdp.dialog && this.pdp.dialog.querySelector("[data-sugar-pick-source-strip]")) ||
+      this.pdp.root.querySelector("[data-sugar-pick-source-strip]");
     if (!strip) return;
     var self = this;
     strip.innerHTML = "";
@@ -131,19 +133,28 @@
 
   SavedDesigns.prototype.persist = async function (data, resultPlacements) {
     var productId = this.getProductKey();
-    if (!productId || !data || !data.imageUrl) return;
-    var preview = await core.compressDesignImage(data.imageUrl);
-    if (!preview) return;
+    var sourceImageUrl = (data && data.imageUrl) || "";
+    if (!productId || !sourceImageUrl) return;
+
+    var storedImageUrl = await core.resolveStoredDesignImageUrl(sourceImageUrl);
+    if (!storedImageUrl) return;
+
+    var thumbnailUrl = await core.createDesignThumbnail(sourceImageUrl);
+    if (!thumbnailUrl) thumbnailUrl = storedImageUrl;
+
     var originPreview = this.pdp.mockup.roomPreviewUrl
-      ? await core.compressDesignImage(this.pdp.mockup.roomPreviewUrl)
+      ? await core.compressDesignImage(this.pdp.mockup.roomPreviewUrl, {
+          maxWidth: 1200,
+          quality: 0.82,
+        })
       : "";
     core.saveDesignForProduct(
       productId,
       {
         id: data.generationId || "design-" + Date.now(),
         generationId: data.generationId,
-        imageUrl: preview,
-        thumbnailUrl: preview,
+        imageUrl: storedImageUrl,
+        thumbnailUrl: thumbnailUrl,
         originImageUrl: originPreview,
         status: data.status,
         variantId: this.pdp.primaryProduct.variantId,

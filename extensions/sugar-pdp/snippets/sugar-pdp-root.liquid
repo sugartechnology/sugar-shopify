@@ -177,7 +177,6 @@
 --sugar-hero-bg: #f3eee6;
 --sugar-upload-fit: {{ upload_illustration_fit }};
 --sugar-overlay-bg: {{ overlay_color }};
---sugar-modal-max-width: 480px;
 --sugar-modal-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
 --sugar-font-scale: {{ font_scale_pct | divided_by: 100.0 }};
 {%- if theme_preset == 'dawn' or theme_preset == 'normod' -%}
@@ -308,6 +307,7 @@
     "addDesignToCartLabel": {{ add_cart_label | json }},
     "loadingTitle": {{ loading_title | json }},
     "loadingSubtitle": {{ loading_subtitle | json }},
+    "loadingEstimateSec": 50,
     "heroImageUrl": {{ upload_illustration_url | json }},
     "uploadIllustrationUrl": {{ upload_illustration_url | json }},
     "uploadIllustrationFit": {{ upload_illustration_fit | json }},
@@ -327,6 +327,8 @@
       "errorRoomRequired": {{ 'sugar.error_room_required' | t | json }},
       "errorSelectProduct": {{ 'sugar.error_select_product' | t | json }},
       "errorGenerate": {{ 'sugar.error_generate' | t | json }},
+      "errorGenerateProxy": {{ 'sugar.error_generate_proxy' | t | json }},
+      "errorGenerateStorePassword": {{ 'sugar.error_generate_store_password' | t | json }},
       "errorGeneric": {{ 'sugar.error_generic' | t | json }},
       "errorCart": {{ 'sugar.error_cart' | t | json }},
       "errorCartRetry": {{ 'sugar.error_cart_retry' | t | json }},
@@ -348,6 +350,8 @@
       "compareAria": {{ 'sugar.compare_aria' | t | json }},
       "compareOrigin": {{ 'sugar.compare_origin' | t | json }},
       "compareDesign": {{ 'sugar.compare_design' | t | json }},
+      "compareShowOrigin": {{ 'sugar.compare_show_origin' | t | json }},
+      "compareShowDesign": {{ 'sugar.compare_show_design' | t | json }},
       "cameraInstruction": {{ 'sugar.camera_instruction' | t | json }},
       "cameraCapture": {{ 'sugar.camera_capture' | t | json }},
       "cameraCancel": {{ 'sugar.camera_cancel' | t | json }},
@@ -355,15 +359,28 @@
       "reviewInstruction": {{ 'sugar.review_instruction' | t | json }},
       "reviewInstructionOnly": {{ 'sugar.review_instruction_only' | t | json }},
       "mockupLabel": {{ 'sugar.mockup_label' | t | json }},
-      "mockupSize": {{ 'sugar.mockup_size' | t | json }},
+      "mockupDepth": {{ 'sugar.mockup_depth' | t | json }},
+      "mockupDepthAria": {{ 'sugar.mockup_depth_aria' | t | json }},
       "mockupRemove": {{ 'sugar.mockup_remove' | t | json }},
+      "productClickTip": {{ 'sugar.product_click_tip' | t | json }},
+      "productEnableTip": {{ 'sugar.product_enable_tip' | t | json }},
+      "qtyDecrease": {{ 'sugar.qty_decrease' | t | json }},
+      "qtyIncrease": {{ 'sugar.qty_increase' | t | json }},
+      "designButton": {{ 'sugar.design_button' | t | json }},
+      "autoDesignButton": {{ 'sugar.auto_design_button' | t | json }},
       "errorPlacementRequired": {{ 'sugar.error_placement_required' | t | json }},
       "errorCamera": {{ 'sugar.error_camera' | t | json }},
       "redesignButton": {{ 'sugar.redesign_button' | t | json }},
       "redesignCount": {{ 'sugar.redesign_count' | t | json }},
       "redesignLimit": {{ 'sugar.redesign_limit' | t | json }},
       "editPlacement": {{ 'sugar.edit_placement' | t | json }},
-      "errorDesignLimit": {{ 'sugar.error_design_limit' | t | json }}
+      "errorDesignLimit": {{ 'sugar.error_design_limit' | t | json }},
+      "loadingProgress": {{ 'sugar.loading_progress' | t | json }},
+      "loadingTimeRemaining": {{ 'sugar.loading_time_remaining' | t | json }},
+      "loadingComplete": {{ 'sugar.loading_complete' | t | json }},
+      "loadingAlmostDone": {{ 'sugar.loading_almost_done' | t | json }},
+      "designDownload": {{ 'sugar.design_download' | t | json }},
+      "designDownloadSuccess": {{ 'sugar.design_download_success' | t | json }}
     }
   }'
   data-sugar-product='{
@@ -468,57 +485,98 @@
         </div>
 
         <div class="sugar-step" data-sugar-step="pick-source">
-          <p class="sugar-instruction">{{ 'sugar.gallery_choice_instruction' | t }}</p>
-          <p class="sugar-saved-designs__label">{{ 'sugar.pick_saved_designs' | t }}</p>
-          <div class="sugar-saved-designs__strip sugar-saved-designs__strip--pick" data-sugar-pick-source-strip></div>
+          <div class="sugar-step__scroll">
+            <p class="sugar-instruction">{{ 'sugar.gallery_choice_instruction' | t }}</p>
+            <p class="sugar-saved-designs__label">{{ 'sugar.pick_saved_designs' | t }}</p>
+            <div class="sugar-saved-designs__strip sugar-saved-designs__strip--pick" data-sugar-pick-source-strip></div>
+          </div>
           <div class="sugar-modal__actions">
-            <button type="button" class="sugar-btn {{ secondary_classes }}" data-sugar-pick-source-back>{{ 'sugar.pick_back' | t }}</button>
+            <button type="button" class="sugar-btn sugar-btn--back {{ secondary_classes }}" data-sugar-pick-source-back>
+              {% render 'sugar-pdp-icons', icon: 'arrow-left' %}
+              <span>{{ 'sugar.pick_back' | t }}</span>
+            </button>
             <button type="button" class="sugar-btn {{ primary_classes }}" data-sugar-pick-new-photo>{{ 'sugar.pick_new_photo' | t }}</button>
           </div>
         </div>
 
         <div class="sugar-step" data-sugar-step="camera">
-          <hr class="sugar-divider">
-          <p class="sugar-instruction">{{ 'sugar.camera_instruction' | t }}</p>
-          <div class="sugar-camera-wrap" data-sugar-camera-wrap>
-            <video class="sugar-camera-video" data-sugar-camera-video autoplay playsinline muted webkit-playsinline></video>
-            <p class="sugar-camera-loading">{{ 'sugar.camera_loading' | t }}</p>
+          <div class="sugar-step__scroll">
+            <hr class="sugar-divider">
+            <p class="sugar-instruction">{{ 'sugar.camera_instruction' | t }}</p>
+            <div class="sugar-camera-wrap" data-sugar-camera-wrap>
+              <video class="sugar-camera-video" data-sugar-camera-video autoplay playsinline muted webkit-playsinline></video>
+              <p class="sugar-camera-loading">{{ 'sugar.camera_loading' | t }}</p>
+            </div>
+            <canvas class="sugar-hidden-input" data-sugar-camera-canvas></canvas>
           </div>
-          <canvas class="sugar-hidden-input" data-sugar-camera-canvas></canvas>
           <div class="sugar-modal__actions">
-            <button type="button" class="sugar-btn {{ secondary_classes }}" data-sugar-camera-cancel>{{ 'sugar.camera_cancel' | t }}</button>
-            <button type="button" class="sugar-btn {{ primary_classes }}" data-sugar-camera-capture>{{ 'sugar.camera_capture' | t }}</button>
+            <button type="button" class="sugar-btn sugar-btn--back {{ secondary_classes }}" data-sugar-camera-cancel>
+              {% render 'sugar-pdp-icons', icon: 'arrow-left' %}
+              <span>{{ 'sugar.camera_cancel' | t }}</span>
+            </button>
+            <button type="button" class="sugar-btn sugar-btn--capture {{ primary_classes }}" data-sugar-camera-capture>
+              {% render 'sugar-pdp-icons', icon: 'shutter' %}
+              <span>{{ 'sugar.camera_capture' | t }}</span>
+            </button>
           </div>
         </div>
 
         <div class="sugar-step" data-sugar-step="products">
-          <hr class="sugar-divider">
-          <p class="sugar-instruction" data-sugar-review-instruction></p>
-          <p class="sugar-room-preview-label">{{ 'sugar.mockup_label' | t }}</p>
-          <div class="sugar-mockup-stage" data-sugar-mockup-stage>
-            <img class="sugar-mockup-stage__origin sugar-room-preview" data-sugar-room-preview alt="" width="600" height="450">
-            <div class="sugar-mockup-stage__layers" data-sugar-mockup-layers></div>
+          <div class="sugar-step__scroll sugar-step__scroll--products">
+            <p class="sugar-instruction" data-sugar-review-instruction></p>
+            <p class="sugar-room-preview-label">{{ 'sugar.mockup_label' | t }}</p>
+            <div class="sugar-mockup-stage" data-sugar-mockup-stage>
+              <img class="sugar-mockup-stage__origin sugar-room-preview" data-sugar-room-preview alt="" width="600" height="450">
+              <div class="sugar-mockup-stage__layers" data-sugar-mockup-layers></div>
+            </div>
+            <div class="sugar-mockup-scale" data-sugar-mockup-scale hidden>
+              <label class="sugar-mockup-scale__label" for="sugar-depth-{{ file_uid }}">{{ 'sugar.mockup_depth' | t }}</label>
+              <input
+                type="range"
+                class="sugar-mockup-scale__range"
+                id="sugar-depth-{{ file_uid }}"
+                data-sugar-mockup-scale-range
+                min="12"
+                max="55"
+                step="1"
+                value="28"
+                aria-label="{{ 'sugar.mockup_depth_aria' | t }}"
+              >
+            </div>
           </div>
-          <div class="sugar-mockup-scale" data-sugar-mockup-scale hidden>
-            <button type="button" class="sugar-mockup-scale__btn" data-sugar-mockup-scale-down aria-label="-">−</button>
-            <span class="sugar-mockup-scale__label" data-sugar-mockup-scale-label>{{ 'sugar.mockup_size' | t }}</span>
-            <button type="button" class="sugar-mockup-scale__btn" data-sugar-mockup-scale-up aria-label="+">+</button>
-          </div>
-          <div data-sugar-products-section>
+          <div class="sugar-products-panel" data-sugar-products-section>
             <p class="sugar-products-label">{{ 'sugar.products_label' | t }}</p>
-            <div class="sugar-product-strip" data-sugar-product-strip></div>
+            <div class="sugar-products-row">
+              <div class="sugar-product-strip" data-sugar-product-strip></div>
+            </div>
           </div>
           <div class="sugar-modal__actions">
             <button type="button" class="sugar-btn {{ secondary_classes }}" data-sugar-back-upload>{{ 'sugar.change_photo' | t }}</button>
-            <button type="button" class="sugar-btn {{ primary_classes }}" data-sugar-design>{{ 'sugar.design_button' | t }}</button>
+            <button type="button" class="sugar-btn {{ primary_classes }}" data-sugar-design>
+              <span data-sugar-design-label>{{ 'sugar.auto_design_button' | t }}</span>
+            </button>
           </div>
         </div>
 
         <div class="sugar-step" data-sugar-step="loading">
           <div class="sugar-loading-wrap">
-            <div class="sugar-spinner"></div>
+            <div class="sugar-spinner" aria-hidden="true"></div>
             <p class="sugar-loading-title">{{ loading_title }}</p>
             <p class="sugar-loading-sub">{{ loading_subtitle }}</p>
+            <div
+              class="sugar-loading-progress"
+              data-sugar-loading-progress
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+            >
+              <div class="sugar-loading-progress__track">
+                <div class="sugar-loading-progress__bar" data-sugar-loading-bar style="width: 0%"></div>
+              </div>
+              <p class="sugar-loading-progress__label" data-sugar-loading-progress-label aria-live="polite"></p>
+            </div>
+            <p class="sugar-loading-hint">{{ 'sugar.loading_browse_hint' | t }}</p>
           </div>
         </div>
 
@@ -530,23 +588,51 @@
           <div class="sugar-design-preview" data-sugar-design-preview>
             <span class="sugar-design-preview__badge">{{ 'sugar.ai_preview_badge' | t }}</span>
             <span class="sugar-design-preview__demo-badge" data-sugar-demo-badge hidden>{{ 'sugar.demo_mode_badge' | t }}</span>
+            <div class="sugar-design-preview__actions" data-sugar-design-actions hidden>
+              <button
+                type="button"
+                class="sugar-design-preview__action"
+                data-sugar-design-download
+                aria-label="{{ 'sugar.design_download' | t }}"
+              >
+                {% render 'sugar-pdp-icons', icon: 'download' %}
+              </button>
+            </div>
             <div class="sugar-compare" data-sugar-compare style="--compare: 0%;">
               <img class="sugar-compare__img sugar-compare__img--origin" data-sugar-compare-origin alt="" width="800" height="600">
               <div class="sugar-compare__clip" data-sugar-compare-clip>
                 <img class="sugar-compare__img sugar-compare__img--design" data-sugar-compare-design alt="" width="800" height="600">
               </div>
-              <div class="sugar-compare__handle" data-sugar-compare-handle aria-hidden="true"></div>
-              <input
-                type="range"
-                class="sugar-compare__range"
-                data-sugar-compare-range
-                min="0"
-                max="100"
-                value="0"
+              <button
+                type="button"
+                class="sugar-compare__handle"
+                data-sugar-compare-handle
+                role="slider"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
                 aria-label="{{ 'sugar.compare_aria' | t }}"
               >
-              <span class="sugar-compare__tag sugar-compare__tag--origin">{{ 'sugar.compare_origin' | t }}</span>
-              <span class="sugar-compare__tag sugar-compare__tag--design">{{ 'sugar.compare_design' | t }}</span>
+                <span class="sugar-compare__handle-icon" aria-hidden="true">
+                  {% render 'sugar-pdp-icons', icon: 'compare-arrows' %}
+                </span>
+              </button>
+              <button
+                type="button"
+                class="sugar-compare__tag sugar-compare__tag--origin is-active"
+                data-sugar-compare-show="origin"
+                aria-label="{{ 'sugar.compare_show_origin' | t }}"
+              >
+                {{ 'sugar.compare_origin' | t }}
+              </button>
+              <button
+                type="button"
+                class="sugar-compare__tag sugar-compare__tag--design"
+                data-sugar-compare-show="design"
+                aria-label="{{ 'sugar.compare_show_design' | t }}"
+              >
+                {{ 'sugar.compare_design' | t }}
+              </button>
             </div>
           </div>
           <div class="sugar-redesign" data-sugar-redesign-wrap>

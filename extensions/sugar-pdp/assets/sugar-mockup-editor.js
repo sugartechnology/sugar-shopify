@@ -19,9 +19,33 @@
     this.layers = pdp.root.querySelector("[data-sugar-mockup-layers]");
     this.roomPreview = pdp.root.querySelector("[data-sugar-room-preview]");
     this.scaleBar = pdp.root.querySelector("[data-sugar-mockup-scale]");
-    this.scaleDown = pdp.root.querySelector("[data-sugar-mockup-scale-down]");
-    this.scaleUp = pdp.root.querySelector("[data-sugar-mockup-scale-up]");
+    this.scaleRange = pdp.root.querySelector("[data-sugar-mockup-scale-range]");
+    this.stageScroll = this.stage?.closest(".sugar-step__scroll") || null;
+    this.boundDragMove = null;
+    this.boundDragEnd = null;
   }
+
+  MockupEditor.prototype.getSelectedPlacement = function () {
+    if (!this.selectedPlacementId) return null;
+    return (
+      this.placements.find(
+        function (p) {
+          return p.id === this.selectedPlacementId;
+        }.bind(this),
+      ) || null
+    );
+  };
+
+  MockupEditor.prototype.scaleToSlider = function (scale) {
+    return Math.round((scale || DEFAULT_PLACEMENT_SCALE) * 100);
+  };
+
+  MockupEditor.prototype.sliderToScale = function (value) {
+    return Math.min(
+      PLACEMENT_SCALE_MAX,
+      Math.max(PLACEMENT_SCALE_MIN, Number(value) / 100),
+    );
+  };
 
   MockupEditor.prototype.t = function (key, fallback) {
     return this.pdp.t(key, fallback);
@@ -89,6 +113,7 @@
   };
 
   MockupEditor.prototype.addFromProduct = function (productId) {
+    if (!this.pdp.isProductEnabled(productId)) return;
     var product = this.findCatalogProduct(productId);
     if (!product) return;
     var id = "pl-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
@@ -107,6 +132,8 @@
     this.selectedPlacementId = id;
     this.renderLayers();
     this.pdp.renderProductStrip();
+    this.pdp.dismissProductPlacementTip();
+    this.pdp.updateDesignButtonLabel();
     this.updateScaleControls();
   };
 
@@ -122,6 +149,7 @@
     }
     this.renderLayers();
     this.pdp.renderProductStrip();
+    this.pdp.updateDesignButtonLabel();
     this.updateScaleControls();
   };
 
@@ -130,22 +158,66 @@
     this.updateSelectionClasses();
   };
 
-  MockupEditor.prototype.adjustSelectedScale = function (delta) {
-    if (!this.selectedPlacementId) return;
-    var placement = this.placements.find(
-      function (p) {
-        return p.id === this.selectedPlacementId;
-      }.bind(this),
-    );
+  MockupEditor.prototype.setSelectedScale = function (scale) {
+    var placement = this.getSelectedPlacement();
     if (!placement) return;
     placement.scale = Math.min(
       PLACEMENT_SCALE_MAX,
-      Math.max(
-        PLACEMENT_SCALE_MIN,
-        (placement.scale || DEFAULT_PLACEMENT_SCALE) + delta,
-      ),
+      Math.max(PLACEMENT_SCALE_MIN, scale),
     );
     this.syncLayerScale(placement);
+    this.syncScaleRange();
+  };
+
+  MockupEditor.prototype.adjustSelectedScale = function (delta) {
+    var placement = this.getSelectedPlacement();
+    if (!placement) return;
+    this.setSelectedScale((placement.scale || DEFAULT_PLACEMENT_SCALE) + delta);
+  };
+
+  MockupEditor.prototype.syncScaleRange = function () {
+    if (!this.scaleRange) return;
+    var placement = this.getSelectedPlacement();
+    if (!placement) return;
+    this.scaleRange.value = String(this.scaleToSlider(placement.scale));
+  };
+
+  MockupEditor.prototype.lockScroll = function (locked) {
+    if (this.stageScroll) {
+      this.stageScroll.classList.toggle("is-drag-lock", !!locked);
+    }
+    if (this.stage) {
+      this.stage.classList.toggle("is-dragging", !!locked);
+    }
+  };
+
+  MockupEditor.prototype.unbindDragListeners = function () {
+    if (!this.boundDragMove || !this.boundDragEnd) return;
+    window.removeEventListener("pointermove", this.boundDragMove);
+    window.removeEventListener("pointerup", this.boundDragEnd);
+    window.removeEventListener("pointercancel", this.boundDragEnd);
+    this.boundDragMove = null;
+    this.boundDragEnd = null;
+  };
+
+  MockupEditor.prototype.endPlacementDrag = function (pointerId) {
+    if (!this.placementDrag || this.placementDrag.pointerId !== pointerId) {
+      return;
+    }
+    var layer = this.findLayerElement(this.placementDrag.id);
+    if (layer) {
+      layer.classList.remove("is-dragging");
+      if (layer.releasePointerCapture) {
+        try {
+          layer.releasePointerCapture(pointerId);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    this.placementDrag = null;
+    this.lockScroll(false);
+    this.unbindDragListeners();
   };
 
   MockupEditor.prototype.getStageRect = function () {
@@ -260,7 +332,9 @@
 
   MockupEditor.prototype.updateScaleControls = function () {
     if (!this.scaleBar) return;
-    this.scaleBar.hidden = !this.selectedPlacementId;
+    var hasSelection = !!this.getSelectedPlacement();
+    this.scaleBar.hidden = !hasSelection;
+    if (hasSelection) this.syncScaleRange();
   };
 
   MockupEditor.prototype.syncPrimaryVariant = function (variantId, imageUrl) {
@@ -393,11 +467,8 @@
   MockupEditor.prototype.bind = function () {
     var self = this;
 
-    this.scaleDown?.addEventListener("click", function () {
-      self.adjustSelectedScale(-PLACEMENT_SCALE_STEP);
-    });
-    this.scaleUp?.addEventListener("click", function () {
-      self.adjustSelectedScale(PLACEMENT_SCALE_STEP);
+    this.scaleRange?.addEventListener("input", function (e) {
+      self.setSelectedScale(self.sliderToScale(e.target.value));
     });
 
     this.layers?.addEventListener("pointerdown", function (e) {
@@ -405,6 +476,7 @@
       if (!layer || !layer.dataset.placementId) return;
       if (e.target.closest("[data-sugar-mockup-remove]")) return;
       e.preventDefault();
+      e.stopPropagation();
       self.select(layer.dataset.placementId);
       self.placementDrag = {
         id: layer.dataset.placementId,
@@ -413,27 +485,35 @@
       layer = self.findLayerElement(layer.dataset.placementId);
       if (layer) {
         layer.classList.add("is-dragging");
-        layer.setPointerCapture(e.pointerId);
+        if (layer.setPointerCapture) {
+          layer.setPointerCapture(e.pointerId);
+        }
       }
+      self.lockScroll(true);
+      self.unbindDragListeners();
+      self.boundDragMove = function (moveEvent) {
+        if (
+          !self.placementDrag ||
+          self.placementDrag.pointerId !== moveEvent.pointerId
+        ) {
+          return;
+        }
+        moveEvent.preventDefault();
+        self.updateFromPointer(
+          self.placementDrag.id,
+          moveEvent.clientX,
+          moveEvent.clientY,
+        );
+      };
+      self.boundDragEnd = function (endEvent) {
+        self.endPlacementDrag(endEvent.pointerId);
+      };
+      window.addEventListener("pointermove", self.boundDragMove, {
+        passive: false,
+      });
+      window.addEventListener("pointerup", self.boundDragEnd);
+      window.addEventListener("pointercancel", self.boundDragEnd);
     });
-
-    this.layers?.addEventListener("pointermove", function (e) {
-      if (!self.placementDrag || self.placementDrag.pointerId !== e.pointerId) {
-        return;
-      }
-      self.updateFromPointer(self.placementDrag.id, e.clientX, e.clientY);
-    });
-
-    var endDrag = function (e) {
-      if (!self.placementDrag || self.placementDrag.pointerId !== e.pointerId) {
-        return;
-      }
-      var layer = self.findLayerElement(self.placementDrag.id);
-      if (layer) layer.classList.remove("is-dragging");
-      self.placementDrag = null;
-    };
-    this.layers?.addEventListener("pointerup", endDrag);
-    this.layers?.addEventListener("pointercancel", endDrag);
 
     this.layers?.addEventListener("click", function (e) {
       var removeBtn = e.target.closest("[data-sugar-mockup-remove]");

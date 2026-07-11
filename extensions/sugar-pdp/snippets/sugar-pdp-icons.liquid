@@ -28,5 +28,27 @@
       <svg class="sugar-icon sugar-icon--close" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M7 7l10 10M17 7L7 17"/>
       </svg>
+    {%- when 'arrow-left' -%}
+      <svg class="sugar-icon sugar-icon--arrow-left" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M19 12H5"/>
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 19l-7-7 7-7"/>
+      </svg>
+    {%- when 'shutter' -%}
+      <svg class="sugar-icon sugar-icon--shutter" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+        <circle cx="12" cy="12" r="4.25" fill="currentColor"/>
+      </svg>
+    {%- when 'compare-arrows' -%}
+      <svg class="sugar-icon sugar-icon--compare-arrows" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M8 7l-4 5 4 5"/>
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M16 7l4 5-4 5"/>
+        <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 12h16"/>
+      </svg>
+    {%- when 'download' -%}
+      <svg class="sugar-icon sugar-icon--download" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v10"/>
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M8.5 10.5 12 14l3.5-3.5"/>
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 18h14"/>
+      </svg>
   {%- endcase -%}
 {%- endif -%}
