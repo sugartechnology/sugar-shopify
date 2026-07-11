@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 import {
   collectVariantImageUrls,
   gidToNumericId,
+  keyMatchesHint,
+  resolveProductDetails,
   toVariantGid,
 } from "./resolve-shopify-products.server";
 
@@ -53,5 +55,57 @@ describe("collectVariantImageUrls", () => {
       image: { url: "https://cdn.shopify.com/only.jpg" },
     });
     assert.deepEqual(urls, ["https://cdn.shopify.com/only.jpg"]);
+  });
+});
+
+describe("keyMatchesHint", () => {
+  it("matches localized and underscored keys", () => {
+    assert.equal(keyMatchesHint("product_renk", ["renk", "color"]), true);
+    assert.equal(keyMatchesHint("dimensions_cm", ["dimension", "ölçü"]), true);
+    assert.equal(keyMatchesHint("related_products", ["color"]), false);
+  });
+});
+
+describe("resolveProductDetails", () => {
+  const variant = {
+    product: {
+      metafields: {
+        nodes: [
+          { namespace: "custom", key: "renk", value: "Antrasit" },
+          { namespace: "custom", key: "boyut", value: "220x90 cm" },
+          { namespace: "custom", key: "sku_internal", value: "ABC-1" },
+          { namespace: "other", key: "color", value: "Ignored" },
+        ],
+      },
+    },
+  };
+
+  it("uses explicit refs first and fills remaining hints", () => {
+    const details = resolveProductDetails(variant, [
+      { namespace: "custom", key: "material", label: "Malzeme" },
+      { namespace: "custom", key: "renk", label: "Renk" },
+    ]);
+
+    assert.ok(details.some((detail) => detail.key === "renk" && detail.label === "Renk"));
+    assert.ok(details.some((detail) => detail.key === "boyut"));
+    assert.equal(details.some((detail) => detail.key === "material"), false);
+  });
+
+  it("falls back to hint discovery when explicit keys are missing", () => {
+    const details = resolveProductDetails(
+      variant,
+      [{ namespace: "custom", key: "color", label: "Renk" }],
+      "custom",
+    );
+
+    assert.ok(details.some((detail) => detail.key === "renk"));
+    assert.ok(details.some((detail) => detail.key === "boyut"));
+    assert.equal(details.some((detail) => detail.key === "sku_internal"), false);
+  });
+
+  it("discovers by hint when explicit config is empty", () => {
+    const details = resolveProductDetails(variant, [], "custom");
+    assert.ok(details.length >= 2);
+    assert.equal(details.some((detail) => detail.key === "renk"), true);
   });
 });

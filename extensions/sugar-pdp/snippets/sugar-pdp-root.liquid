@@ -58,6 +58,9 @@
   assign max_upload_mb = mf.max_upload_size_mb | default: '10'
   assign max_additional = mf.max_additional_products | default: '4'
   assign max_design_attempts = settings.max_design_attempts | default: 3
+  assign product_detail_metafields_default = '[{"namespace":"custom","key":"material","label":"Malzeme"},{"namespace":"custom","key":"dimensions","label":"Ölçü"},{"namespace":"custom","key":"color","label":"Renk"}]'
+  assign product_detail_metafields_json = settings.product_detail_metafields | default: product_detail_metafields_default
+  assign product_detail_metafield_namespace = settings.product_detail_metafield_namespace | default: 'custom'
   assign custom_css = mf.custom_css
   assign hero_url = mf.hero_image_url
   assign upload_illustration_url = mf.upload_illustration_url | default: hero_url
@@ -318,6 +321,8 @@
     "shopDomain": {{ shop.permanent_domain | json }},
     "maxSavedDesignsPerProduct": 20,
     "maxDesignAttempts": {{ max_design_attempts | json }},
+    "productDetailMetafieldsJson": {{ product_detail_metafields_json | json }},
+    "productDetailMetafieldNamespace": {{ product_detail_metafield_namespace | json }},
     "toastDurationMs": 3500,
     "locale": {{ shop_locale | json }},
     "i18n": {

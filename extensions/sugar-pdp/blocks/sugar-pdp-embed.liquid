@@ -73,6 +73,20 @@
       "default": "related_products"
     },
     {
+      "type": "textarea",
+      "id": "product_detail_metafields",
+      "label": "AI prompt ürün detay metafield'ları (JSON)",
+      "default": "[{\"namespace\":\"custom\",\"key\":\"material\",\"label\":\"Malzeme\"},{\"namespace\":\"custom\",\"key\":\"dimensions\",\"label\":\"Ölçü\"},{\"namespace\":\"custom\",\"key\":\"color\",\"label\":\"Renk\"}]",
+      "info": "Önce bu sabit key'ler denenir. Üründe yoksa aynı namespace içinde ipucu taraması yapılır (renk, ölçü, malzeme vb.). Boş dizi [] = sadece otomatik tarama."
+    },
+    {
+      "type": "text",
+      "id": "product_detail_metafield_namespace",
+      "label": "Ürün detay metafield namespace (ipucu taraması)",
+      "default": "custom",
+      "info": "Otomatik metafield araması bu namespace altında yapılır. Örn: custom"
+    },
+    {
       "type": "range",
       "id": "max_design_attempts",
       "label": "Maksimum AI tasarım denemesi",

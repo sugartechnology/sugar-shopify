@@ -4,7 +4,36 @@ import { authenticate } from "../shopify.server";
 import { generateProductImage } from "../services/sugar-api.server";
 import { resolveDesignProductsFromShopify } from "../services/resolve-shopify-products.server";
 import { getShopConfig } from "../services/shop-config.server";
-import type { DesignProductSelection } from "../types/sugar";
+import type { DesignProductSelection, ProductDetailMetafieldRef } from "../types/sugar";
+
+function normalizeQuantity(raw: unknown): number {
+  const qty = Number(raw);
+  if (!Number.isFinite(qty) || qty < 1) return 1;
+  return Math.min(99, Math.floor(qty));
+}
+
+function parseMetafieldRefs(raw: unknown): ProductDetailMetafieldRef[] {
+  if (!raw) return [];
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const namespace = String(row.namespace ?? "").trim();
+    const key = String(row.key ?? "").trim();
+    if (!namespace || !key) return [];
+    const label = String(row.label ?? "").trim();
+    return [{ namespace, key, ...(label ? { label } : {}) }];
+  });
+}
 
 function parseSelections(raw: unknown): DesignProductSelection[] {
   if (!raw) return [];
@@ -34,6 +63,7 @@ function parseSelections(raw: unknown): DesignProductSelection[] {
         productId,
         variantId,
         isPrimary: row.isPrimary === true,
+        quantity: normalizeQuantity(row.quantity),
         position:
           Number.isFinite(x) && Number.isFinite(y)
             ? {
@@ -66,7 +96,18 @@ async function handleGenerate(request: Request) {
     );
   }
 
-  const products = await resolveDesignProductsFromShopify(admin, selections);
+  const metafieldRefs = parseMetafieldRefs(
+    formData.get("productDetailMetafields"),
+  );
+  const discoveryNamespace =
+    String(formData.get("productDetailMetafieldNamespace") ?? "").trim() ||
+    "custom";
+  const products = await resolveDesignProductsFromShopify(
+    admin,
+    selections,
+    metafieldRefs,
+    discoveryNamespace,
+  );
 
   let mockupImageBytes: Buffer | undefined;
   const mockupPart = formData.get("mockupImage");

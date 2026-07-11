@@ -119,6 +119,19 @@ export const THEME_PRESET_CLASSES: Record<
   },
 };
 
+export interface ProductDetailMetafieldRef {
+  namespace: string;
+  key: string;
+  label?: string;
+}
+
+export interface ProductMetafieldDetail {
+  namespace: string;
+  key: string;
+  label?: string;
+  value: string;
+}
+
 export interface ProductPlacement {
   /** Normalized center X on room image (0–1) */
   x: number;
@@ -132,6 +145,7 @@ export interface DesignProductSelection {
   productId: string;
   variantId: string;
   isPrimary?: boolean;
+  quantity?: number;
   position?: ProductPlacement | null;
 }
 
@@ -145,6 +159,8 @@ export interface DesignProductInput {
   images: string[];
   imageUrl?: string;
   isPrimary?: boolean;
+  quantity?: number;
+  productDetails?: ProductMetafieldDetail[];
   position?: ProductPlacement | null;
 }
 

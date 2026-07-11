@@ -348,11 +348,13 @@
   };
 
   MockupEditor.prototype.getSelectionsPayload = function () {
+    var self = this;
     return this.placements.map(function (placement) {
       return {
         productId: placement.productId,
         variantId: placement.variantId,
         isPrimary: !!placement.isPrimary,
+        quantity: self.pdp.getProductQuantity({ variantId: placement.variantId }),
         position: {
           x: placement.x,
           y: placement.y,
@@ -377,6 +379,7 @@
           productId: String(primary.productId || ""),
           variantId: String(primary.variantId || ""),
           isPrimary: true,
+          quantity: this.pdp.getProductQuantity(primary),
         },
       ],
       includeMockup: false,

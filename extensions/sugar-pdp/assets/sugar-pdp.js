@@ -601,6 +601,27 @@
     return this.savedDesigns.getProductKey();
   };
 
+  SugarPdp.prototype.getProductDetailMetafieldRefs = function () {
+    var raw = this.config.productDetailMetafieldsJson;
+    if (Array.isArray(this.config.productDetailMetafields)) {
+      return this.config.productDetailMetafields.filter(function (ref) {
+        return ref && ref.namespace && ref.key;
+      });
+    }
+    var parsed = core.parseJson(raw, []);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(function (ref) {
+      return ref && ref.namespace && ref.key;
+    });
+  };
+
+  SugarPdp.prototype.getProductDetailMetafieldNamespace = function () {
+    var namespace = String(
+      this.config.productDetailMetafieldNamespace || "custom",
+    ).trim();
+    return namespace || "custom";
+  };
+
   SugarPdp.prototype.syncDesignAttemptCount = function () {
     this.designAttemptCount = core.getDesignAttemptCount(this.getProductKey());
   };
@@ -1081,6 +1102,13 @@
           formData.append("mockupImage", mockupBlob, "mockup.jpg");
         }
       }
+
+      var metafieldRefs = this.getProductDetailMetafieldRefs();
+      formData.append("productDetailMetafields", JSON.stringify(metafieldRefs));
+      formData.append(
+        "productDetailMetafieldNamespace",
+        this.getProductDetailMetafieldNamespace(),
+      );
 
       var response = await fetch(this.config.proxyUrl || "/apps/sugar/generate", {
         method: "POST",
