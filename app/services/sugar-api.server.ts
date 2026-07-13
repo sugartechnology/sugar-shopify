@@ -38,8 +38,14 @@ export function normalizeProductsForApi(
     }
 
     const limited = ordered.slice(0, MAX_PRODUCT_IMAGES);
+    const quantity =
+      typeof product.quantity === "number" && product.quantity >= 1
+        ? Math.min(99, Math.floor(product.quantity))
+        : 1;
+
     return {
       ...product,
+      quantity,
       imageUrl: limited[0] ?? "",
       images: limited,
     };

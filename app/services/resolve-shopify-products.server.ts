@@ -110,6 +110,35 @@ function normalizeQuantity(raw: unknown): number {
   return Math.min(99, Math.floor(qty));
 }
 
+export const SUGAR_QUANTITY_DETAIL_NAMESPACE = "sugar";
+export const SUGAR_QUANTITY_DETAIL_KEY = "quantity";
+
+export function appendQuantityToProductDetails(
+  product: DesignProductInput,
+): DesignProductInput {
+  const quantity = normalizeQuantity(product.quantity);
+  const details = [...(product.productDetails ?? [])].filter(
+    (detail) =>
+      !(
+        detail.namespace === SUGAR_QUANTITY_DETAIL_NAMESPACE &&
+        detail.key === SUGAR_QUANTITY_DETAIL_KEY
+      ),
+  );
+
+  details.unshift({
+    namespace: SUGAR_QUANTITY_DETAIL_NAMESPACE,
+    key: SUGAR_QUANTITY_DETAIL_KEY,
+    label: "Adet",
+    value: String(quantity),
+  });
+
+  return {
+    ...product,
+    quantity,
+    productDetails: details,
+  };
+}
+
 export function normalizeMetafieldKey(key: string): string {
   return key
     .toLowerCase()
@@ -330,20 +359,22 @@ export async function resolveDesignProductsFromShopify(
       gidToNumericId(variant.product?.id) ||
       "";
 
-    resolved.push({
-      productId,
-      variantId: gidToNumericId(variant.id) || String(selection.variantId),
-      title: variant.product?.title || variant.title || "Product",
-      handle: variant.product?.handle || "",
-      price: String(variant.price ?? "0"),
-      currency,
-      imageUrl: images[0] ?? "",
-      images,
-      isPrimary: selection.isPrimary === true,
-      quantity: normalizeQuantity(selection.quantity),
-      productDetails: resolveProductDetails(variant, metafieldRefs, namespace),
-      position: selection.position ?? null,
-    });
+    resolved.push(
+      appendQuantityToProductDetails({
+        productId,
+        variantId: gidToNumericId(variant.id) || String(selection.variantId),
+        title: variant.product?.title || variant.title || "Product",
+        handle: variant.product?.handle || "",
+        price: String(variant.price ?? "0"),
+        currency,
+        imageUrl: images[0] ?? "",
+        images,
+        isPrimary: selection.isPrimary === true,
+        quantity: normalizeQuantity(selection.quantity),
+        productDetails: resolveProductDetails(variant, metafieldRefs, namespace),
+        position: selection.position ?? null,
+      }),
+    );
   }
 
   return resolved;

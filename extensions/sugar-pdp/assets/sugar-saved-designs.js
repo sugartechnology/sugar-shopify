@@ -29,6 +29,12 @@
     return core.getDesignsForProduct(this.getProductKey());
   };
 
+  SavedDesigns.prototype.getDesignById = function (designId) {
+    return this.load().find(function (item) {
+      return String(item.id) === String(designId);
+    });
+  };
+
   SavedDesigns.prototype.renderPage = function () {
     var designs = this.load();
     if (this.section) {
@@ -43,15 +49,43 @@
     });
   };
 
+  SavedDesigns.prototype.createPickGridItem = function (design) {
+    var card = document.createElement("button");
+    card.type = "button";
+    card.className = "sugar-pick-grid__item";
+    card.dataset.sugarPickDesign = design.id;
+    card.setAttribute("aria-label", this.formatDate(design.createdAt));
+    card.innerHTML =
+      '<span class="sugar-pick-grid__media">' +
+      '<img class="sugar-pick-grid__img" src="' +
+      (design.imageUrl || design.thumbnailUrl) +
+      '" alt="" loading="lazy">' +
+      "</span>" +
+      '<span class="sugar-pick-grid__date">' +
+      this.formatDate(design.createdAt) +
+      "</span>";
+    return card;
+  };
+
   SavedDesigns.prototype.renderPickSource = function () {
     var strip =
-      (this.pdp.dialog && this.pdp.dialog.querySelector("[data-sugar-pick-source-strip]")) ||
+      (this.pdp.dialog &&
+        this.pdp.dialog.querySelector("[data-sugar-pick-source-strip]")) ||
       this.pdp.root.querySelector("[data-sugar-pick-source-strip]");
     if (!strip) return;
+
+    var designs = this.load();
     var self = this;
     strip.innerHTML = "";
-    this.load().forEach(function (design) {
-      strip.appendChild(self.createCard(design));
+
+    if (designs.length === 0) {
+      strip.setAttribute("hidden", "");
+      return;
+    }
+
+    strip.removeAttribute("hidden");
+    designs.forEach(function (design) {
+      strip.appendChild(self.createPickGridItem(design));
     });
   };
 
@@ -168,10 +202,15 @@
   };
 
   SavedDesigns.prototype.open = function (designId) {
-    var record = this.load().find(function (item) {
-      return String(item.id) === String(designId);
-    });
+    var record = this.getDesignById(designId);
     if (!record) return;
+
+    var priorStep = this.pdp.step;
+    this.pdp.resultFromSavedDesign = true;
+    this.pdp.resultReturnStep =
+      priorStep === "pick-source" || this.load().length > 0
+        ? "pick-source"
+        : "upload";
 
     this.pdp.hideMessage();
     this.pdp.designResult = {

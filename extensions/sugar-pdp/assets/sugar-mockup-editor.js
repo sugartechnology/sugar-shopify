@@ -350,11 +350,19 @@
   MockupEditor.prototype.getSelectionsPayload = function () {
     var self = this;
     return this.placements.map(function (placement) {
+      var product = self.pdp.allProducts().find(function (item) {
+        return String(item.variantId) === String(placement.variantId);
+      });
       return {
         productId: placement.productId,
         variantId: placement.variantId,
         isPrimary: !!placement.isPrimary,
-        quantity: self.pdp.getProductQuantity({ variantId: placement.variantId }),
+        quantity: self.pdp.getProductQuantity(
+          product || {
+            variantId: placement.variantId,
+            isPrimary: !!placement.isPrimary,
+          },
+        ),
         position: {
           x: placement.x,
           y: placement.y,

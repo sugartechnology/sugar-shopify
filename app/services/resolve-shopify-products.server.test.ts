@@ -1,12 +1,84 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  appendQuantityToProductDetails,
   collectVariantImageUrls,
   gidToNumericId,
   keyMatchesHint,
   resolveProductDetails,
   toVariantGid,
 } from "./resolve-shopify-products.server";
+
+describe("appendQuantityToProductDetails", () => {
+  it("adds quantity to productDetails for the AI prompt", () => {
+    const enriched = appendQuantityToProductDetails({
+      productId: "1",
+      variantId: "2",
+      title: "Klem Sofa",
+      handle: "klem",
+      price: "100",
+      currency: "TRY",
+      images: [],
+      quantity: 3,
+      productDetails: [
+        { namespace: "custom", key: "renk", label: "Renk", value: "Antrasit" },
+      ],
+    });
+
+    assert.equal(enriched.quantity, 3);
+    assert.equal(enriched.productDetails?.[0]?.label, "Adet");
+    assert.equal(enriched.productDetails?.[0]?.value, "3");
+    assert.ok(
+      enriched.productDetails?.some(
+        (detail) => detail.key === "renk" && detail.value === "Antrasit",
+      ),
+    );
+  });
+
+  it("defaults missing quantity to 1", () => {
+    const enriched = appendQuantityToProductDetails({
+      productId: "1",
+      variantId: "2",
+      title: "Klem Sofa",
+      handle: "klem",
+      price: "100",
+      currency: "TRY",
+      images: [],
+    });
+
+    assert.equal(enriched.quantity, 1);
+    assert.equal(enriched.productDetails?.[0]?.value, "1");
+  });
+
+  it("replaces an existing sugar quantity detail", () => {
+    const enriched = appendQuantityToProductDetails({
+      productId: "1",
+      variantId: "2",
+      title: "Klem Sofa",
+      handle: "klem",
+      price: "100",
+      currency: "TRY",
+      images: [],
+      quantity: 5,
+      productDetails: [
+        {
+          namespace: "sugar",
+          key: "quantity",
+          label: "Adet",
+          value: "2",
+        },
+      ],
+    });
+
+    assert.equal(enriched.quantity, 5);
+    assert.equal(
+      enriched.productDetails?.filter((detail) => detail.key === "quantity")
+        .length,
+      1,
+    );
+    assert.equal(enriched.productDetails?.[0]?.value, "5");
+  });
+});
 
 describe("toVariantGid", () => {
   it("wraps numeric variant id in Shopify GID", () => {

@@ -310,7 +310,7 @@
     "addDesignToCartLabel": {{ add_cart_label | json }},
     "loadingTitle": {{ loading_title | json }},
     "loadingSubtitle": {{ loading_subtitle | json }},
-    "loadingEstimateSec": 50,
+    "loadingEstimateSec": 30,
     "heroImageUrl": {{ upload_illustration_url | json }},
     "uploadIllustrationUrl": {{ upload_illustration_url | json }},
     "uploadIllustrationFit": {{ upload_illustration_fit | json }},
@@ -381,6 +381,7 @@
       "editPlacement": {{ 'sugar.edit_placement' | t | json }},
       "errorDesignLimit": {{ 'sugar.error_design_limit' | t | json }},
       "loadingProgress": {{ 'sugar.loading_progress' | t | json }},
+      "loadingCountdown": {{ 'sugar.loading_countdown' | t | json }},
       "loadingTimeRemaining": {{ 'sugar.loading_time_remaining' | t | json }},
       "loadingComplete": {{ 'sugar.loading_complete' | t | json }},
       "loadingAlmostDone": {{ 'sugar.loading_almost_done' | t | json }},
@@ -490,17 +491,22 @@
         </div>
 
         <div class="sugar-step" data-sugar-step="pick-source">
-          <div class="sugar-step__scroll">
-            <p class="sugar-instruction">{{ 'sugar.gallery_choice_instruction' | t }}</p>
-            <p class="sugar-saved-designs__label">{{ 'sugar.pick_saved_designs' | t }}</p>
-            <div class="sugar-saved-designs__strip sugar-saved-designs__strip--pick" data-sugar-pick-source-strip></div>
+          <p class="sugar-instruction sugar-instruction--pick-source">{{ 'sugar.gallery_choice_instruction' | t }}</p>
+          <div class="sugar-pick-source" data-sugar-pick-source-saved>
+            <h3 class="sugar-pick-source__heading">{{ 'sugar.pick_saved_designs' | t }}</h3>
+            <div class="sugar-pick-source__scroll">
+              <div class="sugar-pick-source__grid" data-sugar-pick-source-strip></div>
+            </div>
           </div>
           <div class="sugar-modal__actions">
             <button type="button" class="sugar-btn sugar-btn--back {{ secondary_classes }}" data-sugar-pick-source-back>
               {% render 'sugar-pdp-icons', icon: 'arrow-left' %}
               <span>{{ 'sugar.pick_back' | t }}</span>
             </button>
-            <button type="button" class="sugar-btn {{ primary_classes }}" data-sugar-pick-new-photo>{{ 'sugar.pick_new_photo' | t }}</button>
+            <button type="button" class="sugar-btn sugar-btn--pick-new {{ primary_classes }}" data-sugar-pick-new-photo>
+              {% render 'sugar-pdp-icons', icon: 'upload' %}
+              <span>{{ 'sugar.pick_new_photo' | t }}</span>
+            </button>
           </div>
         </div>
 
@@ -568,6 +574,7 @@
             <div class="sugar-spinner" aria-hidden="true"></div>
             <p class="sugar-loading-title">{{ loading_title }}</p>
             <p class="sugar-loading-sub">{{ loading_subtitle }}</p>
+            <p class="sugar-loading-countdown" data-sugar-loading-countdown aria-live="polite">30</p>
             <div
               class="sugar-loading-progress"
               data-sugar-loading-progress
@@ -587,6 +594,10 @@
 
         <div class="sugar-step" data-sugar-step="result">
           <div class="sugar-result-bar">
+            <button type="button" class="sugar-result-bar__back" data-sugar-result-back-saved hidden>
+              {% render 'sugar-pdp-icons', icon: 'arrow-left' %}
+              <span>{{ 'sugar.result_back_saved' | t }}</span>
+            </button>
             <span class="sugar-result-bar__status">{{ 'sugar.result_ready' | t }}</span>
             <button type="button" class="sugar-result-bar__edit" data-sugar-redo>{{ 'sugar.edit_placement' | t }}</button>
           </div>

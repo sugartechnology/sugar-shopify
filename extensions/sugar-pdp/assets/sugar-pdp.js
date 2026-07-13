@@ -20,6 +20,9 @@
     this.resultQuantities = {};
     this.productQuantities = {};
     this.cameraStream = null;
+    this.resultFromSavedDesign = false;
+    this.resultReturnStep = null;
+    this.compactModalHeight = null;
     this.toastTimer = null;
     this.designAttemptCount = 0;
     this.unlimitedDesignAttempts = core.isShopifyAdminPreview();
@@ -111,6 +114,7 @@
     this.loadingProgressLabel = this.root.querySelector(
       "[data-sugar-loading-progress-label]",
     );
+    this.loadingCountdownEl = this.queryModal("[data-sugar-loading-countdown]");
     this.loadingProgressTimer = null;
   };
 
@@ -580,21 +584,73 @@
     });
   };
 
+  SugarPdp.prototype.syncCompactModalHeight = function () {
+    var modal = this.modalEl || this.queryModal(".sugar-modal");
+    if (!modal || !this.dialog || !this.dialog.open || this.step !== "upload") return;
+    var height = modal.getBoundingClientRect().height;
+    if (height > 0) this.compactModalHeight = height;
+  };
+
+  SugarPdp.prototype.applyCompactModalHeight = function () {
+    var modal = this.modalEl || this.queryModal(".sugar-modal");
+    if (!modal) return;
+    if (this.compactModalHeight && this.compactModalHeight > 0) {
+      modal.style.height = this.compactModalHeight + "px";
+      modal.classList.remove("sugar-modal--animating");
+      return;
+    }
+    var height = modal.getBoundingClientRect().height;
+    if (height > 0) {
+      this.compactModalHeight = height;
+      modal.style.height = height + "px";
+      modal.classList.remove("sugar-modal--animating");
+    }
+  };
+
+  SugarPdp.prototype.clearCompactModalHeight = function () {
+    this.compactModalHeight = null;
+    var modal = this.modalEl || this.queryModal(".sugar-modal");
+    if (modal) modal.style.height = "";
+  };
+
+  SugarPdp.prototype.shouldUseCompactModalHeight = function (nextStep) {
+    return nextStep === "upload" || nextStep === "pick-source";
+  };
+
   SugarPdp.prototype.setStep = function (step) {
     if (step !== "camera") this.stopCameraStream();
     if (step !== "loading") this.stopLoadingProgress();
     var modal = this.modalEl || this.queryModal(".sugar-modal");
     var canAnimate = !!(modal && this.dialog && this.dialog.open);
     var startHeight = canAnimate ? modal.getBoundingClientRect().height : 0;
-    this.step = step;
+    var useCompact = canAnimate && modal && this.shouldUseCompactModalHeight(step);
     var self = this;
+
+    this.step = step;
     STEPS.forEach(function (s) {
       if (self.steps[s]) self.steps[s].classList.toggle("is-active", s === step);
     });
     if (step === "products") this.updateReviewStep();
-    if (step === "result") this.syncDesignActions();
+    if (step === "result") {
+      this.syncDesignActions();
+      this.syncSavedDesignResultUi();
+    }
     if (step === "result" || step === "products") this.syncDesignLimitUi();
-    if (canAnimate) this.animateModalHeight(startHeight);
+
+    if (useCompact) {
+      if (step === "upload") {
+        requestAnimationFrame(function () {
+          self.syncCompactModalHeight();
+          self.applyCompactModalHeight();
+        });
+      } else {
+        this.applyCompactModalHeight();
+      }
+    } else if (canAnimate) {
+      this.animateModalHeight(startHeight);
+    } else if (modal) {
+      modal.style.height = "";
+    }
   };
 
   SugarPdp.prototype.getProductKey = function () {
@@ -708,6 +764,17 @@
     this.runDesign({ isRedesign: true });
   };
 
+  SugarPdp.prototype.getLoadingEstimateSec = function () {
+    return Math.max(1, Number(this.config.loadingEstimateSec || 30));
+  };
+
+  SugarPdp.prototype.formatLoadingCountdown = function (remainingSec) {
+    return this.t("loadingCountdown", "{{seconds}} sec").replace(
+      "{{seconds}}",
+      String(Math.max(0, remainingSec)),
+    );
+  };
+
   SugarPdp.prototype.formatLoadingProgressLabel = function (percent, remainingSec) {
     var progress = this.t("loadingProgress", "{{percent}}% complete").replace(
       "{{percent}}",
@@ -723,6 +790,18 @@
     return progress + " · " + remaining;
   };
 
+  SugarPdp.prototype.updateLoadingCountdownUi = function (remainingSec) {
+    if (!this.loadingCountdownEl) {
+      this.loadingCountdownEl = this.queryModal("[data-sugar-loading-countdown]");
+    }
+    if (!this.loadingCountdownEl) return;
+    if (remainingSec <= 0) {
+      this.loadingCountdownEl.textContent = this.t("loadingAlmostDone", "Almost there…");
+      return;
+    }
+    this.loadingCountdownEl.textContent = this.formatLoadingCountdown(remainingSec);
+  };
+
   SugarPdp.prototype.updateLoadingProgressUi = function (percent) {
     if (this.loadingBar) this.loadingBar.style.width = percent + "%";
     if (this.loadingProgressEl) {
@@ -732,9 +811,10 @@
 
   SugarPdp.prototype.startLoadingProgress = function () {
     this.stopLoadingProgress();
-    var estimatedSec = Math.max(20, Number(this.config.loadingEstimateSec || 50));
+    var estimatedSec = this.getLoadingEstimateSec();
     var startedAt = Date.now();
     this.updateLoadingProgressUi(0);
+    this.updateLoadingCountdownUi(estimatedSec);
     if (this.loadingProgressLabel) {
       this.loadingProgressLabel.textContent = this.formatLoadingProgressLabel(
         0,
@@ -744,10 +824,11 @@
     var self = this;
     this.loadingProgressTimer = window.setInterval(function () {
       var elapsedSec = (Date.now() - startedAt) / 1000;
-      var ratio = Math.min(0.92, 1 - Math.exp(-elapsedSec / (estimatedSec * 0.65)));
-      var percent = Math.round(ratio * 100);
       var remainingSec = Math.max(0, Math.ceil(estimatedSec - elapsedSec));
+      var ratio = Math.min(0.92, elapsedSec / estimatedSec);
+      var percent = Math.round(ratio * 100);
       self.updateLoadingProgressUi(percent);
+      self.updateLoadingCountdownUi(remainingSec);
       if (self.loadingProgressLabel) {
         self.loadingProgressLabel.textContent = self.formatLoadingProgressLabel(
           percent,
@@ -759,6 +840,9 @@
 
   SugarPdp.prototype.completeLoadingProgress = function () {
     this.updateLoadingProgressUi(100);
+    if (this.loadingCountdownEl) {
+      this.loadingCountdownEl.textContent = this.t("loadingComplete", "Design ready!");
+    }
     if (this.loadingProgressLabel) {
       this.loadingProgressLabel.textContent = this.t("loadingComplete", "Design ready!");
     }
@@ -925,6 +1009,31 @@
     this.designActions.hidden = !(this.step === "result" && hasImage);
   };
 
+  SugarPdp.prototype.syncSavedDesignResultUi = function () {
+    var backBtn = this.queryModal("[data-sugar-result-back-saved]");
+    var editBtn = this.queryModal("[data-sugar-redo]");
+    var showBack = this.step === "result" && this.resultFromSavedDesign && !!this.resultReturnStep;
+
+    if (backBtn) {
+      if (showBack) backBtn.removeAttribute("hidden");
+      else backBtn.setAttribute("hidden", "");
+    }
+
+    if (editBtn) {
+      if (showBack) editBtn.setAttribute("hidden", "");
+      else editBtn.removeAttribute("hidden");
+    }
+  };
+
+  SugarPdp.prototype.returnFromSavedDesignResult = function () {
+    var target = this.resultReturnStep || "pick-source";
+    this.hideMessage();
+    this.resultFromSavedDesign = false;
+    this.resultReturnStep = null;
+    if (target === "pick-source") this.savedDesigns.renderPickSource();
+    this.setStep(target);
+  };
+
   SugarPdp.prototype.downloadDesignImage = async function () {
     var url = this.getDesignImageUrl();
     if (!url) return;
@@ -1017,6 +1126,7 @@
   SugarPdp.prototype.closeModal = function () {
     this.hideMessage();
     this.stopCameraStream();
+    this.clearCompactModalHeight();
     if (this.dialog && this.dialog.open) this.dialog.close();
   };
 
@@ -1121,6 +1231,8 @@
       }
 
       this.designResult = data;
+      this.resultFromSavedDesign = false;
+      this.resultReturnStep = null;
       this.resultPlacements = this.mockup.getResultPlacementsSnapshot();
       this.resultSelections = {};
       this.resultQuantities = {};
@@ -1313,7 +1425,13 @@
 
     this.queryModal("[data-sugar-redo]")?.addEventListener("click", function () {
       self.hideMessage();
+      self.resultFromSavedDesign = false;
+      self.resultReturnStep = null;
       self.setStep(self.mockup.roomFile ? "products" : "upload");
+    });
+
+    this.queryModal("[data-sugar-result-back-saved]")?.addEventListener("click", function () {
+      self.returnFromSavedDesignResult();
     });
 
     this.redesignBtn?.addEventListener("click", function () {
@@ -1404,6 +1522,13 @@
         self.savedDesigns.remove(deleteBtn.getAttribute("data-sugar-delete-design"));
         return;
       }
+
+      var pickItem = e.target.closest("[data-sugar-pick-design]");
+      if (pickItem) {
+        self.savedDesigns.open(pickItem.getAttribute("data-sugar-pick-design"));
+        return;
+      }
+
       var card = e.target.closest(".sugar-saved-design");
       if (!card || !card.dataset.designId) return;
       self.savedDesigns.open(card.dataset.designId);
@@ -1414,6 +1539,14 @@
 
     var handleSavedDesignKeydown = function (e) {
       if (e.key !== "Enter" && e.key !== " ") return;
+
+      var pickItem = e.target.closest("[data-sugar-pick-design]");
+      if (pickItem) {
+        e.preventDefault();
+        self.savedDesigns.open(pickItem.getAttribute("data-sugar-pick-design"));
+        return;
+      }
+
       var card = e.target.closest(".sugar-saved-design");
       if (!card || !card.dataset.designId) return;
       e.preventDefault();

@@ -141,6 +141,33 @@ describe("normalizeProductsForApi", () => {
     assert.equal(rows.length, 1);
     assert.deepEqual(rows[0]?.images, ["https://cdn.shopify.com/same.jpg"]);
   });
+
+  it("preserves quantity on each product row", () => {
+    const rows = normalizeProductsForApi([
+      {
+        productId: "1",
+        variantId: "2",
+        title: "Test",
+        handle: "test",
+        price: "100",
+        currency: "TRY",
+        imageUrl: "https://cdn.shopify.com/a.jpg",
+        images: ["https://cdn.shopify.com/a.jpg"],
+        quantity: 4,
+        productDetails: [
+          {
+            namespace: "sugar",
+            key: "quantity",
+            label: "Adet",
+            value: "4",
+          },
+        ],
+      },
+    ]);
+
+    assert.equal(rows[0]?.quantity, 4);
+    assert.equal(rows[0]?.productDetails?.[0]?.value, "4");
+  });
 });
 
 describe("normalizeCdnUrl", () => {
