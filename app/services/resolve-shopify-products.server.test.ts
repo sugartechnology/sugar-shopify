@@ -5,6 +5,8 @@ import {
   collectVariantImageUrls,
   gidToNumericId,
   keyMatchesHint,
+  MAX_DESCRIPTION_LENGTH,
+  normalizeProductDescription,
   resolveProductDetails,
   toVariantGid,
 } from "./resolve-shopify-products.server";
@@ -179,5 +181,26 @@ describe("resolveProductDetails", () => {
     const details = resolveProductDetails(variant, [], "custom");
     assert.ok(details.length >= 2);
     assert.equal(details.some((detail) => detail.key === "renk"), true);
+  });
+});
+
+describe("normalizeProductDescription", () => {
+  it("collapses whitespace and trims", () => {
+    assert.equal(
+      normalizeProductDescription("  Modern\n\nkoltuk   takımı  "),
+      "Modern koltuk takımı",
+    );
+  });
+
+  it("returns empty string for null/undefined", () => {
+    assert.equal(normalizeProductDescription(null), "");
+    assert.equal(normalizeProductDescription(undefined), "");
+  });
+
+  it("truncates long descriptions with ellipsis", () => {
+    const long = "kelime ".repeat(200);
+    const result = normalizeProductDescription(long);
+    assert.ok(result.length <= MAX_DESCRIPTION_LENGTH + 1);
+    assert.ok(result.endsWith("…"));
   });
 });

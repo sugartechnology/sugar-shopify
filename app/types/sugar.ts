@@ -160,6 +160,7 @@ export interface DesignProductInput {
   imageUrl?: string;
   isPrimary?: boolean;
   quantity?: number;
+  description?: string;
   productDetails?: ProductMetafieldDetail[];
   position?: ProductPlacement | null;
 }

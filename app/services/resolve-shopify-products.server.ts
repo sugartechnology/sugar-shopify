@@ -53,6 +53,7 @@ type VariantNode = {
     id?: string;
     title?: string;
     handle?: string;
+    description?: string | null;
     media?: {
       nodes?: Array<{
         image?: { url?: string | null } | null;
@@ -108,6 +109,19 @@ function normalizeQuantity(raw: unknown): number {
   const qty = Number(raw);
   if (!Number.isFinite(qty) || qty < 1) return 1;
   return Math.min(99, Math.floor(qty));
+}
+
+export const MAX_DESCRIPTION_LENGTH = 600;
+
+export function normalizeProductDescription(raw: unknown): string {
+  const text = String(raw ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "";
+  if (text.length <= MAX_DESCRIPTION_LENGTH) return text;
+  const cut = text.slice(0, MAX_DESCRIPTION_LENGTH);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > MAX_DESCRIPTION_LENGTH * 0.6 ? cut.slice(0, lastSpace) : cut) + "…";
 }
 
 export const SUGAR_QUANTITY_DETAIL_NAMESPACE = "sugar";
@@ -301,6 +315,7 @@ export async function resolveDesignProductsFromShopify(
               id
               title
               handle
+              description
               media(first: 10) {
                 nodes {
                   ... on MediaImage {
@@ -371,6 +386,7 @@ export async function resolveDesignProductsFromShopify(
         images,
         isPrimary: selection.isPrimary === true,
         quantity: normalizeQuantity(selection.quantity),
+        description: normalizeProductDescription(variant.product?.description),
         productDetails: resolveProductDetails(variant, metafieldRefs, namespace),
         position: selection.position ?? null,
       }),
