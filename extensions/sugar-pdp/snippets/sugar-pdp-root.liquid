@@ -246,6 +246,7 @@
       "title": {{ cat_product.title | json }},
       "price": {{ cat_variant.price | json }},
       "currency": {{ shop_currency | json }},
+      "isPrimary": false,
       "imageUrl": {{ cat_img | image_url: width: 400 | json }},
       "images": [
         {%- assign rel_img_count = 0 -%}
@@ -271,6 +272,7 @@
       "title": {{ cat_product.title | json }},
       "price": {{ cat_variant.price | json }},
       "currency": {{ shop_currency | json }},
+      "isPrimary": false,
       "imageUrl": {{ cat_img | image_url: width: 400 | json }},
       "images": [
         {%- assign col_img_count = 0 -%}

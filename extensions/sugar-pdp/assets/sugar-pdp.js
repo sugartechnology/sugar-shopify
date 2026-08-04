@@ -857,8 +857,7 @@
 
   SugarPdp.prototype.updateReviewStep = function () {
     var self = this;
-    var hasCatalog = this.allProducts().length > 0;
-    if (this.productsSection) this.productsSection.hidden = !hasCatalog;
+    if (this.productsSection) this.productsSection.hidden = false;
     if (this.reviewInstruction) {
       this.reviewInstruction.textContent =
         this.config.instructionTemplate ||

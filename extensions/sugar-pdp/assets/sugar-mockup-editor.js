@@ -349,48 +349,57 @@
 
   MockupEditor.prototype.getSelectionsPayload = function () {
     var self = this;
-    return this.placements.map(function (placement) {
-      var product = self.pdp.allProducts().find(function (item) {
-        return String(item.variantId) === String(placement.variantId);
+    var selections = [];
+
+    this.pdp.allProducts().forEach(function (product) {
+      var productId = String(product.productId);
+      var variantId = String(product.variantId);
+      var isPrimary = !!product.isPrimary;
+
+      if (!isPrimary && !self.pdp.isProductEnabled(productId)) return;
+
+      var qty = self.pdp.getProductQuantity(product);
+      if (!isPrimary && qty < 1) return;
+
+      var placement = self.placements.find(function (p) {
+        return String(p.variantId) === variantId;
       });
-      return {
-        productId: placement.productId,
-        variantId: placement.variantId,
-        isPrimary: !!placement.isPrimary,
-        quantity: self.pdp.getProductQuantity(
-          product || {
-            variantId: placement.variantId,
-            isPrimary: !!placement.isPrimary,
-          },
-        ),
-        position: {
-          x: placement.x,
-          y: placement.y,
-          scale: placement.scale || DEFAULT_PLACEMENT_SCALE,
-        },
-      };
+
+      selections.push({
+        productId: productId,
+        variantId: variantId,
+        isPrimary: isPrimary,
+        quantity: qty,
+        position: placement
+          ? {
+              x: placement.x,
+              y: placement.y,
+              scale: placement.scale || DEFAULT_PLACEMENT_SCALE,
+            }
+          : null,
+      });
     });
+
+    return selections;
   };
 
   MockupEditor.prototype.buildGeneratePayload = function () {
-    if (this.placements.length > 0) {
-      return {
-        selections: this.getSelectionsPayload(),
-        includeMockup: true,
-      };
-    }
-
-    var primary = this.pdp.primaryProduct;
-    return {
-      selections: [
+    var selections = this.getSelectionsPayload();
+    if (!selections.length) {
+      var primary = this.pdp.primaryProduct;
+      selections = [
         {
           productId: String(primary.productId || ""),
           variantId: String(primary.variantId || ""),
           isPrimary: true,
           quantity: this.pdp.getProductQuantity(primary),
         },
-      ],
-      includeMockup: false,
+      ];
+    }
+
+    return {
+      selections: selections,
+      includeMockup: this.placements.length > 0,
     };
   };
 
