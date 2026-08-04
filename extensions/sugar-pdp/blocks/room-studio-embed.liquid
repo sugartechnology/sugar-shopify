@@ -1,0 +1,174 @@
+{% comment %}
+  App embed — Theme Editor → App embeds
+  Works on all templates (not product-only).
+{% endcomment %}
+{% render 'room-studio-root',
+  settings: block.settings,
+  sugar_attributes: block.shopify_attributes,
+  embed_mode: true
+%}
+
+{% schema %}
+{
+  "name": "Sugar Curator",
+  "target": "body",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Theme Editor → App embeds. Modal önerilir (global trigger). Gömülü mod body sonunda paneli gösterir."
+    },
+    {
+      "type": "select",
+      "id": "display_mode",
+      "label": "Görünüm",
+      "options": [
+        { "value": "modal", "label": "Modal (popup)" },
+        { "value": "embedded", "label": "Gömülü (sayfa içi)" }
+      ],
+      "default": "modal"
+    },
+    {
+      "type": "checkbox",
+      "id": "use_all_products",
+      "label": "Tüm mağaza ürünlerini kullan",
+      "default": false,
+      "info": "Açıksa tüm ürünler otomatik gelir. Collection listesi isteğe bağlı kategori filtresi olur."
+    },
+    {
+      "type": "collection_list",
+      "id": "catalog_collections",
+      "label": "Katalog collection'ları (kategoriler)",
+      "limit": 20
+    },
+    {
+      "type": "range",
+      "id": "max_products",
+      "label": "Maksimum seçilebilir ürün",
+      "min": 1,
+      "max": 5,
+      "step": 1,
+      "default": 5
+    },
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "Buton metni",
+      "default": "Be your own curator"
+    },
+    {
+      "type": "text",
+      "id": "button_helper",
+      "label": "Buton alt metni"
+    },
+    {
+      "type": "text",
+      "id": "modal_title",
+      "label": "Başlık",
+      "default": "Be your own curator"
+    },
+    {
+      "type": "text",
+      "id": "modal_subtitle",
+      "label": "Alt başlık",
+      "default": "Style your space with our pieces."
+    },
+    {
+      "type": "text",
+      "id": "add_cart_label",
+      "label": "Sepete ekle butonu"
+    },
+    {
+      "type": "textarea",
+      "id": "product_detail_metafields",
+      "label": "AI prompt ürün detay metafield'ları (JSON)",
+      "default": "[{\"namespace\":\"custom\",\"key\":\"material\",\"label\":\"Malzeme\"},{\"namespace\":\"custom\",\"key\":\"dimensions\",\"label\":\"Ölçü\"},{\"namespace\":\"custom\",\"key\":\"color\",\"label\":\"Renk\"}]"
+    },
+    {
+      "type": "text",
+      "id": "product_detail_metafield_namespace",
+      "label": "Ürün detay metafield namespace",
+      "default": "custom"
+    },
+    {
+      "type": "range",
+      "id": "max_design_attempts",
+      "label": "Maksimum AI tasarım denemesi",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "default": 3
+    },
+    {
+      "type": "select",
+      "id": "theme_preset",
+      "label": "Tema preset",
+      "options": [
+        { "value": "custom", "label": "Custom" },
+        { "value": "dawn", "label": "Dawn" },
+        { "value": "normod", "label": "Normod" }
+      ],
+      "default": "dawn"
+    },
+    {
+      "type": "color",
+      "id": "modal_bg_color",
+      "label": "Arka plan",
+      "default": "#ffffff"
+    },
+    {
+      "type": "color",
+      "id": "modal_text_color",
+      "label": "Metin rengi",
+      "default": "#121212"
+    },
+    {
+      "type": "color",
+      "id": "accent_color",
+      "label": "Vurgu rengi",
+      "default": "#c4a574"
+    },
+    {
+      "type": "range",
+      "id": "modal_radius",
+      "label": "Köşe radius (px)",
+      "min": 0,
+      "max": 32,
+      "step": 1,
+      "default": 16
+    },
+    {
+      "type": "range",
+      "id": "font_scale",
+      "label": "Font ölçeği",
+      "min": 75,
+      "max": 150,
+      "step": 5,
+      "default": 100,
+      "unit": "%"
+    },
+    {
+      "type": "image_picker",
+      "id": "header_icon",
+      "label": "Header ikon"
+    },
+    {
+      "type": "text",
+      "id": "ai_button_classes",
+      "label": "Trigger button CSS classes",
+      "default": "sugar-rs-trigger-btn"
+    },
+    {
+      "type": "text",
+      "id": "primary_button_classes",
+      "label": "Primary button classes",
+      "default": "button button--primary"
+    },
+    {
+      "type": "text",
+      "id": "secondary_button_classes",
+      "label": "Secondary button classes",
+      "default": "button button--secondary"
+    }
+  ]
+}
+{% endschema %}
