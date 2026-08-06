@@ -104,9 +104,12 @@
     "search_categories": "Kategori ara",
     "search_products": "Ürün ara",
     "all_products": "Tüm Ürünler",
+    "all_in_category": "Kategorideki tümü",
+    "loading_more_products": "{{shown}} / {{total}} ürün",
     "selected_count": "Seçili {{count}} / {{max}}",
     "selected_products": "Seçili ürünler ({{count}}/{{max}})",
     "selected_hint": "Mekanında görmek için en fazla {{max}} ürün ekle.",
+    "cart_total": "Sepet toplamı",
     "your_room": "Odan",
     "change_photo": "Fotoğrafı değiştir",
     "remove_photo": "Fotoğrafı kaldır",
@@ -114,7 +117,9 @@
     "upload_room_hint": "Fotoğraf bırak veya tıklayarak seç",
     "tips_label": "İpuçları",
     "tips_text": "En iyi sonuç için iyi aydınlatılmış bir oda fotoğrafı kullan.",
+    "tips_products": "Önce kategoriden ürün seç; sonraki adımda oda fotoğrafını yükleyeceksin.",
     "clear_all": "Tümünü temizle",
+    "continue_to_upload": "Oda fotoğrafına geç",
     "see_my_space": "Mekanımı gör",
     "loading_title": "AI mekanını tasarlıyor...",
     "loading_subtitle": "Seçili parçalar odaya yerleştiriliyor",
@@ -141,6 +146,10 @@
     "cart_success_detail": "{{count}} ürün sepetinize eklendi.",
     "empty_category": "Bu kategoride ürün yok.",
     "add_product": "Ekle",
-    "remove_product": "Kaldır"
+    "remove_product": "Kaldır",
+    "design_mode": "Tasarım modu",
+    "design_auto": "Auto",
+    "design_manual": "Manual",
+    "drag_drop_tip": "Ürünleri oda fotoğrafının üzerine sürükleyip bırakarak yerleştirin."
   }
 }

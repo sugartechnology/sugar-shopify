@@ -31,6 +31,43 @@
   margin: 1rem 0;
 }
 
+.sugar-trigger-banner {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: var(--sugar-modal-radius);
+  overflow: hidden;
+  line-height: 0;
+  box-shadow: var(--sugar-ai-btn-shadow, 0 2px 8px rgba(0, 0, 0, 0.06));
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.sugar-trigger-banner:hover {
+  opacity: 0.96;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+}
+
+.sugar-trigger-banner:active {
+  transform: translateY(0);
+}
+
+.sugar-trigger-banner__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 14rem;
+  object-fit: cover;
+  object-position: center;
+}
+
 .sugar-ai-btn {
   display: inline-flex;
   align-items: center;

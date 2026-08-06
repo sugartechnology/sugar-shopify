@@ -25,6 +25,16 @@
   if button_helper == blank
     assign button_helper = 'sugar.button_helper' | t
   endif
+
+  assign trigger_banner_url = ''
+  if settings.trigger_banner_image != blank
+    assign trigger_banner_url = settings.trigger_banner_image | image_url: width: 1200
+  elsif settings.trigger_banner_image_url != blank
+    assign trigger_banner_url = settings.trigger_banner_image_url
+  elsif mf.trigger_banner_image_url != blank
+    assign trigger_banner_url = mf.trigger_banner_image_url
+  endif
+
   assign modal_title = settings.modal_title | default: mf.modal_title
   if modal_title == blank
     assign modal_title = 'sugar.modal_title' | t
@@ -404,13 +414,33 @@
   data-sugar-catalog='{{ catalog_json | strip_newlines }}'
   data-sugar-variants='{{ variants_json | strip_newlines }}'
 >
-  <div class="sugar-trigger-wrap">
-    <button type="button" class="{{ ai_btn_classes }}" data-sugar-open>
-      <span class="sugar-ai-btn__sparkle" aria-hidden="true">{% render 'sugar-pdp-icons', icon: 'sparkle' %}</span>
-      {{ button_label }}
-      <span class="sugar-ai-btn__sparkle" aria-hidden="true">{% render 'sugar-pdp-icons', icon: 'sparkle' %}</span>
-    </button>
-    <p class="sugar-trigger-helper">{{ button_helper }}</p>
+  <div class="sugar-trigger-wrap{% if trigger_banner_url != blank %} sugar-trigger-wrap--banner{% endif %}">
+    {%- if trigger_banner_url != blank -%}
+      <button
+        type="button"
+        class="sugar-trigger-banner"
+        data-sugar-open
+        aria-label="{{ button_label | escape }}"
+      >
+        <img
+          class="sugar-trigger-banner__img"
+          src="{{ trigger_banner_url }}"
+          alt="{{ button_label | escape }}"
+          width="1200"
+          height="400"
+          loading="lazy"
+        >
+      </button>
+    {%- else -%}
+      <button type="button" class="{{ ai_btn_classes }}" data-sugar-open>
+        <span class="sugar-ai-btn__sparkle" aria-hidden="true">{% render 'sugar-pdp-icons', icon: 'sparkle' %}</span>
+        {{ button_label }}
+        <span class="sugar-ai-btn__sparkle" aria-hidden="true">{% render 'sugar-pdp-icons', icon: 'sparkle' %}</span>
+      </button>
+    {%- endif -%}
+    {%- if button_helper != blank -%}
+      <p class="sugar-trigger-helper">{{ button_helper }}</p>
+    {%- endif -%}
     <div class="sugar-saved-designs" data-sugar-saved-designs-page hidden>
       <p class="sugar-saved-designs__label">{{ 'sugar.saved_designs_label' | t }}</p>
       <div class="sugar-saved-designs__strip" data-sugar-saved-strip></div>

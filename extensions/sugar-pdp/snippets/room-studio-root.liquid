@@ -68,6 +68,13 @@
     assign header_icon_url = settings.header_icon | image_url: width: 64
   endif
 
+  assign trigger_banner_url = ''
+  if settings.trigger_banner_image != blank
+    assign trigger_banner_url = settings.trigger_banner_image | image_url: width: 1200
+  elsif settings.trigger_banner_image_url != blank
+    assign trigger_banner_url = settings.trigger_banner_image_url
+  endif
+
   assign catalog_collections = settings.catalog_collections
   assign use_all_products = false
   if settings.use_all_products == true or settings.use_all_products == 'true'
@@ -139,6 +146,8 @@
             "variantId": {{ cat_variant.id | json }},
             "title": {{ cat_product.title | json }},
             "handle": {{ cat_product.handle | json }},
+            "productType": {{ cat_product.type | json }},
+            "tags": {{ cat_product.tags | json }},
             "price": {{ cat_variant.price | json }},
             "currency": {{ shop_currency | json }},
             "imageUrl": {% if cat_img != blank %}{{ cat_img | image_url: width: 600 | json }}{% else %}""{% endif %},
@@ -174,6 +183,8 @@
                 "variantId": {{ cat_variant.id | json }},
                 "title": {{ cat_product.title | json }},
                 "handle": {{ cat_product.handle | json }},
+                "productType": {{ cat_product.type | json }},
+                "tags": {{ cat_product.tags | json }},
                 "price": {{ cat_variant.price | json }},
                 "currency": {{ shop_currency | json }},
                 "imageUrl": {% if cat_img != blank %}{{ cat_img | image_url: width: 600 | json }}{% else %}""{% endif %},
@@ -248,9 +259,12 @@
       "searchCategories": {{ 'sugar_rs.search_categories' | t | json }},
       "searchProducts": {{ 'sugar_rs.search_products' | t | json }},
       "allProducts": {{ 'sugar_rs.all_products' | t | json }},
+      "allInCategory": {{ 'sugar_rs.all_in_category' | t | json }},
+      "loadingMoreProducts": {{ 'sugar_rs.loading_more_products' | t | json }},
       "selectedCount": {{ 'sugar_rs.selected_count' | t | json }},
       "selectedProducts": {{ 'sugar_rs.selected_products' | t | json }},
       "selectedHint": {{ 'sugar_rs.selected_hint' | t | json }},
+      "cartTotal": {{ 'sugar_rs.cart_total' | t | json }},
       "yourRoom": {{ 'sugar_rs.your_room' | t | json }},
       "changePhoto": {{ 'sugar_rs.change_photo' | t | json }},
       "removePhoto": {{ 'sugar_rs.remove_photo' | t | json }},
@@ -259,6 +273,7 @@
       "tipsLabel": {{ 'sugar_rs.tips_label' | t | json }},
       "tipsText": {{ 'sugar_rs.tips_text' | t | json }},
       "clearAll": {{ 'sugar_rs.clear_all' | t | json }},
+      "continueToUpload": {{ 'sugar_rs.continue_to_upload' | t | json }},
       "seeMySpace": {{ 'sugar_rs.see_my_space' | t | json }},
       "loadingTitle": {{ 'sugar_rs.loading_title' | t | json }},
       "loadingSubtitle": {{ 'sugar_rs.loading_subtitle' | t | json }},
@@ -285,19 +300,41 @@
       "cartSuccessDetail": {{ 'sugar_rs.cart_success_detail' | t | json }},
       "emptyCategory": {{ 'sugar_rs.empty_category' | t | json }},
       "addProduct": {{ 'sugar_rs.add_product' | t | json }},
-      "removeProduct": {{ 'sugar_rs.remove_product' | t | json }}
+      "removeProduct": {{ 'sugar_rs.remove_product' | t | json }},
+      "designMode": {{ 'sugar_rs.design_mode' | t | json }},
+      "designAuto": {{ 'sugar_rs.design_auto' | t | json }},
+      "designManual": {{ 'sugar_rs.design_manual' | t | json }},
+      "dragDropTip": {{ 'sugar_rs.drag_drop_tip' | t | json }}
     }
   }'
   data-sugar-rs-catalog='{{ catalog_json | strip_newlines }}'
 >
   {%- if display_mode == 'modal' -%}
-    <div class="sugar-rs-trigger-wrap">
-      <button type="button" class="{{ ai_btn_classes }}" data-sugar-rs-open>
-        <span class="sugar-rs-trigger-btn__icon" aria-hidden="true">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.75 2.25L22 17l-2.25.75L19 20l-.75-2.25L16 17l2.25-.75L19 14z"/></svg>
-        </span>
-        <span data-sugar-rs-trigger-label>{{ button_label }}</span>
-      </button>
+    <div class="sugar-rs-trigger-wrap{% if trigger_banner_url != blank %} sugar-rs-trigger-wrap--banner{% endif %}">
+      {%- if trigger_banner_url != blank -%}
+        <button
+          type="button"
+          class="sugar-rs-trigger-banner"
+          data-sugar-rs-open
+          aria-label="{{ button_label | escape }}"
+        >
+          <img
+            class="sugar-rs-trigger-banner__img"
+            src="{{ trigger_banner_url }}"
+            alt="{{ button_label | escape }}"
+            width="1200"
+            height="400"
+            loading="lazy"
+          >
+        </button>
+      {%- else -%}
+        <button type="button" class="{{ ai_btn_classes }}" data-sugar-rs-open>
+          <span class="sugar-rs-trigger-btn__icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.75 2.25L22 17l-2.25.75L19 20l-.75-2.25L16 17l2.25-.75L19 14z"/></svg>
+          </span>
+          <span data-sugar-rs-trigger-label>{{ button_label }}</span>
+        </button>
+      {%- endif -%}
       {%- if button_helper != blank -%}
         <p class="sugar-rs-trigger-helper">{{ button_helper }}</p>
       {%- endif -%}
@@ -328,21 +365,23 @@
 
         <nav class="sugar-rs-stepper" data-sugar-rs-stepper aria-label="Steps">
           <div class="sugar-rs-stepper__item is-active" data-sugar-rs-step-indicator="studio">
-            <span class="sugar-rs-stepper__num">1</span>
+            <span class="sugar-rs-stepper__num" aria-hidden="true">1</span>
             <span class="sugar-rs-stepper__text">
               <strong>{{ 'sugar_rs.step_products' | t }}</strong>
               <small>{{ 'sugar_rs.step_products_hint' | t }}</small>
             </span>
           </div>
+          <span class="sugar-rs-stepper__rail" aria-hidden="true"></span>
           <div class="sugar-rs-stepper__item" data-sugar-rs-step-indicator="upload">
-            <span class="sugar-rs-stepper__num">2</span>
+            <span class="sugar-rs-stepper__num" aria-hidden="true">2</span>
             <span class="sugar-rs-stepper__text">
               <strong>{{ 'sugar_rs.step_upload' | t }}</strong>
               <small>{{ 'sugar_rs.step_upload_hint' | t }}</small>
             </span>
           </div>
+          <span class="sugar-rs-stepper__rail" aria-hidden="true"></span>
           <div class="sugar-rs-stepper__item" data-sugar-rs-step-indicator="result">
-            <span class="sugar-rs-stepper__num">3</span>
+            <span class="sugar-rs-stepper__num" aria-hidden="true">3</span>
             <span class="sugar-rs-stepper__text">
               <strong>{{ 'sugar_rs.step_result' | t }}</strong>
               <small>{{ 'sugar_rs.step_result_hint' | t }}</small>
@@ -352,7 +391,7 @@
 
         {%- if display_mode == 'modal' -%}
           <button type="button" class="sugar-rs-close" data-sugar-rs-close aria-label="{{ 'sugar_rs.close_aria' | t }}">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
           </button>
         {%- endif -%}
       </header>
@@ -383,7 +422,67 @@
           </section>
 
           <aside class="sugar-rs-side">
-            <div class="sugar-rs-room">
+            <div class="sugar-rs-slots">
+              <h3 data-sugar-rs-slots-title></h3>
+              <p class="sugar-rs-slots__hint" data-sugar-rs-slots-hint></p>
+              <div class="sugar-rs-slots__row" data-sugar-rs-slots></div>
+              <div class="sugar-rs-slots__total" data-sugar-rs-slots-total hidden>
+                <span data-sugar-rs-slots-total-label>{{ 'sugar_rs.cart_total' | t }}</span>
+                <strong data-sugar-rs-slots-total-value></strong>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <footer class="sugar-rs-footer">
+          <div class="sugar-rs-tips">
+            <span class="sugar-rs-tips__icon" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                <path d="M12 3l1.1 3.3L16.5 7.5l-3.4 1.1L12 12l-1.1-3.4L7.5 7.5l3.4-1.2L12 3z"/>
+                <path d="M18.5 13l.7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7.7-2.1z"/>
+              </svg>
+            </span>
+            <strong class="sugar-rs-tips__label">{{ 'sugar_rs.tips_label' | t }}</strong>
+            <span class="sugar-rs-tips__divider" aria-hidden="true"></span>
+            <p class="sugar-rs-tips__text">{{ 'sugar_rs.tips_products' | t }}</p>
+          </div>
+          <div class="sugar-rs-footer__actions">
+            <button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-clear>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12"/></svg>
+              {{ 'sugar_rs.clear_all' | t }}
+            </button>
+            <button type="button" class="sugar-rs-primary-btn" data-sugar-rs-continue disabled>
+              {{ 'sugar_rs.continue_to_upload' | t }}
+              <span aria-hidden="true">→</span>
+            </button>
+          </div>
+        </footer>
+      </div>
+
+      <div class="sugar-rs-step" data-sugar-rs-step="upload">
+        <div class="sugar-rs-upload-layout">
+          <div class="sugar-rs-upload-layout__top">
+            <div class="sugar-rs-upload-panel__copy">
+              <h3>{{ 'sugar_rs.step_upload' | t }}</h3>
+              <p>{{ 'sugar_rs.step_upload_hint' | t }}</p>
+            </div>
+            <div
+              class="sugar-rs-design-mode"
+              data-sugar-rs-design-mode
+              role="group"
+              aria-label="{{ 'sugar_rs.design_mode' | t }}"
+            >
+              <button type="button" class="sugar-rs-design-mode__btn is-active" data-sugar-rs-mode="auto">
+                {{ 'sugar_rs.design_auto' | t }}
+              </button>
+              <button type="button" class="sugar-rs-design-mode__btn" data-sugar-rs-mode="manual">
+                {{ 'sugar_rs.design_manual' | t }}
+              </button>
+            </div>
+          </div>
+
+          <div class="sugar-rs-upload-layout__body">
+            <div class="sugar-rs-room sugar-rs-room--focus">
               <div class="sugar-rs-room__head">
                 <h3>{{ 'sugar_rs.your_room' | t }}</h3>
                 <div class="sugar-rs-room__actions" data-sugar-rs-room-actions hidden>
@@ -394,9 +493,10 @@
                 </div>
               </div>
               <div class="sugar-rs-room__preview" data-sugar-rs-room-preview>
-                <img data-sugar-rs-room-img alt="" hidden>
+                <img data-sugar-rs-room-img width="1200" height="900" alt="" hidden>
+                <div class="sugar-rs-room__layers" data-sugar-rs-room-layers hidden></div>
                 <button type="button" class="sugar-rs-room__upload" data-sugar-rs-room-upload-btn>
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="M21 16l-5-5-7 7"/></svg>
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="M21 16l-5-5-7 7"/></svg>
                   <span>{{ 'sugar_rs.upload_room' | t }}</span>
                   <small>{{ 'sugar_rs.upload_room_hint' | t }}</small>
                 </button>
@@ -404,47 +504,31 @@
               <input type="file" accept="image/*" data-sugar-rs-room-file hidden>
             </div>
 
-            <div class="sugar-rs-slots">
-              <h3 data-sugar-rs-slots-title></h3>
-              <p class="sugar-rs-slots__hint" data-sugar-rs-slots-hint></p>
-              <div class="sugar-rs-slots__row" data-sugar-rs-slots></div>
-            </div>
-          </aside>
-        </div>
-
-        <footer class="sugar-rs-footer">
-          <div class="sugar-rs-tips">
-            <span class="sugar-rs-tips__icon" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-3 11v2h6v-2a6 6 0 00-3-11z"/></svg>
-            </span>
-            <div>
-              <strong>{{ 'sugar_rs.tips_label' | t }}</strong>
-              <p>{{ 'sugar_rs.tips_text' | t }}</p>
-            </div>
+            <aside class="sugar-rs-upload-products">
+              <h3 class="sugar-rs-upload-products__title" data-sugar-rs-upload-products-title></h3>
+              <div class="sugar-rs-upload-products__tip" data-sugar-rs-manual-tip hidden>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                  <path d="M8 11V6.5a1.5 1.5 0 0 1 3 0V11"/>
+                  <path d="M11 10.5V5.5a1.5 1.5 0 0 1 3 0V11"/>
+                  <path d="M14 10V7.5a1.5 1.5 0 0 1 3 0V12"/>
+                  <path d="M8 11l-1.2 1.6A3 3 0 0 0 7 14.2V17a3 3 0 0 0 3 3h5.5a3 3 0 0 0 2.9-2.3l.9-3.7A2 2 0 0 0 17.5 11H8z"/>
+                </svg>
+                <span>{{ 'sugar_rs.drag_drop_tip' | t }}</span>
+              </div>
+              <div class="sugar-rs-upload-products__list" data-sugar-rs-upload-products></div>
+            </aside>
           </div>
-          <div class="sugar-rs-footer__actions">
-            <button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-clear>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12"/></svg>
-              {{ 'sugar_rs.clear_all' | t }}
+
+          <p class="sugar-rs-upload-panel__tip">{{ 'sugar_rs.tips_text' | t }}</p>
+          <div class="sugar-rs-upload-panel__actions">
+            <button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-back-studio>
+              {{ 'sugar_rs.back_to_studio' | t }}
             </button>
-            <button type="button" class="sugar-rs-primary-btn" data-sugar-rs-generate>
+            <button type="button" class="sugar-rs-primary-btn" data-sugar-rs-generate disabled>
               {{ 'sugar_rs.see_my_space' | t }}
               <span aria-hidden="true">→</span>
             </button>
           </div>
-        </footer>
-      </div>
-
-      <div class="sugar-rs-step" data-sugar-rs-step="upload">
-        <div class="sugar-rs-upload-focus">
-          <h3>{{ 'sugar_rs.step_upload' | t }}</h3>
-          <p>{{ 'sugar_rs.step_upload_hint' | t }}</p>
-          <button type="button" class="sugar-rs-primary-btn" data-sugar-rs-upload-focus-btn>
-            {{ 'sugar_rs.upload_room' | t }}
-          </button>
-          <button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-back-studio>
-            {{ 'sugar_rs.back_to_studio' | t }}
-          </button>
         </div>
       </div>
 
@@ -467,8 +551,8 @@
             </button>
           </div>
           <div class="sugar-rs-compare" data-sugar-rs-compare>
-            <img data-sugar-rs-compare-origin alt="{{ 'sugar_rs.compare_origin' | t }}">
-            <img data-sugar-rs-compare-design alt="{{ 'sugar_rs.compare_design' | t }}">
+            <img data-sugar-rs-compare-origin width="1200" height="900" alt="{{ 'sugar_rs.compare_origin' | t }}">
+            <img data-sugar-rs-compare-design width="1200" height="900" alt="{{ 'sugar_rs.compare_design' | t }}">
             <input type="range" min="0" max="100" value="50" data-sugar-rs-compare-range aria-label="Compare">
           </div>
           <ul class="sugar-rs-result-list" data-sugar-rs-result-list></ul>

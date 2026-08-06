@@ -104,9 +104,12 @@
     "search_categories": "Search categories",
     "search_products": "Search products",
     "all_products": "All Products",
+    "all_in_category": "All in category",
+    "loading_more_products": "Showing {{shown}} of {{total}}",
     "selected_count": "Selected {{count}} / {{max}}",
     "selected_products": "Selected products ({{count}}/{{max}})",
     "selected_hint": "Add up to {{max}} products to see them in your space.",
+    "cart_total": "Cart total",
     "your_room": "Your room",
     "change_photo": "Change photo",
     "remove_photo": "Remove photo",
@@ -114,7 +117,9 @@
     "upload_room_hint": "Drop a photo or click to browse",
     "tips_label": "Tips",
     "tips_text": "For best results, use a well-lit photo of your room.",
+    "tips_products": "Pick products from categories first; you’ll upload a room photo in the next step.",
     "clear_all": "Clear all",
+    "continue_to_upload": "Continue to room photo",
     "see_my_space": "See my space",
     "loading_title": "AI is designing your space...",
     "loading_subtitle": "Placing your selected pieces in the room",
@@ -141,6 +146,10 @@
     "cart_success_detail": "{{count}} item(s) added to your cart.",
     "empty_category": "No products in this category.",
     "add_product": "Add",
-    "remove_product": "Remove"
+    "remove_product": "Remove",
+    "design_mode": "Design mode",
+    "design_auto": "Auto",
+    "design_manual": "Manual",
+    "drag_drop_tip": "Drag products onto your room photo to place them."
   }
 }

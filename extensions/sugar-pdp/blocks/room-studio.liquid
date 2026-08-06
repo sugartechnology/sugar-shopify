@@ -28,7 +28,7 @@
       "type": "collection_list",
       "id": "catalog_collections",
       "label": "Katalog collection'ları (kategoriler)",
-      "info": "Her collection sol menüde bir kategori olur. 'Tüm ürünler' kapalıysa katalog yalnızca bu listeden gelir.",
+      "info": "Her collection sol menüde bir kategori olur. 'Outdoor > Koltuk' gibi başlıklar Outdoor altında alt menü olarak birleşir. Product type alanından da alt menü üretilebilir.",
       "limit": 20
     },
     {
@@ -45,10 +45,23 @@
       "content": "Modal tetikleyici"
     },
     {
+      "type": "image_picker",
+      "id": "trigger_banner_image",
+      "label": "Banner görseli",
+      "info": "Doluysa buton yerine tıklanabilir banner gösterilir. Tıklanınca deneyim açılır."
+    },
+    {
+      "type": "text",
+      "id": "trigger_banner_image_url",
+      "label": "Banner görseli URL",
+      "info": "Harici CDN URL. Image picker doluysa picker önceliklidir."
+    },
+    {
       "type": "text",
       "id": "button_label",
       "label": "Buton metni",
-      "default": "Be your own curator"
+      "default": "Be your own curator",
+      "info": "Banner yoksa buton metni olarak; banner varsa erişilebilirlik (aria) metni olarak kullanılır."
     },
     {
       "type": "text",
