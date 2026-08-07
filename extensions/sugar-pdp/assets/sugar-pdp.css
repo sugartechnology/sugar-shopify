@@ -63,9 +63,8 @@
   display: block;
   width: 100%;
   height: auto;
-  max-height: 14rem;
-  object-fit: cover;
-  object-position: center;
+  max-height: none;
+  object-fit: unset;
 }
 
 .sugar-ai-btn {

@@ -69,8 +69,12 @@
   endif
 
   assign trigger_banner_url = ''
+  assign trigger_banner_width = 1200
+  assign trigger_banner_height = ''
   if settings.trigger_banner_image != blank
-    assign trigger_banner_url = settings.trigger_banner_image | image_url: width: 1200
+    assign trigger_banner_url = settings.trigger_banner_image | image_url: width: 1600
+    assign trigger_banner_width = settings.trigger_banner_image.width | default: 1200
+    assign trigger_banner_height = settings.trigger_banner_image.height
   elsif settings.trigger_banner_image_url != blank
     assign trigger_banner_url = settings.trigger_banner_image_url
   endif
@@ -270,6 +274,15 @@
       "removePhoto": {{ 'sugar_rs.remove_photo' | t | json }},
       "uploadRoom": {{ 'sugar_rs.upload_room' | t | json }},
       "uploadRoomHint": {{ 'sugar_rs.upload_room_hint' | t | json }},
+      "galleryLabel": {{ 'sugar_rs.gallery_label' | t | json }},
+      "gallerySub": {{ 'sugar_rs.gallery_sub' | t | json }},
+      "cameraLabel": {{ 'sugar_rs.camera_label' | t | json }},
+      "cameraSub": {{ 'sugar_rs.camera_sub' | t | json }},
+      "cameraInstruction": {{ 'sugar_rs.camera_instruction' | t | json }},
+      "cameraCapture": {{ 'sugar_rs.camera_capture' | t | json }},
+      "cameraCancel": {{ 'sugar_rs.camera_cancel' | t | json }},
+      "cameraLoading": {{ 'sugar_rs.camera_loading' | t | json }},
+      "errorCamera": {{ 'sugar_rs.error_camera' | t | json }},
       "tipsLabel": {{ 'sugar_rs.tips_label' | t | json }},
       "tipsText": {{ 'sugar_rs.tips_text' | t | json }},
       "clearAll": {{ 'sugar_rs.clear_all' | t | json }},
@@ -304,7 +317,8 @@
       "designMode": {{ 'sugar_rs.design_mode' | t | json }},
       "designAuto": {{ 'sugar_rs.design_auto' | t | json }},
       "designManual": {{ 'sugar_rs.design_manual' | t | json }},
-      "dragDropTip": {{ 'sugar_rs.drag_drop_tip' | t | json }}
+      "dragDropTip": {{ 'sugar_rs.drag_drop_tip' | t | json }},
+      "dragLabel": {{ 'sugar_rs.drag_label' | t | json }}
     }
   }'
   data-sugar-rs-catalog='{{ catalog_json | strip_newlines }}'
@@ -322,8 +336,8 @@
             class="sugar-rs-trigger-banner__img"
             src="{{ trigger_banner_url }}"
             alt="{{ button_label | escape }}"
-            width="1200"
-            height="400"
+            width="{{ trigger_banner_width }}"
+            {% if trigger_banner_height != blank %}height="{{ trigger_banner_height }}"{% endif %}
             loading="lazy"
           >
         </button>
@@ -400,18 +414,37 @@
 
       <div class="sugar-rs-step is-active" data-sugar-rs-step="studio">
         <div class="sugar-rs-studio">
-          <aside class="sugar-rs-cats">
-            <label class="sugar-rs-search">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-              <input type="search" data-sugar-rs-cat-search placeholder="{{ 'sugar_rs.search_categories' | t }}" autocomplete="off">
-            </label>
-            <ul class="sugar-rs-cat-list" data-sugar-rs-cat-list role="listbox"></ul>
+          <aside class="sugar-rs-cats" data-sugar-rs-cats>
+            <button
+              type="button"
+              class="sugar-rs-cat-select"
+              data-sugar-rs-cat-select-trigger
+              aria-haspopup="listbox"
+              aria-expanded="false"
+            >
+              <span class="sugar-rs-cat-select__icon" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+              </span>
+              <span class="sugar-rs-cat-select__text" data-sugar-rs-cat-select-label>{{ 'sugar_rs.all_products' | t }}</span>
+              <span class="sugar-rs-cat-select__chevron" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </span>
+            </button>
+            <div class="sugar-rs-cat-select__panel" data-sugar-rs-cat-select-panel>
+              <label class="sugar-rs-search">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+                <input type="search" data-sugar-rs-cat-search placeholder="{{ 'sugar_rs.search_categories' | t }}" autocomplete="off">
+              </label>
+              <ul class="sugar-rs-cat-list" data-sugar-rs-cat-list role="listbox"></ul>
+            </div>
           </aside>
 
           <section class="sugar-rs-browse">
             <div class="sugar-rs-browse__head">
               <h3 class="sugar-rs-browse__title" data-sugar-rs-browse-title>{{ 'sugar_rs.all_products' | t }}</h3>
-              <p class="sugar-rs-browse__count" data-sugar-rs-selected-count></p>
+              <div class="sugar-rs-browse__head-actions">
+                <p class="sugar-rs-browse__count" data-sugar-rs-selected-count></p>
+              </div>
             </div>
             <label class="sugar-rs-search sugar-rs-search--products">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
@@ -421,9 +454,20 @@
             <p class="sugar-rs-empty" data-sugar-rs-empty hidden>{{ 'sugar_rs.empty_category' | t }}</p>
           </section>
 
-          <aside class="sugar-rs-side">
-            <div class="sugar-rs-slots">
+          <div class="sugar-rs-side-backdrop" data-sugar-rs-side-backdrop hidden></div>
+          <aside class="sugar-rs-side" data-sugar-rs-side>
+            <div class="sugar-rs-side__sheet-head">
               <h3 data-sugar-rs-slots-title></h3>
+              <button
+                type="button"
+                class="sugar-rs-side__sheet-close"
+                data-sugar-rs-selected-close
+                aria-label="{{ 'sugar_rs.close_aria' | t }}"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+            <div class="sugar-rs-slots">
               <p class="sugar-rs-slots__hint" data-sugar-rs-slots-hint></p>
               <div class="sugar-rs-slots__row" data-sugar-rs-slots></div>
               <div class="sugar-rs-slots__total" data-sugar-rs-slots-total hidden>
@@ -447,6 +491,20 @@
             <p class="sugar-rs-tips__text">{{ 'sugar_rs.tips_products' | t }}</p>
           </div>
           <div class="sugar-rs-footer__actions">
+            <button
+              type="button"
+              class="sugar-rs-selected-icon"
+              data-sugar-rs-selected-toggle
+              aria-label="{{ 'sugar_rs.selected_products' | t }}"
+              aria-expanded="false"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                <path d="M6 7h15l-1.4 8.2a2 2 0 0 1-2 1.8H9.2a2 2 0 0 1-2-1.6L5.2 3.8A1.5 1.5 0 0 0 3.7 2.5H2"/>
+                <circle cx="10" cy="20" r="1.25"/>
+                <circle cx="17" cy="20" r="1.25"/>
+              </svg>
+              <span class="sugar-rs-selected-icon__badge" data-sugar-rs-selected-badge hidden>0</span>
+            </button>
             <button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-clear>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12"/></svg>
               {{ 'sugar_rs.clear_all' | t }}
@@ -466,19 +524,6 @@
               <h3>{{ 'sugar_rs.step_upload' | t }}</h3>
               <p>{{ 'sugar_rs.step_upload_hint' | t }}</p>
             </div>
-            <div
-              class="sugar-rs-design-mode"
-              data-sugar-rs-design-mode
-              role="group"
-              aria-label="{{ 'sugar_rs.design_mode' | t }}"
-            >
-              <button type="button" class="sugar-rs-design-mode__btn is-active" data-sugar-rs-mode="auto">
-                {{ 'sugar_rs.design_auto' | t }}
-              </button>
-              <button type="button" class="sugar-rs-design-mode__btn" data-sugar-rs-mode="manual">
-                {{ 'sugar_rs.design_manual' | t }}
-              </button>
-            </div>
           </div>
 
           <div class="sugar-rs-upload-layout__body">
@@ -495,10 +540,64 @@
               <div class="sugar-rs-room__preview" data-sugar-rs-room-preview>
                 <img data-sugar-rs-room-img width="1200" height="900" alt="" hidden>
                 <div class="sugar-rs-room__layers" data-sugar-rs-room-layers hidden></div>
-                <button type="button" class="sugar-rs-room__upload" data-sugar-rs-room-upload-btn>
-                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="M21 16l-5-5-7 7"/></svg>
-                  <span>{{ 'sugar_rs.upload_room' | t }}</span>
-                  <small>{{ 'sugar_rs.upload_room_hint' | t }}</small>
+                <div class="sugar-rs-room__sources" data-sugar-rs-room-sources>
+                  <button type="button" class="sugar-rs-source-card" data-sugar-rs-room-gallery-btn>
+                    <span class="sugar-rs-source-card__icon" aria-hidden="true">
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="M21 16l-5-5-7 7"/></svg>
+                    </span>
+                    <span class="sugar-rs-source-card__label">{{ 'sugar_rs.gallery_label' | t }}</span>
+                    <span class="sugar-rs-source-card__sub">{{ 'sugar_rs.gallery_sub' | t }}</span>
+                  </button>
+                  <button type="button" class="sugar-rs-source-card" data-sugar-rs-room-camera-btn>
+                    <span class="sugar-rs-source-card__icon" aria-hidden="true">
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 8h3l2-2h6l2 2h3v11H4V8z"/><circle cx="12" cy="13" r="3.5"/></svg>
+                    </span>
+                    <span class="sugar-rs-source-card__label">{{ 'sugar_rs.camera_label' | t }}</span>
+                    <span class="sugar-rs-source-card__sub">{{ 'sugar_rs.camera_sub' | t }}</span>
+                  </button>
+                </div>
+                <div class="sugar-rs-room__camera" data-sugar-rs-room-camera hidden>
+                  <div class="sugar-rs-room__camera-stage" data-sugar-rs-room-camera-wrap>
+                    <video class="sugar-rs-room__camera-video" data-sugar-rs-room-camera-video autoplay playsinline muted webkit-playsinline></video>
+                    <p class="sugar-rs-room__camera-loading">{{ 'sugar_rs.camera_loading' | t }}</p>
+                  </div>
+                  <canvas data-sugar-rs-room-camera-canvas hidden></canvas>
+                  <div class="sugar-rs-room__camera-actions">
+                    <button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-room-camera-cancel>
+                      {{ 'sugar_rs.camera_cancel' | t }}
+                    </button>
+                    <button type="button" class="sugar-rs-primary-btn" data-sugar-rs-room-camera-capture>
+                      {{ 'sugar_rs.camera_capture' | t }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div
+                class="sugar-rs-design-mode sugar-rs-design-mode--below-photo"
+                data-sugar-rs-design-mode
+                role="group"
+                aria-label="{{ 'sugar_rs.design_mode' | t }}"
+                hidden
+              >
+                <button type="button" class="sugar-rs-design-mode__btn is-active" data-sugar-rs-mode="auto">
+                  <span class="sugar-rs-design-mode__icon" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                      <path d="M12 3l1.6 4.8L18.4 9.4 13.6 11.2 12 16l-1.6-4.8L5.6 9.4l4.8-1.6L12 3z"/>
+                      <path d="M19 14.5l.85 2.55L22.4 18l-2.55.85L19 21.4l-.85-2.55L15.6 18l2.55-.85L19 14.5z"/>
+                    </svg>
+                  </span>
+                  <span class="sugar-rs-design-mode__label">{{ 'sugar_rs.design_auto' | t }}</span>
+                </button>
+                <button type="button" class="sugar-rs-design-mode__btn" data-sugar-rs-mode="manual">
+                  <span class="sugar-rs-design-mode__icon" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                      <path d="M8 11V6.5a1.5 1.5 0 0 1 3 0V11"/>
+                      <path d="M11 10.5V5.5a1.5 1.5 0 0 1 3 0V11"/>
+                      <path d="M14 10V7.5a1.5 1.5 0 0 1 3 0V12"/>
+                      <path d="M8 11l-1.2 1.6A3 3 0 0 0 7 14.2V17a3 3 0 0 0 3 3h5.5a3 3 0 0 0 2.9-2.3l.9-3.7A2 2 0 0 0 17.5 11H8z"/>
+                    </svg>
+                  </span>
+                  <span class="sugar-rs-design-mode__label">{{ 'sugar_rs.design_manual' | t }}</span>
                 </button>
               </div>
               <input type="file" accept="image/*" data-sugar-rs-room-file hidden>

@@ -115,6 +115,15 @@
     "remove_photo": "Fotoğrafı kaldır",
     "upload_room": "Oda fotoğrafı yükle",
     "upload_room_hint": "Fotoğraf bırak veya tıklayarak seç",
+    "gallery_label": "Galeri",
+    "gallery_sub": "Fotoğraf seç",
+    "camera_label": "Kamera",
+    "camera_sub": "Anlık çek",
+    "camera_instruction": "Odanı kadraja al ve fotoğraf çek.",
+    "camera_capture": "Fotoğraf çek",
+    "camera_cancel": "Geri",
+    "camera_loading": "Kamera açılıyor…",
+    "error_camera": "Kamera açılamadı. Galeriden fotoğraf seçebilirsiniz.",
     "tips_label": "İpuçları",
     "tips_text": "En iyi sonuç için iyi aydınlatılmış bir oda fotoğrafı kullan.",
     "tips_products": "Önce kategoriden ürün seç; sonraki adımda oda fotoğrafını yükleyeceksin.",
@@ -148,8 +157,10 @@
     "add_product": "Ekle",
     "remove_product": "Kaldır",
     "design_mode": "Tasarım modu",
-    "design_auto": "Auto",
-    "design_manual": "Manual",
-    "drag_drop_tip": "Ürünleri oda fotoğrafının üzerine sürükleyip bırakarak yerleştirin."
+    "design_auto": "Auto Design",
+    "design_manual": "Design By Yourself",
+    "drag_drop_tip": "Ürünleri oda fotoğrafının üzerine sürükleyip bırakarak yerleştirin.",
+    "drag_label": "Sürükle",
+    "drag_handle": "Sürükle"
   }
 }

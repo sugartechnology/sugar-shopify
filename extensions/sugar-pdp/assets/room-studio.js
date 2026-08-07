@@ -5,6 +5,24 @@
   var ATTEMPT_STORAGE_KEY = "sugar_rs_design_attempts";
   var DEFAULT_PLACEMENT_SCALE = 0.28;
 
+  function ensureMediaDevices() {
+    if (typeof navigator === "undefined") return false;
+    if (!navigator.mediaDevices) navigator.mediaDevices = {};
+    if (!navigator.mediaDevices.getUserMedia) {
+      var legacy =
+        navigator.getUserMedia ||
+        navigator.webkitGetUserMedia ||
+        navigator.mozGetUserMedia;
+      if (!legacy) return false;
+      navigator.mediaDevices.getUserMedia = function (constraints) {
+        return new Promise(function (resolve, reject) {
+          legacy.call(navigator, constraints, resolve, reject);
+        });
+      };
+    }
+    return true;
+  }
+
   function parseJson(raw, fallback) {
     try {
       return JSON.parse(raw || "");
@@ -351,10 +369,17 @@
     this.gridRenderLimit = 12;
     this.roomFile = null;
     this.roomPreviewUrl = "";
+    this.cameraStream = null;
     this.designMode = "auto";
     this.placementsByProductId = {};
     this.selectedPlacementId = null;
     this.placementDrag = null;
+    this.compareAutoplayRaf = null;
+    this.compareAutoplayActive = false;
+    this.compareUserPaused = false;
+    this.compareResumeTimer = null;
+    this.compareAutoplayDir = 1;
+    this.compareAutoplayValue = 0;
     this.designResult = null;
     this.resultSelections = {};
     this.loadingTimer = null;
@@ -929,12 +954,21 @@
     this.closeBtn = this.root.querySelector("[data-sugar-rs-close]");
     this.toastEl = this.root.querySelector("[data-sugar-rs-toast]");
     this.catList = this.root.querySelector("[data-sugar-rs-cat-list]");
+    this.catsEl = this.root.querySelector("[data-sugar-rs-cats]");
+    this.catSelectTrigger = this.root.querySelector("[data-sugar-rs-cat-select-trigger]");
+    this.catSelectPanel = this.root.querySelector("[data-sugar-rs-cat-select-panel]");
+    this.catSelectLabel = this.root.querySelector("[data-sugar-rs-cat-select-label]");
     this.catSearch = this.root.querySelector("[data-sugar-rs-cat-search]");
     this.productSearch = this.root.querySelector("[data-sugar-rs-product-search]");
     this.grid = this.root.querySelector("[data-sugar-rs-grid]");
     this.emptyEl = this.root.querySelector("[data-sugar-rs-empty]");
     this.browseTitle = this.root.querySelector("[data-sugar-rs-browse-title]");
     this.selectedCountEl = this.root.querySelector("[data-sugar-rs-selected-count]");
+    this.selectedToggleBtn = this.root.querySelector("[data-sugar-rs-selected-toggle]");
+    this.selectedCloseBtn = this.root.querySelector("[data-sugar-rs-selected-close]");
+    this.selectedBadgeEl = this.root.querySelector("[data-sugar-rs-selected-badge]");
+    this.sideEl = this.root.querySelector("[data-sugar-rs-side]");
+    this.sideBackdrop = this.root.querySelector("[data-sugar-rs-side-backdrop]");
     this.slotsEl = this.root.querySelector("[data-sugar-rs-slots]");
     this.slotsTitle = this.root.querySelector("[data-sugar-rs-slots-title]");
     this.slotsHint = this.root.querySelector("[data-sugar-rs-slots-hint]");
@@ -944,7 +978,17 @@
     this.roomImg = this.root.querySelector("[data-sugar-rs-room-img]");
     this.roomPreviewEl = this.root.querySelector("[data-sugar-rs-room-preview]");
     this.roomLayersEl = this.root.querySelector("[data-sugar-rs-room-layers]");
-    this.roomUploadBtn = this.root.querySelector("[data-sugar-rs-room-upload-btn]");
+    this.roomSourcesEl = this.root.querySelector("[data-sugar-rs-room-sources]");
+    this.roomGalleryBtn = this.root.querySelector("[data-sugar-rs-room-gallery-btn]");
+    this.roomCameraBtn = this.root.querySelector("[data-sugar-rs-room-camera-btn]");
+    this.roomCameraEl = this.root.querySelector("[data-sugar-rs-room-camera]");
+    this.roomCameraWrap = this.root.querySelector("[data-sugar-rs-room-camera-wrap]");
+    this.roomCameraVideo = this.root.querySelector("[data-sugar-rs-room-camera-video]");
+    this.roomCameraCanvas = this.root.querySelector("[data-sugar-rs-room-camera-canvas]");
+    this.roomCameraCancelBtn = this.root.querySelector("[data-sugar-rs-room-camera-cancel]");
+    this.roomCameraCaptureBtn = this.root.querySelector(
+      "[data-sugar-rs-room-camera-capture]",
+    );
     this.roomFileInput = this.root.querySelector("[data-sugar-rs-room-file]");
     this.roomActions = this.root.querySelector("[data-sugar-rs-room-actions]");
     this.changeRoomBtn = this.root.querySelector("[data-sugar-rs-change-room]");
@@ -969,6 +1013,10 @@
     this.compareDesign = this.root.querySelector("[data-sugar-rs-compare-design]");
     this.compareRange = this.root.querySelector("[data-sugar-rs-compare-range]");
     this.resultList = this.root.querySelector("[data-sugar-rs-result-list]");
+    this.panelEl =
+      (this.shell && this.shell.querySelector(".sugar-rs-panel")) ||
+      this.root.querySelector(".sugar-rs-panel");
+    this.stepperEl = this.root.querySelector("[data-sugar-rs-stepper]");
     this.stepEls = {};
     this.stepIndicators = {};
     var self = this;
@@ -1037,14 +1085,30 @@
       this.grid.addEventListener("scroll", this.boundGridScroll, { passive: true });
     }
 
-    if (this.roomUploadBtn) {
-      this.roomUploadBtn.addEventListener("click", function () {
-        if (self.roomFileInput) self.roomFileInput.click();
+    if (this.roomGalleryBtn) {
+      this.roomGalleryBtn.addEventListener("click", function () {
+        self.openRoomGallery();
+      });
+    }
+    if (this.roomCameraBtn) {
+      this.roomCameraBtn.addEventListener("click", function () {
+        self.openRoomCamera();
+      });
+    }
+    if (this.roomCameraCancelBtn) {
+      this.roomCameraCancelBtn.addEventListener("click", function () {
+        self.closeRoomCamera();
+      });
+    }
+    if (this.roomCameraCaptureBtn) {
+      this.roomCameraCaptureBtn.addEventListener("click", function () {
+        self.captureRoomCamera();
       });
     }
     if (this.changeRoomBtn) {
       this.changeRoomBtn.addEventListener("click", function () {
-        if (self.roomFileInput) self.roomFileInput.click();
+        self.clearRoom();
+        self.openRoomGallery();
       });
     }
     if (this.removeRoomBtn) {
@@ -1097,10 +1161,13 @@
     }
     if (this.compareRange && this.compareEl) {
       this.compareRange.addEventListener("input", function () {
-        self.compareEl.style.setProperty(
-          "--sugar-rs-compare",
-          String(self.compareRange.value) + "%",
-        );
+        self.pauseCompareAutoplay();
+        self.setComparePosition(Number(self.compareRange.value) || 0, {
+          skipRange: true,
+        });
+      });
+      this.compareRange.addEventListener("pointerdown", function () {
+        self.pauseCompareAutoplay();
       });
     }
 
@@ -1113,6 +1180,88 @@
     }
 
     this.bindPlacementInteractions();
+    this.bindMobileChrome();
+  };
+
+  SugarRoomStudio.prototype.bindMobileChrome = function () {
+    var self = this;
+    if (this.catSelectTrigger) {
+      this.catSelectTrigger.addEventListener("click", function () {
+        self.toggleCategorySelect();
+      });
+    }
+    if (this.selectedToggleBtn) {
+      this.selectedToggleBtn.addEventListener("click", function () {
+        self.setSelectedSheetOpen(true);
+      });
+    }
+    if (this.selectedCloseBtn) {
+      this.selectedCloseBtn.addEventListener("click", function () {
+        self.setSelectedSheetOpen(false);
+      });
+    }
+    if (this.sideBackdrop) {
+      this.sideBackdrop.addEventListener("click", function () {
+        self.setSelectedSheetOpen(false);
+      });
+    }
+    document.addEventListener("click", function (e) {
+      if (!self.catsEl || !self.catsEl.classList.contains("is-select-open")) return;
+      if (self.catsEl.contains(e.target)) return;
+      self.setCategorySelectOpen(false);
+    });
+  };
+
+  SugarRoomStudio.prototype.isMobileStudioLayout = function () {
+    return typeof window.matchMedia === "function"
+      ? window.matchMedia("(max-width: 960px)").matches
+      : false;
+  };
+
+  SugarRoomStudio.prototype.toggleCategorySelect = function () {
+    var open = !(this.catsEl && this.catsEl.classList.contains("is-select-open"));
+    this.setCategorySelectOpen(open);
+  };
+
+  SugarRoomStudio.prototype.setCategorySelectOpen = function (open) {
+    if (!this.catsEl) return;
+    this.catsEl.classList.toggle("is-select-open", !!open);
+    if (this.catSelectTrigger) {
+      this.catSelectTrigger.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+  };
+
+  SugarRoomStudio.prototype.setSelectedSheetOpen = function (open) {
+    if (this.sideEl) this.sideEl.classList.toggle("is-open", !!open);
+    if (this.sideBackdrop) this.sideBackdrop.hidden = !open;
+    if (this.selectedToggleBtn) {
+      this.selectedToggleBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+  };
+
+  SugarRoomStudio.prototype.updateCategorySelectLabel = function () {
+    if (!this.catSelectLabel) return;
+    var cat = this.getActiveCategory();
+    var sub = this.getActiveSubcategory();
+    var label = sub ? sub.title : cat ? cat.title : this.t("allProducts", "All Products");
+    this.catSelectLabel.textContent = label || this.t("allProducts", "All Products");
+  };
+
+  SugarRoomStudio.prototype.updateSelectedBadge = function () {
+    if (!this.selectedBadgeEl) return;
+    var count = this.selectedIds.length;
+    this.selectedBadgeEl.textContent = String(count);
+    this.selectedBadgeEl.hidden = count === 0;
+    if (this.selectedToggleBtn) {
+      this.selectedToggleBtn.setAttribute(
+        "aria-label",
+        this.tReplace(
+          "selectedProducts",
+          "Selected products ({{count}}/{{max}})",
+          { count: count, max: this.maxProducts },
+        ),
+      );
+    }
   };
 
   SugarRoomStudio.prototype.open = function () {
@@ -1137,6 +1286,8 @@
   SugarRoomStudio.prototype.setStep = function (step) {
     if (STEPS.indexOf(step) === -1) return;
     if (step !== "loading") this.stopLoadingProgress();
+    if (step !== "result") this.stopCompareAutoplay();
+    if (step !== "upload") this.closeRoomCamera();
     this.step = step;
     var self = this;
     STEPS.forEach(function (s) {
@@ -1157,11 +1308,134 @@
       el.classList.toggle("is-done", done && !active);
     });
 
+    if (this.panelEl) {
+      this.panelEl.classList.toggle(
+        "is-step-result",
+        step === "result" || step === "loading",
+      );
+    }
+
+    if (step === "result" || step === "loading") {
+      this.centerActiveStepIndicator();
+    }
+
     if (step === "upload") {
       this.syncDesignModeUi();
       this.renderUploadProducts();
       this.renderPlacementLayers();
     }
+    if (step === "result") {
+      this.startCompareAutoplay();
+    }
+  };
+
+  SugarRoomStudio.prototype.centerActiveStepIndicator = function () {
+    var stepper = this.stepperEl;
+    var active =
+      this.stepIndicators.result ||
+      (stepper && stepper.querySelector(".sugar-rs-stepper__item.is-active"));
+    if (!stepper || !active) return;
+
+    window.requestAnimationFrame(function () {
+      try {
+        var stepperRect = stepper.getBoundingClientRect();
+        var activeRect = active.getBoundingClientRect();
+        var delta =
+          activeRect.left +
+          activeRect.width / 2 -
+          (stepperRect.left + stepperRect.width / 2);
+        stepper.scrollLeft += delta;
+      } catch (err) {
+        if (typeof active.scrollIntoView === "function") {
+          active.scrollIntoView({
+            behavior: "smooth",
+            inline: "center",
+            block: "nearest",
+          });
+        }
+      }
+    });
+  };
+
+  SugarRoomStudio.prototype.setComparePosition = function (pct, options) {
+    options = options || {};
+    var value = Math.max(0, Math.min(100, Number(pct) || 0));
+    this.compareAutoplayValue = value;
+    if (this.compareEl) {
+      this.compareEl.style.setProperty("--sugar-rs-compare", value + "%");
+    }
+    if (this.compareRange && !options.skipRange) {
+      this.compareRange.value = String(Math.round(value));
+    }
+  };
+
+  SugarRoomStudio.prototype.startCompareAutoplay = function () {
+    var self = this;
+    this.stopCompareAutoplay();
+    if (!this.compareEl) return;
+    this.compareAutoplayActive = true;
+    this.compareUserPaused = false;
+    this.compareAutoplayDir = 1;
+    this.compareAutoplayValue = 0;
+    this.setComparePosition(0);
+    this.compareEl.classList.add("is-autoplaying");
+
+    var lastTs = null;
+    var speed = 18; // percent per second — ~5.5s one way
+
+    function tick(ts) {
+      if (!self.compareAutoplayActive) return;
+      if (lastTs == null) lastTs = ts;
+      var dt = Math.min(0.05, (ts - lastTs) / 1000);
+      lastTs = ts;
+
+      if (!self.compareUserPaused) {
+        var next = self.compareAutoplayValue + self.compareAutoplayDir * speed * dt;
+        if (next >= 100) {
+          next = 100;
+          self.compareAutoplayDir = -1;
+        } else if (next <= 0) {
+          next = 0;
+          self.compareAutoplayDir = 1;
+        }
+        self.setComparePosition(next);
+      }
+
+      self.compareAutoplayRaf = requestAnimationFrame(tick);
+    }
+
+    this.compareAutoplayRaf = requestAnimationFrame(tick);
+  };
+
+  SugarRoomStudio.prototype.pauseCompareAutoplay = function () {
+    var self = this;
+    this.compareUserPaused = true;
+    if (this.compareEl) this.compareEl.classList.remove("is-autoplaying");
+    if (this.compareResumeTimer) {
+      clearTimeout(this.compareResumeTimer);
+      this.compareResumeTimer = null;
+    }
+    if (!this.compareAutoplayActive) return;
+    this.compareResumeTimer = setTimeout(function () {
+      self.compareUserPaused = false;
+      if (self.compareEl && self.compareAutoplayActive) {
+        self.compareEl.classList.add("is-autoplaying");
+      }
+    }, 2500);
+  };
+
+  SugarRoomStudio.prototype.stopCompareAutoplay = function () {
+    this.compareAutoplayActive = false;
+    this.compareUserPaused = false;
+    if (this.compareAutoplayRaf) {
+      cancelAnimationFrame(this.compareAutoplayRaf);
+      this.compareAutoplayRaf = null;
+    }
+    if (this.compareResumeTimer) {
+      clearTimeout(this.compareResumeTimer);
+      this.compareResumeTimer = null;
+    }
+    if (this.compareEl) this.compareEl.classList.remove("is-autoplaying");
   };
 
   SugarRoomStudio.prototype.getShopAttemptKey = function () {
@@ -1217,6 +1491,10 @@
     this.resetGridPagination();
     this.renderCategories();
     this.renderGrid();
+    this.updateCategorySelectLabel();
+    if (this.isMobileStudioLayout()) {
+      this.setCategorySelectOpen(false);
+    }
   };
 
   SugarRoomStudio.prototype.onParentCategoryClick = function (categoryId) {
@@ -1233,6 +1511,7 @@
       this.resetGridPagination();
       this.renderCategories();
       this.renderGrid();
+      this.updateCategorySelectLabel();
       return;
     }
     this.selectCategory(id, null);
@@ -1333,6 +1612,10 @@
         (hasChildren ? " has-children" : "") +
         '">';
       var iconSvg = getCategoryIconSvg(cat.id, cat.title);
+      var checkHtml =
+        '<span class="sugar-rs-cat-item__check" aria-hidden="true">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg>' +
+        "</span>";
       html +=
         '<button type="button" class="sugar-rs-cat-item sugar-rs-cat-item--parent' +
         parentActive +
@@ -1350,6 +1633,7 @@
           ? ' aria-expanded="' + (isExpanded ? "true" : "false") + '"'
           : "") +
         ">" +
+        checkHtml +
         (iconSvg
           ? '<span class="sugar-rs-cat-item__icon" aria-hidden="true">' +
             iconSvg +
@@ -1389,6 +1673,9 @@
             '" role="option" aria-selected="' +
             (childActive ? "true" : "false") +
             '">' +
+            '<span class="sugar-rs-cat-item__check" aria-hidden="true">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg>' +
+            "</span>" +
             '<span class="sugar-rs-cat-item__icon" aria-hidden="true">' +
             getCategoryIconSvg(child.id, child.title) +
             "</span>" +
@@ -1451,10 +1738,18 @@
     return (
       '<article class="sugar-rs-card' +
       (selected ? " is-selected" : "") +
+      (disabled ? " is-disabled" : "") +
       '" data-product-id="' +
       escapeHtml(p.productId) +
-      '">' +
+      '" data-toggle-product="' +
+      escapeHtml(p.productId) +
+      '"' +
+      (disabled ? ' aria-disabled="true"' : "") +
+      ">" +
       '<div class="sugar-rs-card__media">' +
+      '<span class="sugar-rs-card__check" aria-hidden="true">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg>' +
+      "</span>" +
       (p.imageUrl
         ? '<img src="' +
           escapeHtml(p.imageUrl) +
@@ -1490,11 +1785,14 @@
   SugarRoomStudio.prototype.bindGridCardEvents = function () {
     var self = this;
     if (!this.grid) return;
-    this.grid.querySelectorAll("[data-toggle-product]").forEach(function (btn) {
-      if (btn.__sugarRsBound) return;
-      btn.__sugarRsBound = true;
-      btn.addEventListener("click", function () {
-        self.toggleProduct(btn.getAttribute("data-toggle-product"));
+    this.grid.querySelectorAll("[data-toggle-product]").forEach(function (el) {
+      if (el.__sugarRsBound) return;
+      el.__sugarRsBound = true;
+      el.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (el.getAttribute("aria-disabled") === "true" || el.disabled) return;
+        self.toggleProduct(el.getAttribute("data-toggle-product"));
       });
     });
   };
@@ -1508,6 +1806,7 @@
     if (this.browseTitle && cat) {
       this.browseTitle.textContent = sub ? sub.title : cat.title;
     }
+    this.updateCategorySelectLabel();
     if (this.emptyEl) this.emptyEl.hidden = products.length > 0;
 
     if (this.catalog.products.length === 0) {
@@ -1622,6 +1921,7 @@
         { max: max },
       );
     }
+    this.updateSelectedBadge();
   };
 
   SugarRoomStudio.prototype.getSelectedCartTotalCents = function () {
@@ -1711,6 +2011,7 @@
       this.showError(this.t("errorSize", "File is too large."));
       return;
     }
+    this.closeRoomCamera();
     if (this.roomPreviewUrl) URL.revokeObjectURL(this.roomPreviewUrl);
     this.roomFile = file;
     this.roomPreviewUrl = URL.createObjectURL(file);
@@ -1718,15 +2019,17 @@
       this.roomImg.src = this.roomPreviewUrl;
       this.roomImg.hidden = false;
     }
-    if (this.roomUploadBtn) this.roomUploadBtn.hidden = true;
+    if (this.roomSourcesEl) this.roomSourcesEl.hidden = true;
     if (this.roomActions) this.roomActions.hidden = false;
     if (this.roomLayersEl) this.roomLayersEl.hidden = this.designMode !== "manual";
     this.hideMessage();
+    this.syncDesignModeUi();
     this.renderPlacementLayers();
     this.updateGenerateState();
   };
 
   SugarRoomStudio.prototype.clearRoom = function () {
+    this.closeRoomCamera();
     if (this.roomPreviewUrl) URL.revokeObjectURL(this.roomPreviewUrl);
     this.roomFile = null;
     this.roomPreviewUrl = "";
@@ -1736,14 +2039,154 @@
       this.roomImg.removeAttribute("src");
       this.roomImg.hidden = true;
     }
-    if (this.roomUploadBtn) this.roomUploadBtn.hidden = false;
+    if (this.roomSourcesEl) this.roomSourcesEl.hidden = false;
     if (this.roomActions) this.roomActions.hidden = true;
     if (this.roomLayersEl) {
       this.roomLayersEl.innerHTML = "";
       this.roomLayersEl.hidden = true;
     }
+    this.syncDesignModeUi();
     this.renderUploadProducts();
     this.updateGenerateState();
+  };
+
+  SugarRoomStudio.prototype.openRoomGallery = function () {
+    this.closeRoomCamera();
+    if (this.roomFileInput) this.roomFileInput.click();
+  };
+
+  SugarRoomStudio.prototype.setRoomCameraLoading = function (loading) {
+    if (this.roomCameraWrap) {
+      this.roomCameraWrap.classList.toggle("is-loading", !!loading);
+    }
+  };
+
+  SugarRoomStudio.prototype.stopRoomCameraStream = function () {
+    if (!this.cameraStream) return;
+    this.cameraStream.getTracks().forEach(function (track) {
+      track.stop();
+    });
+    this.cameraStream = null;
+    if (this.roomCameraVideo) this.roomCameraVideo.srcObject = null;
+  };
+
+  SugarRoomStudio.prototype.attachRoomCameraStream = function (stream) {
+    this.cameraStream = stream;
+    if (!this.roomCameraVideo) return;
+    this.roomCameraVideo.srcObject = stream;
+    this.setRoomCameraLoading(false);
+    var playPromise = this.roomCameraVideo.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(function () {});
+    }
+  };
+
+  SugarRoomStudio.prototype.openRoomCamera = function () {
+    var self = this;
+    this.hideMessage();
+    if (!ensureMediaDevices()) {
+      this.showError(
+        this.t(
+          "errorCamera",
+          "Could not open the camera. You can choose a photo from the gallery.",
+        ),
+      );
+      return;
+    }
+
+    if (this.roomSourcesEl) this.roomSourcesEl.hidden = true;
+    if (this.roomCameraEl) this.roomCameraEl.hidden = false;
+    this.setRoomCameraLoading(true);
+
+    var constraintsList = [
+      { video: { facingMode: { ideal: "environment" } }, audio: false },
+      { video: { facingMode: "user" }, audio: false },
+      { video: true, audio: false },
+    ];
+
+    function tryOpen(index) {
+      if (index >= constraintsList.length) {
+        self.stopRoomCameraStream();
+        self.setRoomCameraLoading(false);
+        self.closeRoomCamera();
+        self.showError(
+          self.t(
+            "errorCamera",
+            "Could not open the camera. You can choose a photo from the gallery.",
+          ),
+        );
+        return;
+      }
+
+      navigator.mediaDevices
+        .getUserMedia(constraintsList[index])
+        .then(function (stream) {
+          self.attachRoomCameraStream(stream);
+        })
+        .catch(function () {
+          tryOpen(index + 1);
+        });
+    }
+
+    tryOpen(0);
+  };
+
+  SugarRoomStudio.prototype.closeRoomCamera = function () {
+    this.stopRoomCameraStream();
+    this.setRoomCameraLoading(false);
+    if (this.roomCameraEl) this.roomCameraEl.hidden = true;
+    if (this.roomSourcesEl && !this.roomFile) this.roomSourcesEl.hidden = false;
+  };
+
+  SugarRoomStudio.prototype.captureRoomCamera = function () {
+    if (!this.roomCameraVideo || !this.roomCameraCanvas || !this.cameraStream) {
+      this.showError(
+        this.t(
+          "errorCamera",
+          "Could not open the camera. You can choose a photo from the gallery.",
+        ),
+      );
+      return;
+    }
+
+    var video = this.roomCameraVideo;
+    var canvas = this.roomCameraCanvas;
+    var width = video.videoWidth;
+    var height = video.videoHeight;
+    if (!width || !height) {
+      this.showError(
+        this.t(
+          "errorCamera",
+          "Could not open the camera. You can choose a photo from the gallery.",
+        ),
+      );
+      return;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+    var ctx = canvas.getContext("2d");
+    if (!ctx) {
+      this.showError(this.t("errorGeneric", "Something went wrong"));
+      return;
+    }
+    ctx.drawImage(video, 0, 0, width, height);
+
+    var self = this;
+    canvas.toBlob(
+      function (blob) {
+        if (!blob) {
+          self.showError(self.t("errorGeneric", "Something went wrong"));
+          return;
+        }
+        self.stopRoomCameraStream();
+        self.handleRoomFile(
+          new File([blob], "room-camera.jpg", { type: "image/jpeg" }),
+        );
+      },
+      "image/jpeg",
+      0.92,
+    );
   };
 
   SugarRoomStudio.prototype.updateContinueState = function () {
@@ -1798,7 +2241,9 @@
 
   SugarRoomStudio.prototype.syncDesignModeUi = function () {
     var self = this;
+    var hasPhoto = !!this.roomFile;
     if (this.designModeEl) {
+      this.designModeEl.hidden = !hasPhoto;
       this.designModeEl.querySelectorAll("[data-sugar-rs-mode]").forEach(function (btn) {
         btn.classList.toggle(
           "is-active",
@@ -1807,11 +2252,19 @@
       });
     }
     if (this.manualTipEl) {
-      this.manualTipEl.hidden = this.designMode !== "manual";
+      this.manualTipEl.hidden = !hasPhoto || this.designMode !== "manual";
     }
     if (this.roomLayersEl) {
-      this.roomLayersEl.hidden =
-        this.designMode !== "manual" || !this.roomFile;
+      this.roomLayersEl.hidden = this.designMode !== "manual" || !hasPhoto;
+    }
+    if (this.roomPreviewEl) {
+      this.roomPreviewEl.classList.toggle(
+        "is-manual-place",
+        hasPhoto && this.designMode === "manual",
+      );
+    }
+    if (this.uploadProductsEl) {
+      this.uploadProductsEl.classList.toggle("is-manual", hasPhoto && this.designMode === "manual");
     }
   };
 
@@ -1870,10 +2323,16 @@
         (isManual ? ' draggable="true"' : "") +
         ">" +
         '<div class="sugar-rs-upload-item__media">' +
+        (isManual
+          ? '<span class="sugar-rs-upload-item__drag" aria-hidden="true">' +
+            '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 11V6.5a1.5 1.5 0 0 1 3 0V11M11 10.5V5.5a1.5 1.5 0 0 1 3 0V11M14 10V7.5a1.5 1.5 0 0 1 3 0V12"/><path d="M8 11l-1.2 1.6A3 3 0 0 0 7 14.2V17a3 3 0 0 0 3 3h5.5a3 3 0 0 0 2.9-2.3l.9-3.7A2 2 0 0 0 17.5 11H8z"/></svg>' +
+            escapeHtml(self.t("dragLabel", "Drag")) +
+            "</span>"
+          : "") +
         (product.imageUrl
           ? '<img src="' +
             escapeHtml(product.imageUrl) +
-            '" alt="" width="80" height="80" loading="lazy" draggable="false">'
+            '" alt="" width="160" height="160" loading="lazy" draggable="false">'
           : "") +
         "</div>" +
         '<div class="sugar-rs-upload-item__body">' +
@@ -1884,14 +2343,10 @@
         escapeHtml(price) +
         "</p>" +
         "</div>" +
-        (isManual
-          ? '<span class="sugar-rs-upload-item__grip" aria-hidden="true">' +
-            '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="7" r="1.5"/><circle cx="15" cy="7" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="17" r="1.5"/><circle cx="15" cy="17" r="1.5"/></svg>' +
-            "</span>"
-          : "") +
         "</article>";
     });
     this.uploadProductsEl.innerHTML = html;
+    this.uploadProductsEl.classList.toggle("is-manual", isManual);
 
     if (!isManual) return;
 
@@ -2237,8 +2692,7 @@
 
       if (this.compareOrigin) this.compareOrigin.src = this.roomPreviewUrl || "";
       if (this.compareDesign) this.compareDesign.src = data.imageUrl || "";
-      if (this.compareEl) this.compareEl.style.setProperty("--sugar-rs-compare", "50%");
-      if (this.compareRange) this.compareRange.value = "50";
+      this.setComparePosition(0);
 
       this.renderResultList();
       if (!this.unlimitedAttempts) {

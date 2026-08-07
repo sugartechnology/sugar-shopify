@@ -115,6 +115,15 @@
     "remove_photo": "Remove photo",
     "upload_room": "Upload room photo",
     "upload_room_hint": "Drop a photo or click to browse",
+    "gallery_label": "Gallery",
+    "gallery_sub": "Choose photo",
+    "camera_label": "Camera",
+    "camera_sub": "Take photo",
+    "camera_instruction": "Frame your room and take a photo.",
+    "camera_capture": "Take photo",
+    "camera_cancel": "Back",
+    "camera_loading": "Opening camera…",
+    "error_camera": "Could not open the camera. You can choose a photo from the gallery.",
     "tips_label": "Tips",
     "tips_text": "For best results, use a well-lit photo of your room.",
     "tips_products": "Pick products from categories first; you’ll upload a room photo in the next step.",
@@ -148,8 +157,10 @@
     "add_product": "Add",
     "remove_product": "Remove",
     "design_mode": "Design mode",
-    "design_auto": "Auto",
-    "design_manual": "Manual",
-    "drag_drop_tip": "Drag products onto your room photo to place them."
+    "design_auto": "Auto Design",
+    "design_manual": "Design By Yourself",
+    "drag_drop_tip": "Drag products onto your room photo to place them.",
+    "drag_label": "Drag",
+    "drag_handle": "Drag"
   }
 }

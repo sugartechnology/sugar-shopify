@@ -27,8 +27,12 @@
   endif
 
   assign trigger_banner_url = ''
+  assign trigger_banner_width = 1200
+  assign trigger_banner_height = ''
   if settings.trigger_banner_image != blank
-    assign trigger_banner_url = settings.trigger_banner_image | image_url: width: 1200
+    assign trigger_banner_url = settings.trigger_banner_image | image_url: width: 1600
+    assign trigger_banner_width = settings.trigger_banner_image.width | default: 1200
+    assign trigger_banner_height = settings.trigger_banner_image.height
   elsif settings.trigger_banner_image_url != blank
     assign trigger_banner_url = settings.trigger_banner_image_url
   elsif mf.trigger_banner_image_url != blank
@@ -426,8 +430,8 @@
           class="sugar-trigger-banner__img"
           src="{{ trigger_banner_url }}"
           alt="{{ button_label | escape }}"
-          width="1200"
-          height="400"
+          width="{{ trigger_banner_width }}"
+          {% if trigger_banner_height != blank %}height="{{ trigger_banner_height }}"{% endif %}
           loading="lazy"
         >
       </button>
