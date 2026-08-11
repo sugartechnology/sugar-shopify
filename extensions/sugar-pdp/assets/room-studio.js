@@ -362,7 +362,7 @@
     this.unlimitedAttempts = true;
     this.attemptCount = 0;
     this.step = "studio";
-    this.activeCategoryId = "all";
+    this.activeCategoryId = this.getDefaultCategoryId();
     this.activeSubcategoryId = null;
     this.expandedCategoryIds = {};
     this.categoryQuery = "";
@@ -401,6 +401,16 @@
         self.expandedCategoryIds[cat.id] = true;
       }
     });
+  };
+
+  SugarRoomStudio.prototype.getDefaultCategoryId = function () {
+    var cats = (this.catalog && this.catalog.categories) || [];
+    if (this.config.useAllProducts === true) {
+      for (var i = 0; i < cats.length; i++) {
+        if (cats[i] && cats[i].id === "all") return "all";
+      }
+    }
+    return cats[0] && cats[0].id ? cats[0].id : "";
   };
 
   SugarRoomStudio.prototype.t = function (key, fallback) {
@@ -564,15 +574,23 @@
     if (!cats.some(function (c) {
       return c.id === "all";
     })) {
-      var allIds = productList.map(function (p) {
-        return p.productId;
-      });
-      cats.unshift({
-        id: "all",
-        title: "All Products",
-        productIds: allIds,
-        count: allIds.length,
-        children: [],
+      // Only inject "All Products" when merchant enabled use_all_products
+      if (self.config && self.config.useAllProducts === true) {
+        var allIds = productList.map(function (p) {
+          return p.productId;
+        });
+        cats.unshift({
+          id: "all",
+          title: self.t ? self.t("allProducts", "All Products") : "All Products",
+          productIds: allIds,
+          count: allIds.length,
+          children: [],
+        });
+      }
+    } else if (!(self.config && self.config.useAllProducts === true)) {
+      // Setting off → drop accidental "all" category from Liquid/hydrate
+      cats = cats.filter(function (c) {
+        return c.id !== "all";
       });
     } else {
       cats = cats.map(function (c) {
@@ -590,41 +608,82 @@
       });
     }
 
-    // Product type → left menu (Outdoor > Koltuk, Berjer, Depolama, …)
-    var typeSeeds = self.buildProductTypeCategorySeeds(productList);
-    var existingIds = {};
-    var existingTitles = {};
-    cats.forEach(function (c) {
-      existingIds[c.id] = true;
-      existingTitles[slugifyLabel(c.title)] = true;
-    });
-    typeSeeds.forEach(function (seed) {
-      var titleKey = slugifyLabel(seed.title);
-      if (existingIds[seed.id] || existingTitles[titleKey]) return;
-      existingIds[seed.id] = true;
-      existingTitles[titleKey] = true;
-      seed.productIds.forEach(function (id) {
-        if (byId[id] && byId[id].categoryIds.indexOf(seed.id) === -1) {
-          byId[id].categoryIds.push(seed.id);
-        }
+    // Collection-only: drop products that are not in any selected collection
+    if (!(self.config && self.config.useAllProducts === true)) {
+      var allowed = {};
+      cats.forEach(function (c) {
+        (c.productIds || []).forEach(function (id) {
+          allowed[String(id)] = true;
+        });
       });
-      cats.push(seed);
-    });
+      productList = productList.filter(function (p) {
+        return allowed[p.productId];
+      });
+      byId = {};
+      productList.forEach(function (p) {
+        byId[p.productId] = p;
+      });
+      cats = cats.map(function (c) {
+        var ids = (c.productIds || []).filter(function (id) {
+          return !!byId[id];
+        });
+        return {
+          id: c.id,
+          title: c.title,
+          productIds: ids,
+          count: ids.length,
+          children: [],
+        };
+      });
+    }
 
-    // Collection/type titles without ">" still get product-type children when useful
+    // Product-type auto categories only when browsing the full store catalog
+    if (self.config && self.config.useAllProducts === true) {
+      var typeSeeds = self.buildProductTypeCategorySeeds(productList);
+      var existingIds = {};
+      var existingTitles = {};
+      cats.forEach(function (c) {
+        existingIds[c.id] = true;
+        existingTitles[slugifyLabel(c.title)] = true;
+      });
+      typeSeeds.forEach(function (seed) {
+        var titleKey = slugifyLabel(seed.title);
+        if (existingIds[seed.id] || existingTitles[titleKey]) return;
+        existingIds[seed.id] = true;
+        existingTitles[titleKey] = true;
+        seed.productIds.forEach(function (id) {
+          if (byId[id] && byId[id].categoryIds.indexOf(seed.id) === -1) {
+            byId[id].categoryIds.push(seed.id);
+          }
+        });
+        cats.push(seed);
+      });
+    }
+
+    // Under each collection (and type seed): product-type children
+    // Collection selected → all products in collection
+    // Child category selected → only that type within the collection
     cats = cats.map(function (c) {
       if (c.id === "all") return c;
       if (parseNestedCategoryTitle(c.title)) return c;
       if (Array.isArray(c.children) && c.children.length > 0) return c;
       var children = self.buildSubcategories(c.productIds, byId).filter(function (child) {
-        // Avoid nesting the same label under itself
         return slugifyLabel(child.title) !== slugifyLabel(c.title);
+      });
+      // Scope child ids so the same type under two collections doesn't collide in UI state
+      children = children.map(function (child) {
+        return {
+          id: String(c.id) + "__" + child.id,
+          title: child.title,
+          productIds: child.productIds,
+          count: child.count,
+        };
       });
       return {
         id: c.id,
         title: c.title,
         productIds: c.productIds,
-        count: c.count,
+        count: (c.productIds || []).length,
         children: children,
       };
     });
@@ -978,8 +1037,8 @@
     var handles = Array.isArray(this.config.catalogHandles)
       ? this.config.catalogHandles.filter(Boolean)
       : [];
-    // Always hydrate so product-type menus stay complete beyond Liquid's ~50 cap.
-    if (!handles.length) handles = ["all"];
+    // Do not invent "all" — only hydrate configured handles (all only when use_all_products is on)
+    if (!handles.length) return;
 
     var self = this;
     if (this.grid) {
@@ -1004,12 +1063,8 @@
       if (self.activeSubcategoryId && !self.getActiveSubcategory()) {
         self.activeSubcategoryId = null;
       }
-      if (
-        self.activeCategoryId &&
-        self.activeCategoryId !== "all" &&
-        !self.getActiveCategory()
-      ) {
-        self.activeCategoryId = "all";
+      if (self.activeCategoryId && !self.getActiveCategory()) {
+        self.activeCategoryId = self.getDefaultCategoryId();
         self.activeSubcategoryId = null;
       }
       self.expandAllCategoriesWithChildren();
@@ -1322,8 +1377,9 @@
     if (!this.catSelectLabel) return;
     var cat = this.getActiveCategory();
     var sub = this.getActiveSubcategory();
-    var label = sub ? sub.title : cat ? cat.title : this.t("allProducts", "All Products");
-    this.catSelectLabel.textContent = label || this.t("allProducts", "All Products");
+    var label = sub ? sub.title : cat ? cat.title : "";
+    this.catSelectLabel.textContent =
+      label || this.t("searchCategories", "Search categories");
   };
 
   SugarRoomStudio.prototype.updateSelectedBadge = function () {

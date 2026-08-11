@@ -87,10 +87,6 @@
   if settings.use_all_products == true or settings.use_all_products == 'true'
     assign use_all_products = true
   endif
-  # Product types drive the left menu — load all products when no collections are selected.
-  if use_all_products == false and catalog_collections == blank
-    assign use_all_products = true
-  endif
 -%}
 
 {%- capture catalog_handles_json -%}
@@ -116,16 +112,21 @@
 {%- capture catalog_json -%}
 {
   "categories": [
-    {
-      "id": "all",
-      "title": {{ 'sugar_rs.all_products' | t | json }},
-      "count": 0,
-      "productIds": []
-    }
+    {%- assign cat_first = true -%}
+    {%- if use_all_products -%}
+      {
+        "id": "all",
+        "title": {{ 'sugar_rs.all_products' | t | json }},
+        "count": 0,
+        "productIds": []
+      }
+      {%- assign cat_first = false -%}
+    {%- endif -%}
     {%- if catalog_collections != blank -%}
       {%- for coll in catalog_collections -%}
         {%- if coll != blank -%}
-          ,{
+          {%- unless cat_first -%},{%- endunless -%}
+          {
             "id": {{ coll.handle | json }},
             "title": {{ coll.title | json }},
             "count": {{ coll.products_count | default: coll.products.size | json }},
@@ -136,6 +137,7 @@
               {%- endfor -%}
             ]
           }
+          {%- assign cat_first = false -%}
         {%- endif -%}
       {%- endfor -%}
     {%- endif -%}
@@ -369,7 +371,7 @@
               <span class="sugar-rs-cat-select__icon" aria-hidden="true">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
               </span>
-              <span class="sugar-rs-cat-select__text" data-sugar-rs-cat-select-label>{{ 'sugar_rs.all_products' | t }}</span>
+              <span class="sugar-rs-cat-select__text" data-sugar-rs-cat-select-label>{% if use_all_products %}{{ 'sugar_rs.all_products' | t }}{% elsif catalog_collections != blank %}{{ catalog_collections.first.title }}{% else %}{{ 'sugar_rs.search_categories' | t }}{% endif %}</span>
               <span class="sugar-rs-cat-select__chevron" aria-hidden="true">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
               </span>
@@ -385,7 +387,7 @@
 
           <section class="sugar-rs-browse">
             <div class="sugar-rs-browse__head">
-              <h3 class="sugar-rs-browse__title" data-sugar-rs-browse-title>{{ 'sugar_rs.all_products' | t }}</h3>
+              <h3 class="sugar-rs-browse__title" data-sugar-rs-browse-title>{% if use_all_products %}{{ 'sugar_rs.all_products' | t }}{% elsif catalog_collections != blank %}{{ catalog_collections.first.title }}{% else %}{{ 'sugar_rs.search_products' | t }}{% endif %}</h3>
               <div class="sugar-rs-browse__head-actions">
                 <p class="sugar-rs-browse__count" data-sugar-rs-selected-count></p>
               </div>

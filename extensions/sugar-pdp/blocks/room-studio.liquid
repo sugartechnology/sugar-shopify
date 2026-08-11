@@ -21,14 +21,14 @@
       "type": "checkbox",
       "id": "use_all_products",
       "label": "Tüm mağaza ürünlerini kullan",
-      "default": true,
-      "info": "Açıksa tüm ürünler gelir; sol menü Product type alanından (örn. Outdoor > Koltuk) otomatik oluşur. Collection seçerseniz ek kategori olarak eklenir."
+      "default": false,
+      "info": "Kapalı (önerilen): sol menü = collection listesi; her collection altında product type kategorileri. Collection → tümü, kategori → yalnızca o tip. Açık: All Products + tüm mağaza."
     },
     {
       "type": "collection_list",
       "id": "catalog_collections",
-      "label": "Katalog collection'ları (opsiyonel)",
-      "info": "Opsiyonel. Ana menü Product type'dan gelir. Collection seçerseniz bunlar da menüye eklenir.",
+      "label": "Katalog collection'ları",
+      "info": "Sol menüdeki kategoriler. 'Tüm ürünler' kapalıyken katalog yalnızca bu listeden gelir.",
       "limit": 20
     },
     {
