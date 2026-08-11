@@ -4,6 +4,7 @@
 {% endcomment %}
 
 {{ 'room-studio.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'sugar-image-utils.js' | asset_url }}" defer></script>
 <script src="{{ 'room-studio.js' | asset_url }}" defer></script>
 
 {%- liquid
@@ -52,6 +53,7 @@
   assign modal_bg_color = settings.modal_bg_color | default: '#ffffff'
   assign modal_text_color = settings.modal_text_color | default: '#121212'
   assign accent_color = settings.accent_color | default: '#c4a574'
+  assign menu_link_color = settings.menu_link_color | default: accent_color
   assign overlay_color = 'rgba(0, 0, 0, 0.55)'
   if settings.overlay_color != blank and settings.overlay_color != '#000000'
     assign overlay_color = settings.overlay_color
@@ -82,6 +84,10 @@
   assign catalog_collections = settings.catalog_collections
   assign use_all_products = false
   if settings.use_all_products == true or settings.use_all_products == 'true'
+    assign use_all_products = true
+  endif
+  # Product types drive the left menu — load all products when no collections are selected.
+  if use_all_products == false and catalog_collections == blank
     assign use_all_products = true
   endif
 -%}
@@ -216,6 +222,7 @@
 
 {%- capture sugar_rs_css_vars -%}
 --sugar-rs-accent: {{ accent_color }};
+--sugar-rs-menu-active: {{ menu_link_color }};
 --sugar-rs-text: {{ modal_text_color }};
 --sugar-rs-bg: {{ modal_bg_color }};
 --sugar-rs-overlay: {{ overlay_color }};
@@ -236,6 +243,7 @@
     "imagePropertyKey": {{ image_property_key | json }},
     "generationIdPropertyKey": {{ generation_id_key | json }},
     "maxUploadSizeMb": {{ max_upload_mb | json }},
+    "heic2anyUrl": {{ 'heic2any.min.js' | asset_url | json }},
     "maxProducts": {{ max_products | json }},
     "maxDesignAttempts": {{ max_design_attempts | json }},
     "customCss": {{ custom_css | json }},
@@ -299,6 +307,7 @@
       "compareDesign": {{ 'sugar_rs.compare_design' | t | json }},
       "errorUpload": {{ 'sugar_rs.error_upload' | t | json }},
       "errorSize": {{ 'sugar_rs.error_size' | t | json }},
+      "errorHeic": {{ 'sugar_rs.error_heic' | t | json }},
       "errorRoomRequired": {{ 'sugar_rs.error_room_required' | t | json }},
       "errorSelectProduct": {{ 'sugar_rs.error_select_product' | t | json }},
       "errorGenerate": {{ 'sugar_rs.error_generate' | t | json }},
@@ -600,7 +609,7 @@
                   <span class="sugar-rs-design-mode__label">{{ 'sugar_rs.design_manual' | t }}</span>
                 </button>
               </div>
-              <input type="file" accept="image/*" data-sugar-rs-room-file hidden>
+              <input type="file" accept="image/*,.heic,.heif,image/heic,image/heif" data-sugar-rs-room-file hidden>
             </div>
 
             <aside class="sugar-rs-upload-products">

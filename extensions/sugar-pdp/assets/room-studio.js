@@ -356,7 +356,7 @@
     this.catalog = this.normalizeCatalog(parseJson(root.dataset.sugarRsCatalog, {}));
     this.maxProducts = Math.max(1, Math.min(5, Number(this.config.maxProducts || 5)));
     this.maxDesignAttempts = Math.max(1, Number(this.config.maxDesignAttempts || 3));
-    this.unlimitedAttempts = isShopifyAdminPreview();
+    this.unlimitedAttempts = true;
     this.attemptCount = 0;
     this.step = "studio";
     this.activeCategoryId = "all";
@@ -451,6 +451,44 @@
       });
   };
 
+  /**
+   * Build left-nav category seeds from Shopify product types
+   * (e.g. "Outdoor > Koltuk", "Berjer", "Depolama").
+   */
+  SugarRoomStudio.prototype.buildProductTypeCategorySeeds = function (productList) {
+    var typeMap = {};
+    (productList || []).forEach(function (product) {
+      if (!product || !product.productId) return;
+      var typeTitle = resolveProductType(product);
+      if (!typeTitle) return;
+      var typeId = "type-" + slugifyLabel(typeTitle);
+      if (!typeId || typeId === "type-") return;
+      if (!typeMap[typeId]) {
+        typeMap[typeId] = {
+          id: typeId,
+          title: typeTitle,
+          productIds: [],
+          count: 0,
+        };
+      }
+      if (typeMap[typeId].productIds.indexOf(product.productId) === -1) {
+        typeMap[typeId].productIds.push(product.productId);
+      }
+    });
+
+    return Object.keys(typeMap)
+      .map(function (key) {
+        var entry = typeMap[key];
+        entry.count = entry.productIds.length;
+        return entry;
+      })
+      .sort(function (a, b) {
+        return String(a.title).localeCompare(String(b.title), undefined, {
+          sensitivity: "base",
+        });
+      });
+  };
+
   SugarRoomStudio.prototype.normalizeCatalog = function (raw) {
     var self = this;
     var products = Array.isArray(raw.products) ? raw.products : [];
@@ -511,13 +549,12 @@
             }
           });
         }
-        var children = self.buildSubcategories(ids, byId);
         return {
           id: String(c.id),
           title: c.title || String(c.id),
           productIds: ids,
           count: ids.length,
-          children: children,
+          children: [],
         };
       });
 
@@ -532,7 +569,7 @@
         title: "All Products",
         productIds: allIds,
         count: allIds.length,
-        children: self.buildSubcategories(allIds, byId),
+        children: [],
       });
     } else {
       cats = cats.map(function (c) {
@@ -545,10 +582,49 @@
           title: c.title || "All Products",
           productIds: ids,
           count: ids.length,
-          children: self.buildSubcategories(ids, byId),
+          children: [],
         };
       });
     }
+
+    // Product type → left menu (Outdoor > Koltuk, Berjer, Depolama, …)
+    var typeSeeds = self.buildProductTypeCategorySeeds(productList);
+    var existingIds = {};
+    var existingTitles = {};
+    cats.forEach(function (c) {
+      existingIds[c.id] = true;
+      existingTitles[slugifyLabel(c.title)] = true;
+    });
+    typeSeeds.forEach(function (seed) {
+      var titleKey = slugifyLabel(seed.title);
+      if (existingIds[seed.id] || existingTitles[titleKey]) return;
+      existingIds[seed.id] = true;
+      existingTitles[titleKey] = true;
+      seed.productIds.forEach(function (id) {
+        if (byId[id] && byId[id].categoryIds.indexOf(seed.id) === -1) {
+          byId[id].categoryIds.push(seed.id);
+        }
+      });
+      cats.push(seed);
+    });
+
+    // Collection/type titles without ">" still get product-type children when useful
+    cats = cats.map(function (c) {
+      if (c.id === "all") return c;
+      if (parseNestedCategoryTitle(c.title)) return c;
+      if (Array.isArray(c.children) && c.children.length > 0) return c;
+      var children = self.buildSubcategories(c.productIds, byId).filter(function (child) {
+        // Avoid nesting the same label under itself
+        return slugifyLabel(child.title) !== slugifyLabel(c.title);
+      });
+      return {
+        id: c.id,
+        title: c.title,
+        productIds: c.productIds,
+        count: c.count,
+        children: children,
+      };
+    });
 
     var sourceCategories = cats.map(function (c) {
       return {
@@ -899,8 +975,8 @@
     var handles = Array.isArray(this.config.catalogHandles)
       ? this.config.catalogHandles.filter(Boolean)
       : [];
-    // Always page beyond Liquid's ~50 product cap when handles are configured
-    if (!handles.length) return;
+    // Always hydrate so product-type menus stay complete beyond Liquid's ~50 cap.
+    if (!handles.length) handles = ["all"];
 
     var self = this;
     if (this.grid) {
@@ -2002,30 +2078,80 @@
   };
 
   SugarRoomStudio.prototype.handleRoomFile = function (file) {
-    if (!file || !String(file.type || "").startsWith("image/")) {
+    var self = this;
+    var utils = window.SugarImageUtils;
+    if (!file || !(utils && utils.isLikelyImageFile(file))) {
       this.showError(this.t("errorUpload", "Please upload a valid image."));
-      return;
+      return Promise.resolve(false);
     }
     var maxMb = Number(this.config.maxUploadSizeMb || 10);
     if (file.size > maxMb * 1024 * 1024) {
       this.showError(this.t("errorSize", "File is too large."));
-      return;
+      return Promise.resolve(false);
     }
-    this.closeRoomCamera();
-    if (this.roomPreviewUrl) URL.revokeObjectURL(this.roomPreviewUrl);
-    this.roomFile = file;
-    this.roomPreviewUrl = URL.createObjectURL(file);
-    if (this.roomImg) {
-      this.roomImg.src = this.roomPreviewUrl;
-      this.roomImg.hidden = false;
+
+    var applyFile = function (normalized) {
+      self.closeRoomCamera();
+      if (self.roomPreviewUrl) URL.revokeObjectURL(self.roomPreviewUrl);
+      self.roomFile = normalized;
+      self.roomPreviewUrl = URL.createObjectURL(normalized);
+      if (self.roomImg) {
+        self.roomImg.onload = function () {
+          self.syncRoomPreviewAspect();
+        };
+        self.roomImg.src = self.roomPreviewUrl;
+        self.roomImg.hidden = false;
+        if (self.roomImg.complete && self.roomImg.naturalWidth) {
+          self.syncRoomPreviewAspect();
+        }
+      }
+      if (self.roomSourcesEl) self.roomSourcesEl.hidden = true;
+      if (self.roomActions) self.roomActions.hidden = false;
+      if (self.roomLayersEl) self.roomLayersEl.hidden = self.designMode !== "manual";
+      self.hideMessage();
+      self.syncDesignModeUi();
+      self.renderPlacementLayers();
+      self.updateGenerateState();
+      return true;
+    };
+
+    if (!utils || !utils.isHeicLike(file)) {
+      return Promise.resolve(applyFile(file));
     }
-    if (this.roomSourcesEl) this.roomSourcesEl.hidden = true;
-    if (this.roomActions) this.roomActions.hidden = false;
-    if (this.roomLayersEl) this.roomLayersEl.hidden = this.designMode !== "manual";
-    this.hideMessage();
-    this.syncDesignModeUi();
-    this.renderPlacementLayers();
-    this.updateGenerateState();
+
+    return utils
+      .normalizeRoomImageFile(file, { heic2anyUrl: self.config.heic2anyUrl })
+      .then(function (normalized) {
+        if (normalized.size > maxMb * 1024 * 1024) {
+          self.showError(self.t("errorSize", "File is too large."));
+          return false;
+        }
+        return applyFile(normalized);
+      })
+      .catch(function () {
+        self.showError(
+          self.t(
+            "errorHeic",
+            "Could not convert this Apple photo (HEIC). Try exporting as JPEG or take a new photo.",
+          ),
+        );
+        return false;
+      });
+  };
+
+  SugarRoomStudio.prototype.syncRoomPreviewAspect = function () {
+    var preview = this.roomPreviewEl;
+    var img = this.roomImg;
+    if (!preview) return;
+    var w = img && !img.hidden ? Number(img.naturalWidth || 0) : 0;
+    var h = img && !img.hidden ? Number(img.naturalHeight || 0) : 0;
+    if (w > 0 && h > 0) {
+      preview.style.setProperty("--sugar-rs-room-ar", w + " / " + h);
+      preview.classList.add("has-image");
+    } else {
+      preview.style.removeProperty("--sugar-rs-room-ar");
+      preview.classList.remove("has-image");
+    }
   };
 
   SugarRoomStudio.prototype.clearRoom = function () {
@@ -2036,9 +2162,11 @@
     this.placementsByProductId = {};
     this.selectedPlacementId = null;
     if (this.roomImg) {
+      this.roomImg.onload = null;
       this.roomImg.removeAttribute("src");
       this.roomImg.hidden = true;
     }
+    this.syncRoomPreviewAspect();
     if (this.roomSourcesEl) this.roomSourcesEl.hidden = false;
     if (this.roomActions) this.roomActions.hidden = true;
     if (this.roomLayersEl) {

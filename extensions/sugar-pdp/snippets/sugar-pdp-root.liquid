@@ -4,6 +4,7 @@
 {% endcomment %}
 
 {{ 'sugar-pdp.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'sugar-image-utils.js' | asset_url }}" defer></script>
 <script src="{{ 'sugar-pdp-core.js' | asset_url }}" defer></script>
 <script src="{{ 'sugar-upload-hero.js' | asset_url }}" defer></script>
 <script src="{{ 'sugar-mockup-editor.js' | asset_url }}" defer></script>
@@ -317,6 +318,7 @@
     "imagePropertyKey": {{ image_property_key | json }},
     "generationIdPropertyKey": {{ generation_id_key | json }},
     "maxUploadSizeMb": {{ max_upload_mb | json }},
+    "heic2anyUrl": {{ 'heic2any.min.js' | asset_url | json }},
     "maxAdditionalProducts": {{ max_additional | json }},
     "customCss": {{ custom_css | json }},
     "modalTitle": {{ modal_title | json }},
@@ -345,6 +347,7 @@
       "modalDescription": {{ modal_description | json }},
       "errorUpload": {{ 'sugar.error_upload' | t | json }},
       "errorSize": {{ 'sugar.error_size' | t | json }},
+      "errorHeic": {{ 'sugar.error_heic' | t | json }},
       "errorRoomRequired": {{ 'sugar.error_room_required' | t | json }},
       "errorSelectProduct": {{ 'sugar.error_select_product' | t | json }},
       "errorGenerate": {{ 'sugar.error_generate' | t | json }},
@@ -523,7 +526,7 @@
               <span class="sugar-action-card__sub">{{ 'sugar.camera_sub' | t }}</span>
             </button>
           </div>
-          <input class="sugar-hidden-input" type="file" accept="image/*" id="sugar-gallery-{{ file_uid }}" data-sugar-file-gallery>
+          <input class="sugar-hidden-input" type="file" accept="image/*,.heic,.heif,image/heic,image/heif" id="sugar-gallery-{{ file_uid }}" data-sugar-file-gallery>
         </div>
 
         <div class="sugar-step" data-sugar-step="pick-source">

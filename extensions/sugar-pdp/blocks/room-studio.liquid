@@ -21,14 +21,14 @@
       "type": "checkbox",
       "id": "use_all_products",
       "label": "Tüm mağaza ürünlerini kullan",
-      "default": false,
-      "info": "Açıksa Shopify 'All' collection'daki tüm ürünler otomatik gelir. Aşağıdaki collection'lar isteğe bağlı kategori filtresi olur."
+      "default": true,
+      "info": "Açıksa tüm ürünler gelir; sol menü Product type alanından (örn. Outdoor > Koltuk) otomatik oluşur. Collection seçerseniz ek kategori olarak eklenir."
     },
     {
       "type": "collection_list",
       "id": "catalog_collections",
-      "label": "Katalog collection'ları (kategoriler)",
-      "info": "Her collection sol menüde bir kategori olur. 'Outdoor > Koltuk' gibi başlıklar Outdoor altında alt menü olarak birleşir. Product type alanından da alt menü üretilebilir.",
+      "label": "Katalog collection'ları (opsiyonel)",
+      "info": "Opsiyonel. Ana menü Product type'dan gelir. Collection seçerseniz bunlar da menüye eklenir.",
       "limit": 20
     },
     {
@@ -108,7 +108,8 @@
       "min": 1,
       "max": 10,
       "step": 1,
-      "default": 3
+      "default": 3,
+      "info": "Deneme limiti şu an kapalıdır; ziyaretçiler sınırsız tasarım üretebilir."
     },
     {
       "type": "select",
@@ -142,6 +143,13 @@
       "id": "accent_color",
       "label": "Vurgu rengi",
       "default": "#c4a574"
+    },
+    {
+      "type": "color",
+      "id": "menu_link_color",
+      "label": "Menü link rengi",
+      "default": "#c4a574",
+      "info": "Sol menü hover ve seçili durumu bu renkle ayarlanır."
     },
     {
       "type": "paragraph",

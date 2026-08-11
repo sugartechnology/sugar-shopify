@@ -25,10 +25,8 @@
     this.compactModalHeight = null;
     this.toastTimer = null;
     this.designAttemptCount = 0;
-    this.unlimitedDesignAttempts = core.isShopifyAdminPreview();
-    this.maxDesignAttempts = this.unlimitedDesignAttempts
-      ? Number.MAX_SAFE_INTEGER
-      : Math.max(1, Number(this.config.maxDesignAttempts || 3));
+    this.unlimitedDesignAttempts = true;
+    this.maxDesignAttempts = Number.MAX_SAFE_INTEGER;
     this.enabledProductIds = new Set([
       String(this.primaryProduct.productId || ""),
     ]);
@@ -1130,22 +1128,51 @@
   };
 
   SugarPdp.prototype.handleRoomFile = function (file) {
+    var self = this;
+    var utils = window.SugarImageUtils;
     this.hideMessage();
-    if (!file || !file.type.startsWith("image/")) {
+    if (!file || !(utils && utils.isLikelyImageFile(file))) {
       this.showError(this.t("errorUpload", "Please upload a valid image."));
-      return;
+      return Promise.resolve(false);
     }
     var maxMb = Number(this.config.maxUploadSizeMb || 10);
     if (file.size > maxMb * 1024 * 1024) {
       this.showError(this.t("errorSize", "File is too large."));
-      return;
+      return Promise.resolve(false);
     }
-    this.mockup.setRoomFile(file);
-    this.productTipDismissed = false;
-    this.resetProductPlacementTip();
-    this.resetEnabledProducts();
-    this.resetProductQuantities();
-    this.setStep("products");
+
+    var applyFile = function (normalized) {
+      self.mockup.setRoomFile(normalized);
+      self.productTipDismissed = false;
+      self.resetProductPlacementTip();
+      self.resetEnabledProducts();
+      self.resetProductQuantities();
+      self.setStep("products");
+      return true;
+    };
+
+    if (!utils || !utils.isHeicLike(file)) {
+      return Promise.resolve(applyFile(file));
+    }
+
+    return utils
+      .normalizeRoomImageFile(file, { heic2anyUrl: self.config.heic2anyUrl })
+      .then(function (normalized) {
+        if (normalized.size > maxMb * 1024 * 1024) {
+          self.showError(self.t("errorSize", "File is too large."));
+          return false;
+        }
+        return applyFile(normalized);
+      })
+      .catch(function () {
+        self.showError(
+          self.t(
+            "errorHeic",
+            "Could not convert this Apple photo (HEIC). Try exporting as JPEG or take a new photo.",
+          ),
+        );
+        return false;
+      });
   };
 
   SugarPdp.prototype.parseGenerateResponse = async function (response) {

@@ -29,19 +29,29 @@
 
 .sugar-trigger-wrap {
   margin: 1rem 0;
+  width: 100%;
+  max-width: 100%;
+  flex: 0 0 auto;
+  align-self: stretch;
 }
 
+/* Beat theme product-form button/img rules when embed mounts trigger outside .sugar-root */
+button.sugar-trigger-banner,
 .sugar-trigger-banner {
-  display: block;
-  width: 100%;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
   cursor: pointer;
   border-radius: var(--sugar-modal-radius);
   overflow: hidden;
-  line-height: 0;
+  line-height: 0 !important;
   box-shadow: var(--sugar-ai-btn-shadow, 0 2px 8px rgba(0, 0, 0, 0.06));
   transition:
     opacity 0.15s ease,
@@ -49,22 +59,29 @@
     box-shadow 0.15s ease;
 }
 
+button.sugar-trigger-banner:hover,
 .sugar-trigger-banner:hover {
   opacity: 0.96;
   transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
 }
 
+button.sugar-trigger-banner:active,
 .sugar-trigger-banner:active {
   transform: translateY(0);
 }
 
+button.sugar-trigger-banner .sugar-trigger-banner__img,
 .sugar-trigger-banner__img {
-  display: block;
-  width: 100%;
-  height: auto;
-  max-height: none;
-  object-fit: unset;
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  object-position: center;
+  aspect-ratio: auto !important;
 }
 
 .sugar-ai-btn {
