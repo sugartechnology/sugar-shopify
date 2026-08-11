@@ -350,8 +350,11 @@
   function SugarRoomStudio(root) {
     this.root = root;
     this.config = parseJson(root.dataset.sugarRsConfig, {});
-    this.i18n = this.config.i18n || {};
     this.locale = this.config.locale || undefined;
+    this.i18n =
+      window.SugarRsI18n && typeof window.SugarRsI18n.resolve === "function"
+        ? window.SugarRsI18n.resolve(this.locale, this.config.i18n || {})
+        : this.config.i18n || {};
     this.displayMode = this.config.displayMode === "embedded" ? "embedded" : "modal";
     this.catalog = this.normalizeCatalog(parseJson(root.dataset.sugarRsCatalog, {}));
     this.maxProducts = Math.max(1, Math.min(5, Number(this.config.maxProducts || 5)));

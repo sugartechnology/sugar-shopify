@@ -39,7 +39,11 @@
   }
 
   function getI18n(config) {
-    return (config && config.i18n) || {};
+    var overrides = (config && config.i18n) || {};
+    if (global.SugarI18n && typeof global.SugarI18n.resolve === "function") {
+      return global.SugarI18n.resolve(config && config.locale, overrides);
+    }
+    return overrides;
   }
 
   function ensureMediaDevices() {

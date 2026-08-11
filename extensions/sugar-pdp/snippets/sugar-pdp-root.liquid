@@ -4,6 +4,7 @@
 {% endcomment %}
 
 {{ 'sugar-pdp.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'sugar-i18n.js' | asset_url }}" defer></script>
 <script src="{{ 'sugar-image-utils.js' | asset_url }}" defer></script>
 <script src="{{ 'sugar-pdp-core.js' | asset_url }}" defer></script>
 <script src="{{ 'sugar-upload-hero.js' | asset_url }}" defer></script>
@@ -345,67 +346,7 @@
     "locale": {{ shop_locale | json }},
     "i18n": {
       "modalDescription": {{ modal_description | json }},
-      "errorUpload": {{ 'sugar.error_upload' | t | json }},
-      "errorSize": {{ 'sugar.error_size' | t | json }},
-      "errorHeic": {{ 'sugar.error_heic' | t | json }},
-      "errorRoomRequired": {{ 'sugar.error_room_required' | t | json }},
-      "errorSelectProduct": {{ 'sugar.error_select_product' | t | json }},
-      "errorGenerate": {{ 'sugar.error_generate' | t | json }},
-      "errorGenerateProxy": {{ 'sugar.error_generate_proxy' | t | json }},
-      "errorGenerateStorePassword": {{ 'sugar.error_generate_store_password' | t | json }},
-      "errorGeneric": {{ 'sugar.error_generic' | t | json }},
-      "errorCart": {{ 'sugar.error_cart' | t | json }},
-      "errorCartRetry": {{ 'sugar.error_cart_retry' | t | json }},
-      "cartSuccess": {{ 'sugar.cart_success' | t | json }},
-      "cartSuccessDetail": {{ 'sugar.cart_success_detail' | t | json }},
-      "cartView": {{ 'sugar.cart_view' | t | json }},
-      "addCartLabel": {{ add_cart_label | json }},
-      "savedDesignsLabel": {{ 'sugar.saved_designs_label' | t | json }},
-      "savedDesignDelete": {{ 'sugar.saved_design_delete' | t | json }},
-      "savedDesignProductCount": {{ 'sugar.saved_design_product_count' | t | json }},
-      "galleryChoiceInstruction": {{ 'sugar.gallery_choice_instruction' | t | json }},
-      "pickSavedDesigns": {{ 'sugar.pick_saved_designs' | t | json }},
-      "pickNewPhoto": {{ 'sugar.pick_new_photo' | t | json }},
-      "pickBack": {{ 'sugar.pick_back' | t | json }},
-      "checklistDesign": {{ 'sugar.checklist_design' | t | json }},
-      "checklistProducts": {{ 'sugar.checklist_products' | t | json }},
-      "aiPreviewTitle": {{ 'sugar.ai_preview_title' | t | json }},
-      "previewAlt": {{ 'sugar.preview_alt' | t | json }},
-      "compareAria": {{ 'sugar.compare_aria' | t | json }},
-      "compareOrigin": {{ 'sugar.compare_origin' | t | json }},
-      "compareDesign": {{ 'sugar.compare_design' | t | json }},
-      "compareShowOrigin": {{ 'sugar.compare_show_origin' | t | json }},
-      "compareShowDesign": {{ 'sugar.compare_show_design' | t | json }},
-      "cameraInstruction": {{ 'sugar.camera_instruction' | t | json }},
-      "cameraCapture": {{ 'sugar.camera_capture' | t | json }},
-      "cameraCancel": {{ 'sugar.camera_cancel' | t | json }},
-      "roomPreviewLabel": {{ 'sugar.room_preview_label' | t | json }},
-      "reviewInstruction": {{ 'sugar.review_instruction' | t | json }},
-      "reviewInstructionOnly": {{ 'sugar.review_instruction_only' | t | json }},
-      "mockupLabel": {{ 'sugar.mockup_label' | t | json }},
-      "mockupDepth": {{ 'sugar.mockup_depth' | t | json }},
-      "mockupDepthAria": {{ 'sugar.mockup_depth_aria' | t | json }},
-      "mockupRemove": {{ 'sugar.mockup_remove' | t | json }},
-      "productClickTip": {{ 'sugar.product_click_tip' | t | json }},
-      "productEnableTip": {{ 'sugar.product_enable_tip' | t | json }},
-      "qtyDecrease": {{ 'sugar.qty_decrease' | t | json }},
-      "qtyIncrease": {{ 'sugar.qty_increase' | t | json }},
-      "designButton": {{ 'sugar.design_button' | t | json }},
-      "autoDesignButton": {{ 'sugar.auto_design_button' | t | json }},
-      "errorPlacementRequired": {{ 'sugar.error_placement_required' | t | json }},
-      "errorCamera": {{ 'sugar.error_camera' | t | json }},
-      "redesignButton": {{ 'sugar.redesign_button' | t | json }},
-      "redesignCount": {{ 'sugar.redesign_count' | t | json }},
-      "redesignLimit": {{ 'sugar.redesign_limit' | t | json }},
-      "editPlacement": {{ 'sugar.edit_placement' | t | json }},
-      "errorDesignLimit": {{ 'sugar.error_design_limit' | t | json }},
-      "loadingProgress": {{ 'sugar.loading_progress' | t | json }},
-      "loadingCountdown": {{ 'sugar.loading_countdown' | t | json }},
-      "loadingTimeRemaining": {{ 'sugar.loading_time_remaining' | t | json }},
-      "loadingComplete": {{ 'sugar.loading_complete' | t | json }},
-      "loadingAlmostDone": {{ 'sugar.loading_almost_done' | t | json }},
-      "designDownload": {{ 'sugar.design_download' | t | json }},
-      "designDownloadSuccess": {{ 'sugar.design_download_success' | t | json }}
+      "addCartLabel": {{ add_cart_label | json }}
     }
   }'
   data-sugar-product='{
