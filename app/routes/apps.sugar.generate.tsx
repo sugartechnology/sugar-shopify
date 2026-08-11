@@ -121,6 +121,10 @@ async function handleGenerate(request: Request) {
     roomImageBase64:
       String(formData.get("roomImageBase64") ?? "") || undefined,
     roomImageName: String(formData.get("roomImageName") ?? "") || undefined,
+    roomImageWidth: Number(formData.get("roomImageWidth")) || undefined,
+    roomImageHeight: Number(formData.get("roomImageHeight")) || undefined,
+    roomImageAspectRatio:
+      Number(formData.get("roomImageAspectRatio")) || undefined,
     mockupImageBytes,
     mockupImageName:
       mockupPart instanceof File ? mockupPart.name || "mockup.jpg" : undefined,

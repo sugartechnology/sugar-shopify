@@ -390,20 +390,34 @@ button.sugar-rs-trigger-banner .sugar-rs-trigger-banner__img,
   );
 }
 
+button.sugar-rs-close,
 .sugar-rs-close {
   justify-self: end;
-  width: 2.5rem;
-  height: 2.5rem;
-  border: 1px solid color-mix(in srgb, var(--sugar-rs-border) 85%, #999);
-  background: var(--sugar-rs-surface, #f5f5f5);
+  box-sizing: border-box !important;
+  width: 2.5rem !important;
+  min-width: 2.5rem !important;
+  max-width: 2.5rem !important;
+  height: 2.5rem !important;
+  min-height: 2.5rem !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 1px solid #d0d0d0 !important;
+  background: #f5f5f5 !important;
   cursor: pointer;
-  color: #2f2f2f;
-  border-radius: 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  color: #1a1a1a !important;
+  border-radius: 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  font-size: 1rem !important;
+  line-height: 1 !important;
+  text-indent: 0 !important;
+  overflow: visible !important;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  z-index: 6;
   transition:
     background 0.15s ease,
     color 0.15s ease,
@@ -411,14 +425,31 @@ button.sugar-rs-trigger-banner .sugar-rs-trigger-banner__img,
     transform 0.15s ease;
 }
 
+button.sugar-rs-close:hover,
 .sugar-rs-close:hover {
-  background: #ececec;
-  color: #111;
-  border-color: #cfcfcf;
+  background: #ececec !important;
+  color: #111 !important;
+  border-color: #cfcfcf !important;
 }
 
+button.sugar-rs-close:active,
 .sugar-rs-close:active {
   transform: scale(0.96);
+}
+
+button.sugar-rs-close svg,
+.sugar-rs-close svg {
+  display: block !important;
+  width: 1.25rem !important;
+  height: 1.25rem !important;
+  min-width: 1.25rem !important;
+  min-height: 1.25rem !important;
+  stroke: #1a1a1a !important;
+  fill: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  flex-shrink: 0 !important;
+  pointer-events: none;
 }
 
 .sugar-rs-toast {
@@ -826,28 +857,37 @@ button.sugar-rs-trigger-banner .sugar-rs-trigger-banner__img,
   width: 100%;
   height: 100%;
   max-height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   object-position: center;
   display: block;
 }
 
+button.sugar-rs-card__add,
 .sugar-rs-card__add {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
+  top: 0.45rem;
+  right: 0.45rem;
   z-index: 3;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 999px;
-  border: none;
+  box-sizing: border-box;
+  width: 1.65rem !important;
+  min-width: 1.65rem !important;
+  max-width: 1.65rem !important;
+  height: 1.65rem !important;
+  min-height: 1.65rem !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 999px !important;
+  border: none !important;
   background: var(--sugar-rs-accent, #c4a574);
   color: #fff;
   cursor: pointer;
-  display: inline-flex;
+  display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  font-size: 1.15em;
+  font-size: 0.95em;
+  font-weight: 600;
   line-height: 1;
+  letter-spacing: 0;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 
@@ -989,11 +1029,15 @@ button.sugar-rs-trigger-banner .sugar-rs-trigger-banner__img,
 
 .sugar-rs-room__preview.has-image {
   aspect-ratio: auto;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   height: auto;
+  min-height: 0;
+  max-height: none;
+  flex: 0 0 auto !important;
   margin-inline: auto;
   background: #111;
+  overflow: hidden;
 }
 
 .sugar-rs-room__preview img {
@@ -1005,10 +1049,12 @@ button.sugar-rs-trigger-banner .sugar-rs-trigger-banner__img,
 }
 
 .sugar-rs-room__preview.has-image img {
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: min(58vh, 34rem);
+  width: 100% !important;
+  height: auto !important;
+  max-width: 100% !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  object-position: center;
 }
 
 .sugar-rs-room__preview img[hidden],
@@ -1541,10 +1587,13 @@ button.sugar-rs-trigger-banner .sugar-rs-trigger-banner__img,
 }
 
 .sugar-rs-room--focus .sugar-rs-room__preview.has-image {
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
-  max-height: none;
+  height: auto;
+  min-height: 0;
+  max-height: none !important;
   aspect-ratio: auto;
+  flex: 0 0 auto !important;
 }
 
 .sugar-rs-room__layers {
@@ -1877,7 +1926,7 @@ button.sugar-rs-trigger-banner .sugar-rs-trigger-banner__img,
   width: 100%;
   max-width: 820px;
   margin: 0 auto;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: var(--sugar-rs-compare-ar, var(--sugar-rs-room-ar, 4 / 3));
   border-radius: 12px;
   overflow: hidden;
   background: var(--sugar-rs-surface);
@@ -1890,8 +1939,10 @@ button.sugar-rs-trigger-banner .sugar-rs-trigger-banner__img,
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
   pointer-events: none;
+  background: #111;
 }
 
 .sugar-rs-compare img[data-sugar-rs-compare-design] {
@@ -2308,9 +2359,9 @@ button.sugar-rs-trigger-banner .sugar-rs-trigger-banner__img,
     height: 8.75rem !important;
     max-width: 100% !important;
     max-height: 8.75rem !important;
-    object-fit: contain !important;
+    object-fit: cover !important;
     object-position: center !important;
-    padding: 0.5rem !important;
+    padding: 0 !important;
     margin: 0 !important;
     display: block !important;
     border: none !important;
@@ -2525,23 +2576,42 @@ button.sugar-rs-trigger-banner .sugar-rs-trigger-banner__img,
   .sugar-rs-upload-layout__body {
     grid-template-columns: 1fr;
     gap: 0.75rem;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-height: 0;
   }
 
-  .sugar-rs-room--focus .sugar-rs-room__preview {
+  .sugar-rs-room--focus {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+
+  .sugar-rs-room--focus .sugar-rs-room__preview:not(.has-image) {
     max-height: min(48vh, 22rem);
+  }
+
+  .sugar-rs-room--focus .sugar-rs-room__preview.has-image {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    flex: 0 0 auto !important;
+    aspect-ratio: auto !important;
   }
 
   .sugar-rs-room__preview.has-image img,
   .sugar-rs-room--focus .sugar-rs-room__preview.has-image img {
-    max-height: min(48vh, 22rem);
+    width: 100% !important;
+    height: auto !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    object-fit: contain !important;
   }
 
   .sugar-rs-upload-products {
     max-height: none;
-    min-height: min(44vh, 22rem);
-    flex: 1 1 auto;
+    min-height: 0;
+    flex: 0 0 auto;
   }
 
   .sugar-rs-upload-products__list {
@@ -2582,13 +2652,19 @@ button.sugar-rs-trigger-banner .sugar-rs-trigger-banner__img,
     width: calc(100vw - 0.4rem);
   }
 
-  .sugar-rs-room--focus .sugar-rs-room__preview {
+  .sugar-rs-room--focus .sugar-rs-room__preview:not(.has-image) {
     max-height: min(42vh, 18rem);
+  }
+
+  .sugar-rs-room--focus .sugar-rs-room__preview.has-image {
+    max-height: none !important;
   }
 
   .sugar-rs-room__preview.has-image img,
   .sugar-rs-room--focus .sugar-rs-room__preview.has-image img {
-    max-height: min(42vh, 18rem);
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
   }
 
   .sugar-rs-upload-products {

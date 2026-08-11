@@ -351,7 +351,9 @@
 
         {%- if display_mode == 'modal' -%}
           <button type="button" class="sugar-rs-close" data-sugar-rs-close aria-label="{{ 'sugar_rs.close_aria' | t }}">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+              <path d="M6 6l12 12M18 6L6 18" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round"/>
+            </svg>
           </button>
         {%- endif -%}
       </header>

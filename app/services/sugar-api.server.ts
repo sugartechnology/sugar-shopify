@@ -126,6 +126,19 @@ export async function generateProductImage(
     );
   }
 
+  if (request.roomImageWidth && request.roomImageHeight) {
+    formData.append("roomImageWidth", String(request.roomImageWidth));
+    formData.append("roomImageHeight", String(request.roomImageHeight));
+  }
+  if (request.roomImageAspectRatio) {
+    formData.append(
+      "roomImageAspectRatio",
+      String(request.roomImageAspectRatio),
+    );
+  }
+  // Ask the design service to preserve the uploaded room photo aspect ratio.
+  formData.append("preserveRoomAspectRatio", "true");
+
   if (request.mockupImageBytes?.length) {
     formData.append(
       "mockupImage",

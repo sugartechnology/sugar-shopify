@@ -308,7 +308,24 @@
   CompareSlider.prototype.onImgLoaded = function (img) {
     if (!img) return;
     img.classList.add("is-loaded");
+    this.syncAspectFromOrigin();
     this.syncPreviewLoaded();
+  };
+
+  CompareSlider.prototype.syncAspectFromOrigin = function () {
+    if (!this.preview) return;
+    var source =
+      this.originImg && this.originImg.naturalWidth
+        ? this.originImg
+        : this.designImg && this.designImg.naturalWidth
+          ? this.designImg
+          : null;
+    if (!source) return;
+    var w = source.naturalWidth || 0;
+    var h = source.naturalHeight || 0;
+    if (w > 0 && h > 0) {
+      this.preview.style.setProperty("--sugar-compare-ar", w + " / " + h);
+    }
   };
 
   CompareSlider.prototype.syncPreviewLoaded = function () {

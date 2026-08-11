@@ -169,6 +169,9 @@ export interface GenerateImageRequest {
   shopDomain: string;
   roomImageBase64?: string;
   roomImageName?: string;
+  roomImageWidth?: number;
+  roomImageHeight?: number;
+  roomImageAspectRatio?: number;
   mockupImageName?: string;
   mockupImageBytes?: Buffer;
   products: DesignProductInput[];

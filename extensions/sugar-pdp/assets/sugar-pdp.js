@@ -1232,6 +1232,15 @@
       formData.append("selections", JSON.stringify(payload.selections));
       formData.append("roomImageBase64", base64);
       formData.append("roomImageName", this.mockup.roomFile.name);
+      var roomPreview = this.mockup.roomPreview;
+      if (roomPreview && roomPreview.naturalWidth && roomPreview.naturalHeight) {
+        formData.append("roomImageWidth", String(roomPreview.naturalWidth));
+        formData.append("roomImageHeight", String(roomPreview.naturalHeight));
+        formData.append(
+          "roomImageAspectRatio",
+          String(roomPreview.naturalWidth / roomPreview.naturalHeight),
+        );
+      }
       if (payload.includeMockup) {
         var mockupBlob = await this.mockup.exportBlob();
         if (mockupBlob) {

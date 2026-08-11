@@ -372,6 +372,7 @@
     this.gridRenderLimit = 12;
     this.roomFile = null;
     this.roomPreviewUrl = "";
+    this.roomNaturalSize = null;
     this.cameraStream = null;
     this.designMode = "auto";
     this.placementsByProductId = {};
@@ -877,6 +878,7 @@
   SugarRoomStudio.prototype.init = function () {
     this.cacheDom();
     this.bindEvents();
+    this.bindCompareImageAspect();
     this.syncAttemptCount();
     this.renderCategories();
     this.renderGrid();
@@ -2205,11 +2207,55 @@
     var w = img && !img.hidden ? Number(img.naturalWidth || 0) : 0;
     var h = img && !img.hidden ? Number(img.naturalHeight || 0) : 0;
     if (w > 0 && h > 0) {
+      this.roomNaturalSize = { width: w, height: h };
       preview.style.setProperty("--sugar-rs-room-ar", w + " / " + h);
       preview.classList.add("has-image");
+      this.syncCompareAspect(w, h);
     } else {
+      this.roomNaturalSize = null;
       preview.style.removeProperty("--sugar-rs-room-ar");
       preview.classList.remove("has-image");
+      this.syncCompareAspect(0, 0);
+    }
+  };
+
+  SugarRoomStudio.prototype.syncCompareAspect = function (width, height) {
+    var el = this.compareEl;
+    if (!el) return;
+    var w = Number(width || 0);
+    var h = Number(height || 0);
+    if ((!w || !h) && this.roomNaturalSize) {
+      w = this.roomNaturalSize.width;
+      h = this.roomNaturalSize.height;
+    }
+    if ((!w || !h) && this.compareOrigin && this.compareOrigin.naturalWidth) {
+      w = this.compareOrigin.naturalWidth;
+      h = this.compareOrigin.naturalHeight;
+    }
+    if (w > 0 && h > 0) {
+      var ratio = w + " / " + h;
+      el.style.setProperty("--sugar-rs-compare-ar", ratio);
+      if (this.panelEl) {
+        this.panelEl.style.setProperty("--sugar-rs-room-ar", ratio);
+      }
+      el.classList.add("has-aspect");
+    } else {
+      el.style.removeProperty("--sugar-rs-compare-ar");
+      el.classList.remove("has-aspect");
+    }
+  };
+
+  SugarRoomStudio.prototype.bindCompareImageAspect = function () {
+    var self = this;
+    var applyFromOrigin = function () {
+      if (!self.compareOrigin) return;
+      var w = self.compareOrigin.naturalWidth || 0;
+      var h = self.compareOrigin.naturalHeight || 0;
+      if (w > 0 && h > 0) self.syncCompareAspect(w, h);
+    };
+    if (this.compareOrigin && !this.compareOrigin.__sugarAspectBound) {
+      this.compareOrigin.__sugarAspectBound = true;
+      this.compareOrigin.addEventListener("load", applyFromOrigin);
     }
   };
 
@@ -2218,6 +2264,7 @@
     if (this.roomPreviewUrl) URL.revokeObjectURL(this.roomPreviewUrl);
     this.roomFile = null;
     this.roomPreviewUrl = "";
+    this.roomNaturalSize = null;
     this.placementsByProductId = {};
     this.selectedPlacementId = null;
     if (this.roomImg) {
@@ -2853,6 +2900,14 @@
       formData.append("selections", JSON.stringify(selections));
       formData.append("roomImageBase64", base64);
       formData.append("roomImageName", this.roomFile.name || "room.jpg");
+      if (this.roomNaturalSize && this.roomNaturalSize.width && this.roomNaturalSize.height) {
+        formData.append("roomImageWidth", String(this.roomNaturalSize.width));
+        formData.append("roomImageHeight", String(this.roomNaturalSize.height));
+        formData.append(
+          "roomImageAspectRatio",
+          String(this.roomNaturalSize.width / this.roomNaturalSize.height),
+        );
+      }
       formData.append(
         "productDetailMetafields",
         JSON.stringify(this.getProductDetailMetafieldRefs()),
@@ -2879,6 +2934,10 @@
 
       if (this.compareOrigin) this.compareOrigin.src = this.roomPreviewUrl || "";
       if (this.compareDesign) this.compareDesign.src = data.imageUrl || "";
+      this.syncCompareAspect(
+        this.roomNaturalSize && this.roomNaturalSize.width,
+        this.roomNaturalSize && this.roomNaturalSize.height,
+      );
       this.setComparePosition(0);
 
       this.renderResultList();
