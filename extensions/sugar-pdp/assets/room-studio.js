@@ -563,12 +563,41 @@
             }
           });
         }
+
+        // Preserve prebuilt children (e.g. Shopify sub-collections)
+        var incomingChildren = Array.isArray(c.children) ? c.children : [];
+        var children = incomingChildren
+          .filter(function (child) {
+            return child && child.id;
+          })
+          .map(function (child) {
+            var childIds = Array.isArray(child.productIds)
+              ? child.productIds.map(String).filter(function (id) {
+                  return !!byId[id];
+                })
+              : [];
+            childIds.forEach(function (id) {
+              if (byId[id].categoryIds.indexOf(String(child.id)) === -1) {
+                byId[id].categoryIds.push(String(child.id));
+              }
+              if (byId[id].categoryIds.indexOf(String(c.id)) === -1) {
+                byId[id].categoryIds.push(String(c.id));
+              }
+            });
+            return {
+              id: String(child.id),
+              title: child.title || String(child.id),
+              productIds: childIds,
+              count: childIds.length,
+            };
+          });
+
         return {
           id: String(c.id),
           title: c.title || String(c.id),
           productIds: ids,
           count: ids.length,
-          children: [],
+          children: children,
         };
       });
 
@@ -628,12 +657,29 @@
         var ids = (c.productIds || []).filter(function (id) {
           return !!byId[id];
         });
+        var children = Array.isArray(c.children)
+          ? c.children
+              .filter(function (child) {
+                return child && child.id;
+              })
+              .map(function (child) {
+                var childIds = (child.productIds || []).filter(function (id) {
+                  return !!byId[id];
+                });
+                return {
+                  id: child.id,
+                  title: child.title,
+                  productIds: childIds,
+                  count: childIds.length,
+                };
+              })
+          : [];
         return {
           id: c.id,
           title: c.title,
           productIds: ids,
           count: ids.length,
-          children: [],
+          children: children,
         };
       });
     }
@@ -661,31 +707,42 @@
       });
     }
 
-    // Under each collection (and type seed): product-type children
-    // Collection selected → all products in collection
-    // Child category selected → only that type within the collection
+    // Under each collection: keep sub-collection children, also add product-type children
     cats = cats.map(function (c) {
       if (c.id === "all") return c;
       if (parseNestedCategoryTitle(c.title)) return c;
-      if (Array.isArray(c.children) && c.children.length > 0) return c;
-      var children = self.buildSubcategories(c.productIds, byId).filter(function (child) {
-        return slugifyLabel(child.title) !== slugifyLabel(c.title);
+
+      var existingChildren = Array.isArray(c.children) ? c.children.slice() : [];
+      var existingIds = {};
+      var existingTitles = {};
+      existingChildren.forEach(function (child) {
+        if (!child || !child.id) return;
+        existingIds[String(child.id)] = true;
+        existingTitles[slugifyLabel(child.title)] = true;
       });
-      // Scope child ids so the same type under two collections doesn't collide in UI state
-      children = children.map(function (child) {
+
+      var typeChildren = self.buildSubcategories(c.productIds, byId).filter(function (child) {
+        if (slugifyLabel(child.title) === slugifyLabel(c.title)) return false;
+        if (existingTitles[slugifyLabel(child.title)]) return false;
+        return true;
+      });
+      typeChildren = typeChildren.map(function (child) {
         return {
           id: String(c.id) + "__" + child.id,
           title: child.title,
           productIds: child.productIds,
           count: child.count,
         };
+      }).filter(function (child) {
+        return !existingIds[child.id];
       });
+
       return {
         id: c.id,
         title: c.title,
         productIds: c.productIds,
         count: (c.productIds || []).length,
-        children: children,
+        children: existingChildren.concat(typeChildren),
       };
     });
 
@@ -1035,47 +1092,228 @@
     };
   };
 
-  SugarRoomStudio.prototype.hydrateCatalog = async function () {
-    var handles = Array.isArray(this.config.catalogHandles)
-      ? this.config.catalogHandles.filter(Boolean)
+  SugarRoomStudio.prototype.fetchCatalogGroups = async function () {
+    var parents = Array.isArray(this.config.catalogParents)
+      ? this.config.catalogParents.filter(function (p) {
+          return p && (p.id || p.handle);
+        })
       : [];
-    // Do not invent "all" — only hydrate configured handles (all only when use_all_products is on)
-    if (!handles.length) return;
+    if (!parents.length) return null;
 
+    var ids = parents
+      .map(function (p) {
+        return String(p.id || "").trim();
+      })
+      .filter(Boolean);
+    if (!ids.length) return null;
+
+    var base = String(this.config.catalogUrl || "/apps/sugar/catalog").trim();
+    var url =
+      base +
+      (base.indexOf("?") === -1 ? "?" : "&") +
+      "ids=" +
+      encodeURIComponent(ids.join(","));
+
+    try {
+      var res = await fetch(url, {
+        method: "GET",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return null;
+      var payload = await res.json();
+      var groups =
+        payload &&
+        payload.data &&
+        Array.isArray(payload.data.groups)
+          ? payload.data.groups
+          : null;
+      return groups;
+    } catch (err) {
+      console.warn("[Sugar Curator] catalog groups resolve failed", err);
+      return null;
+    }
+  };
+
+  SugarRoomStudio.prototype.hydrateCatalog = async function () {
     var self = this;
     if (this.grid) {
       this.grid.setAttribute("aria-busy", "true");
     }
 
     try {
+      var groups = await this.fetchCatalogGroups();
+      var handles = [];
+      var categories = [];
+
+      if (this.config.useAllProducts === true) {
+        handles.push("all");
+      }
+
+      if (Array.isArray(groups) && groups.length) {
+        groups.forEach(function (group) {
+          if (!group || !group.handle) return;
+          var children = Array.isArray(group.children) ? group.children : [];
+          // Always hydrate parent: may include direct products + sub-collection union
+          if (handles.indexOf(group.handle) === -1) {
+            handles.push(String(group.handle));
+          }
+          children.forEach(function (child) {
+            if (child && child.handle && handles.indexOf(child.handle) === -1) {
+              handles.push(String(child.handle));
+            }
+          });
+        });
+      } else {
+        // Fallback: theme catalogHandles (parent list / all)
+        handles = Array.isArray(this.config.catalogHandles)
+          ? this.config.catalogHandles.filter(Boolean).map(String)
+          : [];
+      }
+
+      if (!handles.length) return;
+
+      var productsByHandle = {};
       for (var i = 0; i < handles.length; i++) {
         var handle = String(handles[i]);
         var rawProducts = await this.fetchAllCollectionProducts(handle);
-        var mapped = rawProducts
+        productsByHandle[handle] = rawProducts
           .map(function (raw) {
             return self.mapAjaxProduct(raw);
           })
           .filter(Boolean);
-        self.mergeProductsIntoCatalog(mapped, handle === "all" ? "all" : handle);
       }
-      self.catalog = self.normalizeCatalog({
-        products: self.catalog.products,
-        categories: self.catalog.sourceCategories || self.catalog.categories,
+
+      var byId = {};
+      function upsert(list, catIds) {
+        (list || []).forEach(function (p) {
+          if (!p || !p.productId) return;
+          var existing = byId[p.productId];
+          if (existing) {
+            (catIds || []).forEach(function (cid) {
+              if (existing.categoryIds.indexOf(cid) === -1) {
+                existing.categoryIds.push(cid);
+              }
+            });
+            return;
+          }
+          p.categoryIds = (catIds || []).slice();
+          byId[p.productId] = p;
+        });
+      }
+
+      if (productsByHandle.all) {
+        upsert(productsByHandle.all, ["all"]);
+        categories.push({
+          id: "all",
+          title: this.t("allProducts", "All Products"),
+          productIds: [],
+          count: 0,
+          children: [],
+        });
+      }
+
+      if (Array.isArray(groups) && groups.length) {
+        groups.forEach(function (group) {
+          if (!group || !group.handle) return;
+          var groupId = String(group.handle);
+          var children = Array.isArray(group.children) ? group.children : [];
+          var childCats = [];
+          var union = {};
+
+          // Parent membership = direct products + sub-collection products (Shopify union)
+          var parentList = productsByHandle[groupId] || [];
+          parentList.forEach(function (p) {
+            if (p && p.productId) union[p.productId] = true;
+          });
+          upsert(parentList, [groupId]);
+
+          children.forEach(function (child) {
+            if (!child || !child.handle) return;
+            var childId = String(child.handle);
+            var list = productsByHandle[childId] || [];
+            var ids = list.map(function (p) {
+              return p.productId;
+            });
+            ids.forEach(function (id) {
+              union[id] = true;
+            });
+            upsert(list, [groupId, childId]);
+            childCats.push({
+              id: childId,
+              title: child.title || childId,
+              productIds: ids,
+              count: ids.length,
+            });
+          });
+
+          var groupIds = Object.keys(union);
+          categories.push({
+            id: groupId,
+            title: group.title || groupId,
+            productIds: groupIds,
+            count: groupIds.length,
+            children: childCats,
+          });
+        });
+      } else {
+        // Legacy flat handles → merge then normalize (product-type children)
+        Object.keys(productsByHandle).forEach(function (h) {
+          if (h === "all") return;
+          self.mergeProductsIntoCatalog(productsByHandle[h], h);
+        });
+        if (productsByHandle.all) {
+          self.mergeProductsIntoCatalog(productsByHandle.all, "all");
+        }
+        self.catalog = self.normalizeCatalog({
+          products: self.catalog.products,
+          categories: self.catalog.sourceCategories || self.catalog.categories,
+        });
+        if (self.activeSubcategoryId && !self.getActiveSubcategory()) {
+          self.activeSubcategoryId = null;
+        }
+        if (self.activeCategoryId && !self.getActiveCategory()) {
+          self.activeCategoryId = self.getDefaultCategoryId();
+          self.activeSubcategoryId = null;
+        }
+        self.expandAllCategoriesWithChildren();
+        self.renderCategories();
+        self.renderGrid();
+        self.renderSlots();
+        self.renderSelectedCount();
+        self.updateContinueState();
+        self.updateGenerateState();
+        return;
+      }
+
+      if (categories[0] && categories[0].id === "all") {
+        categories[0].productIds = Object.keys(byId);
+        categories[0].count = categories[0].productIds.length;
+      }
+
+      var productList = Object.keys(byId).map(function (id) {
+        return byId[id];
       });
-      if (self.activeSubcategoryId && !self.getActiveSubcategory()) {
-        self.activeSubcategoryId = null;
+
+      this.catalog = this.normalizeCatalog({
+        products: productList,
+        categories: categories,
+      });
+
+      if (this.activeSubcategoryId && !this.getActiveSubcategory()) {
+        this.activeSubcategoryId = null;
       }
-      if (self.activeCategoryId && !self.getActiveCategory()) {
-        self.activeCategoryId = self.getDefaultCategoryId();
-        self.activeSubcategoryId = null;
+      if (this.activeCategoryId && !this.getActiveCategory()) {
+        this.activeCategoryId = this.getDefaultCategoryId();
+        this.activeSubcategoryId = null;
       }
-      self.expandAllCategoriesWithChildren();
-      self.renderCategories();
-      self.renderGrid();
-      self.renderSlots();
-      self.renderSelectedCount();
-      self.updateContinueState();
-      self.updateGenerateState();
+      this.expandAllCategoriesWithChildren();
+      this.renderCategories();
+      this.renderGrid();
+      this.renderSlots();
+      this.renderSelectedCount();
+      this.updateContinueState();
+      this.updateGenerateState();
     } catch (err) {
       console.warn("[Sugar Curator] catalog hydrate failed", err);
     } finally {

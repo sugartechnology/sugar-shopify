@@ -22,13 +22,21 @@
       "id": "use_all_products",
       "label": "Tüm mağaza ürünlerini kullan",
       "default": false,
-      "info": "Kapalı (önerilen): sol menü = collection listesi; her collection altında product type kategorileri. Collection → tümü, kategori → yalnızca o tip. Açık: All Products + tüm mağaza."
+      "info": "Açıksa en üste All Products eklenir. Kapalıysa yalnızca aşağıdaki collections menüde yer alır."
+    },
+    {
+      "type": "header",
+      "content": "Katalog"
+    },
+    {
+      "type": "paragraph",
+      "content": "Yalnızca Shopify Collections seçin. Metaobject / metafield / dinamik kaynak bağlamayın."
     },
     {
       "type": "collection_list",
       "id": "catalog_collections",
-      "label": "Katalog collection'ları",
-      "info": "Sol menüdeki kategoriler. 'Tüm ürünler' kapalıyken katalog yalnızca bu listeden gelir.",
+      "label": "Collections",
+      "info": "Katalogda gösterilecek collection’lar. Child’lar Admin’deki sub-collection kaynaklarından gelir; parent’ta doğrudan ürün de olabilir.",
       "limit": 20
     },
     {

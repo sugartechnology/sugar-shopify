@@ -109,6 +109,25 @@
 ]
 {%- endcapture -%}
 
+{%- capture catalog_parents_json -%}
+[
+  {%- assign parent_first = true -%}
+  {%- if catalog_collections != blank -%}
+    {%- for coll in catalog_collections -%}
+      {%- if coll != blank and coll.handle != blank and coll.id != blank and coll.products != nil -%}
+        {%- unless parent_first -%},{%- endunless -%}
+        {
+          "id": {{ coll.id | json }},
+          "handle": {{ coll.handle | json }},
+          "title": {{ coll.title | json }}
+        }
+        {%- assign parent_first = false -%}
+      {%- endif -%}
+    {%- endfor -%}
+  {%- endif -%}
+]
+{%- endcapture -%}
+
 {%- capture catalog_json -%}
 {
   "categories": [
@@ -242,6 +261,7 @@
   {{ sugar_attributes }}
   data-sugar-rs-config='{
     "proxyUrl": "/apps/sugar/generate",
+    "catalogUrl": "/apps/sugar/catalog",
     "displayMode": {{ display_mode | json }},
     "imagePropertyKey": {{ image_property_key | json }},
     "generationIdPropertyKey": {{ generation_id_key | json }},
@@ -258,6 +278,7 @@
     "shopDomain": {{ shop.permanent_domain | json }},
     "useAllProducts": {% if use_all_products %}true{% else %}false{% endif %},
     "catalogHandles": {{ catalog_handles_json | strip_newlines }},
+    "catalogParents": {{ catalog_parents_json | strip_newlines }},
     "currency": {{ shop_currency | json }},
     "productDetailMetafieldsJson": {{ product_detail_metafields_json | json }},
     "productDetailMetafieldNamespace": {{ product_detail_metafield_namespace | json }},
