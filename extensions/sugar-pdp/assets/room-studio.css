@@ -869,11 +869,11 @@ button.sugar-rs-card__add,
   right: 0.45rem;
   z-index: 3;
   box-sizing: border-box;
-  width: 1.65rem !important;
-  min-width: 1.65rem !important;
-  max-width: 1.65rem !important;
-  height: 1.65rem !important;
-  min-height: 1.65rem !important;
+  width: 2.15rem !important;
+  min-width: 2.15rem !important;
+  max-width: 2.15rem !important;
+  height: 2.15rem !important;
+  min-height: 2.15rem !important;
   padding: 0 !important;
   margin: 0 !important;
   border-radius: 999px !important;
@@ -884,7 +884,7 @@ button.sugar-rs-card__add,
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  font-size: 0.95em;
+  font-size: 1.25em;
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0;
