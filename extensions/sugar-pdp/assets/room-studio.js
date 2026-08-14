@@ -3214,16 +3214,95 @@
     this.resultList.innerHTML = html;
   };
 
-  SugarRoomStudio.prototype.notifyThemeCartUpdated = function () {
+  SugarRoomStudio.prototype.collectCartSectionIds = function () {
+    var ids = [];
+    var seen = {};
+    document.querySelectorAll("[id^='shopify-section-']").forEach(function (el) {
+      var id = String(el.id || "").replace(/^shopify-section-/, "");
+      if (!id || seen[id]) return;
+      var hay = (id + " " + (el.className || "")).toLowerCase();
+      if (!/cart|header|navbar|nav-bar|announcement/.test(hay)) return;
+      seen[id] = true;
+      ids.push(id);
+    });
+    return ids;
+  };
+
+  SugarRoomStudio.prototype.applyCartSections = function (sections) {
+    if (!sections || typeof sections !== "object") return;
+    Object.keys(sections).forEach(function (id) {
+      var html = sections[id];
+      if (!html) return;
+      var current = document.getElementById("shopify-section-" + id);
+      if (!current) return;
+      var tmp = document.createElement("div");
+      tmp.innerHTML = String(html).trim();
+      var incoming =
+        tmp.querySelector("#shopify-section-" + id) || tmp.firstElementChild;
+      if (incoming && incoming.id === current.id) {
+        current.replaceWith(incoming);
+      } else if (incoming) {
+        current.innerHTML = incoming.innerHTML;
+      } else {
+        current.innerHTML = html;
+      }
+    });
+  };
+
+  SugarRoomStudio.prototype.dispatchCartEvents = function (cart) {
+    var detail = { cart: cart, source: "sugar-curator" };
+    [
+      "cart:updated",
+      "cart:refresh",
+      "cart:change",
+      "ajaxCart:updated",
+      "shopify-cart:updated",
+    ].forEach(function (name) {
+      document.dispatchEvent(new CustomEvent(name, { bubbles: true, detail: detail }));
+      document.documentElement.dispatchEvent(
+        new CustomEvent(name, { bubbles: true, detail: detail }),
+      );
+    });
+    if (
+      typeof window.publish === "function" &&
+      window.PUB_SUB_EVENTS &&
+      window.PUB_SUB_EVENTS.cartUpdate
+    ) {
+      window.publish(window.PUB_SUB_EVENTS.cartUpdate, {
+        source: "sugar-curator",
+        cartData: cart,
+      });
+    }
+  };
+
+  SugarRoomStudio.prototype.notifyThemeCartUpdated = function (addResponse) {
+    var self = this;
+    if (addResponse && addResponse.sections) {
+      this.applyCartSections(addResponse.sections);
+    }
     fetch("/cart.js")
       .then(function (res) {
         return res.ok ? res.json() : null;
       })
       .then(function (cart) {
         if (!cart) return;
-        document.dispatchEvent(
-          new CustomEvent("cart:updated", { detail: { cart: cart } }),
+        self.dispatchCartEvents(cart);
+        var sectionIds = self.collectCartSectionIds();
+        if (!sectionIds.length) return null;
+        var url =
+          (window.Shopify && window.Shopify.routes && window.Shopify.routes.root
+            ? window.Shopify.routes.root
+            : "/") +
+          "?sections=" +
+          encodeURIComponent(sectionIds.join(","));
+        return fetch(url, { headers: { Accept: "application/json" } }).then(
+          function (res) {
+            return res.ok ? res.json() : null;
+          },
         );
+      })
+      .then(function (sections) {
+        if (sections) self.applyCartSections(sections);
       })
       .catch(function () {});
   };
@@ -3258,10 +3337,16 @@
 
     this.hideMessage();
     this.addCartBtn.disabled = true;
+    var sectionIds = this.collectCartSectionIds();
+    var addPayload = { items: items };
+    if (sectionIds.length) {
+      addPayload.sections = sectionIds.join(",");
+      addPayload.sections_url = window.location.pathname || "/";
+    }
     fetch("/cart/add.js", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ items: items }),
+      body: JSON.stringify(addPayload),
     })
       .then(function (res) {
         return res.json().then(function (data) {
@@ -3273,7 +3358,7 @@
           return data;
         });
       })
-      .then(function () {
+      .then(function (data) {
         self.addCartBtn.disabled = false;
         var detail = self.tReplace(
           "cartSuccessDetail",
@@ -3281,7 +3366,7 @@
           { count: items.length },
         );
         self.showSuccess(self.t("cartSuccess", "Added to cart!") + " " + detail);
-        self.notifyThemeCartUpdated();
+        self.notifyThemeCartUpdated(data);
       })
       .catch(function (err) {
         self.addCartBtn.disabled = false;
