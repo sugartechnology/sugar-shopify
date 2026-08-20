@@ -38,6 +38,20 @@
   align-self: stretch;
 }
 
+/* Nested in theme Hero / Image banner / slideshow content */
+.banner .sugar-rs-trigger-wrap,
+.image-banner .sugar-rs-trigger-wrap,
+.hero .sugar-rs-trigger-wrap,
+.slideshow .sugar-rs-trigger-wrap,
+slideshow-component .sugar-rs-trigger-wrap,
+.banner__box .sugar-rs-trigger-wrap,
+.banner__content .sugar-rs-trigger-wrap {
+  margin: 1.25rem 0 0;
+  text-align: inherit;
+  width: auto;
+  max-width: 100%;
+}
+
 .sugar-rs-trigger-wrap--banner {
   text-align: left;
 }
