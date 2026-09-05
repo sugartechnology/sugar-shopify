@@ -2105,11 +2105,19 @@
       });
   };
 
+  SugarRoomStudio.prototype.productHasPrice = function (p) {
+    return !!(p && normalizePriceToCents(p.price) > 0);
+  };
+
   SugarRoomStudio.prototype.buildProductCardHtml = function (p, atLimit) {
     var selected = this.selectedIds.indexOf(p.productId) !== -1;
     var disabled = !selected && atLimit;
-    var price = formatMoney(p.price, p.currency || this.config.currency, this.locale);
     var title = String(p.title || "").trim() || "—";
+    var priceHtml = this.productHasPrice(p)
+      ? '<div class="sugar-rs-card__price">' +
+        escapeHtml(formatMoney(p.price, p.currency || this.config.currency, this.locale)) +
+        "</div>"
+      : "";
     return (
       '<article class="sugar-rs-card' +
       (selected ? " is-selected" : "") +
@@ -2150,9 +2158,7 @@
       '<div class="sugar-rs-card__title">' +
       escapeHtml(title) +
       "</div>" +
-      '<div class="sugar-rs-card__price">' +
-      escapeHtml(price) +
-      "</div>" +
+      priceHtml +
       "</div></article>"
     );
   };
@@ -2323,7 +2329,11 @@
       var id = this.selectedIds[i];
       var product = id ? this.catalog.byId[id] : null;
       if (product) {
-        var price = formatMoney(product.price, product.currency || currency, this.locale);
+        var priceHtml = this.productHasPrice(product)
+          ? '<p class="sugar-rs-slot__price">' +
+            escapeHtml(formatMoney(product.price, product.currency || currency, this.locale)) +
+            "</p>"
+          : "";
         html +=
           '<article class="sugar-rs-slot is-filled" data-slot-id="' +
           escapeHtml(product.productId) +
@@ -2339,9 +2349,7 @@
           '<p class="sugar-rs-slot__title">' +
           escapeHtml(product.title) +
           "</p>" +
-          '<p class="sugar-rs-slot__price">' +
-          escapeHtml(price) +
-          "</p>" +
+          priceHtml +
           "</div>" +
           '<button type="button" class="sugar-rs-slot__remove" data-remove-slot="' +
           escapeHtml(product.productId) +
@@ -2361,17 +2369,21 @@
       });
     });
 
-    var totalCents = this.getSelectedCartTotalCents();
     if (this.slotsTotalEl) {
-      var hasItems = this.selectedIds.length > 0;
+      var totalCents = this.getSelectedCartTotalCents();
+      var hasItems = this.selectedIds.length > 0 && totalCents > 0;
       this.slotsTotalEl.hidden = !hasItems;
-      if (this.slotsTotalLabel) {
-        this.slotsTotalLabel.textContent = this.t("cartTotal", "Cart total");
-      }
-      if (this.slotsTotalValue) {
-        this.slotsTotalValue.textContent = hasItems
-          ? formatMoney(totalCents, currency, this.locale)
-          : "";
+      if (hasItems) {
+        if (this.slotsTotalLabel) {
+          this.slotsTotalLabel.textContent = this.t("cartTotal", "Cart total");
+        }
+        if (this.slotsTotalValue) {
+          this.slotsTotalValue.textContent = formatMoney(
+            totalCents,
+            currency,
+            this.locale,
+          );
+        }
       }
     }
   };
@@ -2755,12 +2767,6 @@
   SugarRoomStudio.prototype.renderUploadProducts = function () {
     if (!this.uploadProductsEl) return;
     var self = this;
-    var currency =
-      (this.selectedIds[0] &&
-        this.catalog.byId[this.selectedIds[0]] &&
-        this.catalog.byId[this.selectedIds[0]].currency) ||
-      this.config.currency ||
-      "TRY";
     var isManual = this.designMode === "manual";
 
     if (this.uploadProductsTitle) {
@@ -2780,11 +2786,21 @@
     }
 
     var html = "";
+    var currency =
+      (this.selectedIds[0] &&
+        this.catalog.byId[this.selectedIds[0]] &&
+        this.catalog.byId[this.selectedIds[0]].currency) ||
+      this.config.currency ||
+      "TRY";
     this.selectedIds.forEach(function (id) {
       var product = self.catalog.byId[id];
       if (!product) return;
-      var price = formatMoney(product.price, product.currency || currency, self.locale);
       var placed = !!self.placementsByProductId[id];
+      var priceHtml = self.productHasPrice(product)
+        ? '<p class="sugar-rs-upload-item__price">' +
+          escapeHtml(formatMoney(product.price, product.currency || currency, self.locale)) +
+          "</p>"
+        : "";
       html +=
         '<article class="sugar-rs-upload-item' +
         (isManual ? " is-draggable" : "") +
@@ -2811,9 +2827,7 @@
         '<p class="sugar-rs-upload-item__title">' +
         escapeHtml(product.title) +
         "</p>" +
-        '<p class="sugar-rs-upload-item__price">' +
-        escapeHtml(price) +
-        "</p>" +
+        priceHtml +
         "</div>" +
         "</article>";
     });
