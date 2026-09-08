@@ -139,6 +139,16 @@ export async function generateProductImage(
   // Ask the design service to preserve the uploaded room photo aspect ratio.
   formData.append("preserveRoomAspectRatio", "true");
 
+  if (request.prompt) {
+    formData.append("prompt", request.prompt);
+  }
+  if (request.enrichment?.length) {
+    formData.append("enrichment", JSON.stringify(request.enrichment));
+  }
+  if (request.isRedesign) {
+    formData.append("isRedesign", "true");
+  }
+
   if (request.mockupImageBytes?.length) {
     formData.append(
       "mockupImage",

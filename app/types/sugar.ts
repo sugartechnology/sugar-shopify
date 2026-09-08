@@ -175,6 +175,9 @@ export interface GenerateImageRequest {
   mockupImageName?: string;
   mockupImageBytes?: Buffer;
   products: DesignProductInput[];
+  prompt?: string;
+  enrichment?: string[];
+  isRedesign?: boolean;
 }
 
 export interface DesignProductOutput {

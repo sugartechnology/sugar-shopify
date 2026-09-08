@@ -22,10 +22,8 @@
   if button_label == blank
     assign button_label = 'sugar_rs.button_label' | t
   endif
+  # Trigger helper is optional — no default under banner/button
   assign button_helper = settings.button_helper
-  if button_helper == blank
-    assign button_helper = 'sugar_rs.button_helper' | t
-  endif
   assign modal_title = settings.modal_title
   if modal_title == blank
     assign modal_title = 'sugar_rs.modal_title' | t
@@ -242,6 +240,47 @@
 }
 {%- endcapture -%}
 
+{%- capture enrichment_handles_json -%}
+{
+  "accessory": [
+    {%- assign eh_first = true -%}
+    {%- if settings.enrichment_accessory_collections != blank -%}
+      {%- for coll in settings.enrichment_accessory_collections -%}
+        {%- if coll != blank and coll.handle != blank -%}
+          {%- unless eh_first -%},{%- endunless -%}
+          {{ coll.handle | json }}
+          {%- assign eh_first = false -%}
+        {%- endif -%}
+      {%- endfor -%}
+    {%- endif -%}
+  ],
+  "rug": [
+    {%- assign eh_first = true -%}
+    {%- if settings.enrichment_rug_collections != blank -%}
+      {%- for coll in settings.enrichment_rug_collections -%}
+        {%- if coll != blank and coll.handle != blank -%}
+          {%- unless eh_first -%},{%- endunless -%}
+          {{ coll.handle | json }}
+          {%- assign eh_first = false -%}
+        {%- endif -%}
+      {%- endfor -%}
+    {%- endif -%}
+  ],
+  "lighting": [
+    {%- assign eh_first = true -%}
+    {%- if settings.enrichment_lighting_collections != blank -%}
+      {%- for coll in settings.enrichment_lighting_collections -%}
+        {%- if coll != blank and coll.handle != blank -%}
+          {%- unless eh_first -%},{%- endunless -%}
+          {{ coll.handle | json }}
+          {%- assign eh_first = false -%}
+        {%- endif -%}
+      {%- endfor -%}
+    {%- endif -%}
+  ]
+}
+{%- endcapture -%}
+
 {%- capture sugar_rs_css_vars -%}
 --sugar-rs-accent: {{ accent_color }};
 --sugar-rs-menu-active: {{ menu_link_color }};
@@ -284,8 +323,11 @@
     "productDetailMetafieldNamespace": {{ product_detail_metafield_namespace | json }},
     "locale": {{ shop_locale | json }},
     "headerIconUrl": {{ header_icon_url | json }},
+    "enrichmentHandles": {{ enrichment_handles_json | strip_newlines }},
     "i18n": {
-      "addCartLabel": {{ add_cart_label | json }}
+      "addCartLabel": {{ add_cart_label | json }},
+      "redesignTip": {{ 'sugar_rs.redesign_tip' | t | json }},
+      "redesignTipClose": {{ 'sugar_rs.redesign_tip_close' | t | json }}
     }
   }'
   data-sugar-rs-catalog='{{ catalog_json | strip_newlines }}'
@@ -384,26 +426,32 @@
       <div class="sugar-rs-step is-active" data-sugar-rs-step="studio">
         <div class="sugar-rs-studio">
           <aside class="sugar-rs-cats" data-sugar-rs-cats>
-            <button
-              type="button"
-              class="sugar-rs-cat-select"
-              data-sugar-rs-cat-select-trigger
-              aria-haspopup="listbox"
-              aria-expanded="false"
-            >
-              <span class="sugar-rs-cat-select__icon" aria-hidden="true">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-              </span>
-              <span class="sugar-rs-cat-select__text" data-sugar-rs-cat-select-label>{% if use_all_products %}{{ 'sugar_rs.all_products' | t }}{% elsif catalog_collections != blank %}{{ catalog_collections.first.title }}{% else %}{{ 'sugar_rs.search_categories' | t }}{% endif %}</span>
-              <span class="sugar-rs-cat-select__chevron" aria-hidden="true">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-              </span>
-            </button>
-            <div class="sugar-rs-cat-select__panel" data-sugar-rs-cat-select-panel>
-              <label class="sugar-rs-search">
+            <div class="sugar-rs-cats__bar">
+              <button
+                type="button"
+                class="sugar-rs-cat-select"
+                data-sugar-rs-cat-select-trigger
+                aria-haspopup="listbox"
+                aria-expanded="false"
+              >
+                <span class="sugar-rs-cat-select__icon" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+                </span>
+                <span class="sugar-rs-cat-select__text" data-sugar-rs-cat-select-label>{% if use_all_products %}{{ 'sugar_rs.all_products' | t }}{% elsif catalog_collections != blank %}{{ catalog_collections.first.title }}{% else %}{{ 'sugar_rs.search_categories' | t }}{% endif %}</span>
+                <span class="sugar-rs-cat-select__chevron" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </span>
+              </button>
+              <label class="sugar-rs-search sugar-rs-search--products sugar-rs-search--mobile-inline">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+                <input type="search" data-sugar-rs-product-search-mobile placeholder="{{ 'sugar_rs.search_products' | t }}" autocomplete="off">
+              </label>
+              <label class="sugar-rs-search sugar-rs-search--cat-inline">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
                 <input type="search" data-sugar-rs-cat-search placeholder="{{ 'sugar_rs.search_categories' | t }}" autocomplete="off">
               </label>
+            </div>
+            <div class="sugar-rs-cat-select__panel" data-sugar-rs-cat-select-panel>
               <ul class="sugar-rs-cat-list" data-sugar-rs-cat-list role="listbox"></ul>
             </div>
           </aside>
@@ -415,7 +463,7 @@
                 <p class="sugar-rs-browse__count" data-sugar-rs-selected-count></p>
               </div>
             </div>
-            <label class="sugar-rs-search sugar-rs-search--products">
+            <label class="sugar-rs-search sugar-rs-search--products sugar-rs-search--desktop">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
               <input type="search" data-sugar-rs-product-search placeholder="{{ 'sugar_rs.search_products' | t }}" autocomplete="off">
             </label>
@@ -474,9 +522,9 @@
               </svg>
               <span class="sugar-rs-selected-icon__badge" data-sugar-rs-selected-badge hidden>0</span>
             </button>
-            <button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-clear>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12"/></svg>
-              {{ 'sugar_rs.clear_all' | t }}
+            <button type="button" class="sugar-rs-ghost-btn sugar-rs-ghost-btn--clear" data-sugar-rs-clear aria-label="{{ 'sugar_rs.clear_all' | t }}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12"/></svg>
+              <span class="sugar-rs-ghost-btn__label">{{ 'sugar_rs.clear_all' | t }}</span>
             </button>
             <button type="button" class="sugar-rs-primary-btn" data-sugar-rs-continue disabled>
               {{ 'sugar_rs.continue_to_upload' | t }}
@@ -541,31 +589,13 @@
                   </div>
                 </div>
               </div>
-              <div
-                class="sugar-rs-design-mode sugar-rs-design-mode--below-photo"
-                data-sugar-rs-design-mode
-                role="group"
-                aria-label="{{ 'sugar_rs.design_mode' | t }}"
-                hidden
-              >
+              <div class="sugar-rs-design-mode sugar-rs-design-mode--below-photo" data-sugar-rs-design-mode role="group" aria-label="{{ 'sugar_rs.design_mode' | t }}" hidden>
                 <button type="button" class="sugar-rs-design-mode__btn is-active" data-sugar-rs-mode="auto">
-                  <span class="sugar-rs-design-mode__icon" aria-hidden="true">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
-                      <path d="M12 3l1.6 4.8L18.4 9.4 13.6 11.2 12 16l-1.6-4.8L5.6 9.4l4.8-1.6L12 3z"/>
-                      <path d="M19 14.5l.85 2.55L22.4 18l-2.55.85L19 21.4l-.85-2.55L15.6 18l2.55-.85L19 14.5z"/>
-                    </svg>
-                  </span>
+                  <span class="sugar-rs-design-mode__icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 3l1.6 4.8L18.4 9.4 13.6 11.2 12 16l-1.6-4.8L5.6 9.4l4.8-1.6L12 3z"/><path d="M19 14.5l.85 2.55L22.4 18l-2.55.85L19 21.4l-.85-2.55L15.6 18l2.55-.85L19 14.5z"/></svg></span>
                   <span class="sugar-rs-design-mode__label">{{ 'sugar_rs.design_auto' | t }}</span>
                 </button>
                 <button type="button" class="sugar-rs-design-mode__btn" data-sugar-rs-mode="manual">
-                  <span class="sugar-rs-design-mode__icon" aria-hidden="true">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
-                      <path d="M8 11V6.5a1.5 1.5 0 0 1 3 0V11"/>
-                      <path d="M11 10.5V5.5a1.5 1.5 0 0 1 3 0V11"/>
-                      <path d="M14 10V7.5a1.5 1.5 0 0 1 3 0V12"/>
-                      <path d="M8 11l-1.2 1.6A3 3 0 0 0 7 14.2V17a3 3 0 0 0 3 3h5.5a3 3 0 0 0 2.9-2.3l.9-3.7A2 2 0 0 0 17.5 11H8z"/>
-                    </svg>
-                  </span>
+                  <span class="sugar-rs-design-mode__icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M8 11V6.5a1.5 1.5 0 0 1 3 0V11M11 10.5V5.5a1.5 1.5 0 0 1 3 0V11M14 10V7.5a1.5 1.5 0 0 1 3 0V12"/><path d="M8 11l-1.2 1.6A3 3 0 0 0 7 14.2V17a3 3 0 0 0 3 3h5.5a3 3 0 0 0 2.9-2.3l.9-3.7A2 2 0 0 0 17.5 11H8z"/></svg></span>
                   <span class="sugar-rs-design-mode__label">{{ 'sugar_rs.design_manual' | t }}</span>
                 </button>
               </div>
@@ -575,12 +605,6 @@
             <aside class="sugar-rs-upload-products">
               <h3 class="sugar-rs-upload-products__title" data-sugar-rs-upload-products-title></h3>
               <div class="sugar-rs-upload-products__tip" data-sugar-rs-manual-tip hidden>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
-                  <path d="M8 11V6.5a1.5 1.5 0 0 1 3 0V11"/>
-                  <path d="M11 10.5V5.5a1.5 1.5 0 0 1 3 0V11"/>
-                  <path d="M14 10V7.5a1.5 1.5 0 0 1 3 0V12"/>
-                  <path d="M8 11l-1.2 1.6A3 3 0 0 0 7 14.2V17a3 3 0 0 0 3 3h5.5a3 3 0 0 0 2.9-2.3l.9-3.7A2 2 0 0 0 17.5 11H8z"/>
-                </svg>
                 <span>{{ 'sugar_rs.drag_drop_tip' | t }}</span>
               </div>
               <div class="sugar-rs-upload-products__list" data-sugar-rs-upload-products></div>
@@ -618,18 +642,46 @@
               {{ 'sugar_rs.back_to_studio' | t }}
             </button>
           </div>
-          <div class="sugar-rs-compare" data-sugar-rs-compare>
+          <div class="sugar-rs-compare" data-sugar-rs-compare style="--sugar-rs-compare: 0%;">
             <img data-sugar-rs-compare-origin width="1200" height="900" alt="{{ 'sugar_rs.compare_origin' | t }}">
             <img data-sugar-rs-compare-design width="1200" height="900" alt="{{ 'sugar_rs.compare_design' | t }}">
-            <input type="range" min="0" max="100" value="50" data-sugar-rs-compare-range aria-label="Compare">
+            <button
+              type="button"
+              class="sugar-rs-compare__handle"
+              data-sugar-rs-compare-handle
+              role="slider"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+              aria-label="{{ 'sugar_rs.compare_aria' | t }}"
+            >
+              <span class="sugar-rs-compare__handle-icon" aria-hidden="true">
+                <svg class="sugar-rs-compare__chevron sugar-rs-compare__chevron--left" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 6.5 9 12l5.5 5.5"/></svg>
+                <svg class="sugar-rs-compare__chevron sugar-rs-compare__chevron--right" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 6.5 15 12l-5.5 5.5"/></svg>
+              </span>
+            </button>
           </div>
           <ul class="sugar-rs-result-list" data-sugar-rs-result-list></ul>
           <div class="sugar-rs-result__actions">
-            <button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-redesign>{{ 'sugar_rs.redesign' | t }}</button>
-            <button type="button" class="sugar-rs-primary-btn {{ primary_classes }}" data-sugar-rs-add-cart>{{ add_cart_label }}</button>
+            <div class="sugar-rs-redesign-tip" data-sugar-rs-redesign-tip hidden>
+              <span class="sugar-rs-redesign-tip__icon" aria-hidden="true">ⓘ</span>
+              <p class="sugar-rs-redesign-tip__text" data-sugar-rs-redesign-tip-text>{{ 'sugar_rs.redesign_tip' | t }}</p>
+              <button
+                type="button"
+                class="sugar-rs-redesign-tip__close"
+                data-sugar-rs-redesign-tip-close
+                aria-label="{{ 'sugar_rs.redesign_tip_close' | t }}"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6L6 18"/>
+                </svg>
+              </button>
+            </div>
+            <button type="button" class="sugar-rs-primary-btn {{ primary_classes }}" data-sugar-rs-redesign>{{ 'sugar_rs.redesign' | t }}</button>
           </div>
         </div>
       </div>
+      <div class="sugar-rs-redesign-modal" data-sugar-rs-redesign-modal hidden></div>
     </div>
 
   {%- if display_mode == 'modal' -%}

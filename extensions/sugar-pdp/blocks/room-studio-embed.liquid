@@ -1,7 +1,3 @@
-{% comment %}
-  App embed — Theme Editor → App embeds
-  Works on all templates (not product-only).
-{% endcomment %}
 {% render 'room-studio-root',
   settings: block.settings,
   sugar_attributes: block.shopify_attributes,
@@ -39,15 +35,36 @@
       "content": "Katalog"
     },
     {
-      "type": "paragraph",
-      "content": "Yalnızca Shopify Collections seçin. Metaobject / metafield / dinamik kaynak bağlamayın."
+      "type": "collection_list",
+      "id": "catalog_collections",
+      "label": "Katalog collections",
+      "info": "Yalnızca Shopify Collections seçin (metaobject bağlama). Child’lar Admin sub-collection kaynaklarından gelir.",
+      "limit": 20
+    },
+    {
+      "type": "header",
+      "content": "Zenginleştirme"
     },
     {
       "type": "collection_list",
-      "id": "catalog_collections",
-      "label": "Collections",
-      "info": "Katalogda gösterilecek collection’lar. Child’lar Admin’deki sub-collection kaynaklarından gelir; parent’ta doğrudan ürün de olabilir.",
-      "limit": 20
+      "id": "enrichment_accessory_collections",
+      "label": "Aksesuar collections",
+      "info": "Redesign → Aksesuar ekle için kullanılır.",
+      "limit": 10
+    },
+    {
+      "type": "collection_list",
+      "id": "enrichment_rug_collections",
+      "label": "Halı collections",
+      "info": "Redesign → Halı ekle için kullanılır.",
+      "limit": 10
+    },
+    {
+      "type": "collection_list",
+      "id": "enrichment_lighting_collections",
+      "label": "Aydınlatma collections",
+      "info": "Redesign → Aydınlatma ekle için kullanılır.",
+      "limit": 10
     },
     {
       "type": "range",
@@ -84,7 +101,8 @@
     {
       "type": "text",
       "id": "button_helper",
-      "label": "Buton alt metni"
+      "label": "Buton alt metni",
+      "info": "Boş bırakılırsa tetikleyici (görsel/buton) altında metin gösterilmez."
     },
     {
       "type": "text",
