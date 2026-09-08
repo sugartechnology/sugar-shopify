@@ -3058,6 +3058,18 @@
       .filter(Boolean);
   };
 
+  SugarRoomStudio.prototype.requestGenerateSync = async function (formData) {
+    var response = await fetch(this.config.proxyUrl || "/apps/sugar/generate", {
+      method: "POST",
+      body: formData,
+    });
+    var data = await this.parseGenerateResponse(response);
+    if (!response.ok || data.status === "failed") {
+      throw new Error(data.message || this.t("errorGenerate", "Could not create design."));
+    }
+    return data;
+  };
+
   SugarRoomStudio.prototype.parseGenerateResponse = async function (response) {
     var contentType = String(response.headers.get("content-type") || "").toLowerCase();
     var bodyText = await response.text();
@@ -3169,12 +3181,16 @@
         this.config.productDetailMetafieldNamespace || "custom",
       );
 
-      var response = await fetch(this.config.proxyUrl || "/apps/sugar/generate", {
-        method: "POST",
-        body: formData,
-      });
-      var data = await this.parseGenerateResponse(response);
-      if (!response.ok || data.status === "failed") {
+      var generateClient = window.SugarPdpKit && window.SugarPdpKit.generate;
+      var data = generateClient
+        ? await generateClient.requestGenerateWithPoll({
+            generateUrl: this.config.proxyUrl || "/apps/sugar/generate",
+            formData: formData,
+            parseResponse: this.parseGenerateResponse.bind(this),
+            t: this.t.bind(this),
+          })
+        : await this.requestGenerateSync(formData);
+      if (data.status === "failed") {
         throw new Error(data.message || this.t("errorGenerate", "Could not create design."));
       }
 

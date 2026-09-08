@@ -6,13 +6,16 @@
 const endpoints = {
   register: "/api/shopify/credentials/register",
   generate: "/api/shopify/pdp/generate",
+  pdpAsync: "/api/shopify/pdp/commands/with-files-async",
+  pdpJob: "/api/shopify/pdp/jobs/{id}",
   decorAi: "/api/ai/commands/with-files",
+  decorAiAsync: "/api/ai/commands/with-files-async",
+  decorAiJob: "/api/ai/commands/jobs/{id}",
 };
 
 const requiredEnv = [
   "SUGAR_API_BASE_URL",
   "SHOPIFY_SERVICE_SECRET",
-  "DECOR_AI_INTERNAL_TOKEN",
 ];
 
 let failed = false;

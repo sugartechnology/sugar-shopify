@@ -6,6 +6,14 @@ import type {
   ShopConfig,
 } from "../types/sugar";
 import { BLANK_DESIGN_IMAGE } from "../types/sugar";
+import { packDecorAiCommand } from "./decor-ai-client.server";
+import {
+  getSugarApiBaseUrl,
+  isTagserviceConfigured,
+  runTagservicePackedCommand,
+} from "./tagservice-pdp.server";
+
+export { getSugarApiBaseUrl };
 
 /**
  * Max images per product in the AI payload (not a global cap).
@@ -52,15 +60,15 @@ export function normalizeProductsForApi(
   });
 }
 
-export function getSugarApiBaseUrl(): string {
-  return (process.env.SUGAR_API_BASE_URL ?? "").trim();
-}
-
-export function isSugarApiMockMode(config: ShopConfig): boolean {
-  if (!config.sugarApiKey.trim() || !getSugarApiBaseUrl()) {
+export function isSugarApiMockMode(_config?: ShopConfig): boolean {
+  if (process.env.SUGAR_API_MOCK === "true") {
     return true;
   }
-  return process.env.SUGAR_API_MOCK === "true";
+  return !isTagserviceConfigured();
+}
+
+export function getShopApiKey(config: ShopConfig): string {
+  return (config.sugarApiKey ?? "").trim();
 }
 
 function mockImageUrl(request: GenerateImageRequest): string {
@@ -70,7 +78,9 @@ function mockImageUrl(request: GenerateImageRequest): string {
   return BLANK_DESIGN_IMAGE;
 }
 
-function mockResponse(request: GenerateImageRequest): GenerateImageResponse {
+export function mockGenerateResponse(
+  request: GenerateImageRequest,
+): GenerateImageResponse {
   const generationId = `mock-${Date.now()}`;
   const imageUrl = mockImageUrl(request);
 
@@ -100,67 +110,22 @@ export async function generateProductImage(
   config: ShopConfig,
   request: GenerateImageRequest,
 ): Promise<GenerateImageResponse> {
-  // Mock when SUGAR_API_MOCK=true, API key missing, or SUGAR_API_BASE_URL unset.
   if (isSugarApiMockMode(config)) {
     await new Promise((r) => setTimeout(r, 1200));
-    return mockResponse(request);
+    return mockGenerateResponse(request);
   }
 
-  // --- Gerçek AI server çağrısı ---
-  // sugarApiKey: admin'den kaydedilen key (senin AI server'ında validate edilir)
-  // Biz burada key ÜRETMİYORUZ ve VALIDATE ETMİYORUZ — sadece header'a koyuyoruz.
-  const endpoint = `${getSugarApiBaseUrl().replace(/\/$/, "")}/api/shopify/pdp/generate`;
-  const apiProducts = normalizeProductsForApi(request.products || []);
-
-  const formData = new FormData();
-  formData.append("shopDomain", request.shopDomain);
-  formData.append("products", JSON.stringify(apiProducts));
-
-  if (request.roomImageBase64) {
-    const binary = Buffer.from(request.roomImageBase64, "base64");
-    const blob = new Blob([binary], { type: "image/jpeg" });
-    formData.append(
-      "roomImage",
-      blob,
-      request.roomImageName || "room.jpg",
-    );
+  const apiKey = getShopApiKey(config);
+  if (!apiKey) {
+    throw new Error("Shop API key is not configured");
   }
 
-  if (request.roomImageWidth && request.roomImageHeight) {
-    formData.append("roomImageWidth", String(request.roomImageWidth));
-    formData.append("roomImageHeight", String(request.roomImageHeight));
-  }
-  if (request.roomImageAspectRatio) {
-    formData.append(
-      "roomImageAspectRatio",
-      String(request.roomImageAspectRatio),
-    );
-  }
-  // Ask the design service to preserve the uploaded room photo aspect ratio.
-  formData.append("preserveRoomAspectRatio", "true");
-
-  if (request.mockupImageBytes?.length) {
-    formData.append(
-      "mockupImage",
-      new Blob([new Uint8Array(request.mockupImageBytes)], {
-        type: "image/jpeg",
-      }),
-      request.mockupImageName || "mockup.jpg",
-    );
-  }
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.sugarApiKey}`,
+  const packed = await packDecorAiCommand(
+    {
+      ...request,
+      products: normalizeProductsForApi(request.products || []),
     },
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Sugar API error (${response.status}): ${text}`);
-  }
-
-  return (await response.json()) as GenerateImageResponse;
+    `shopify-${crypto.randomUUID()}`,
+  );
+  return runTagservicePackedCommand(apiKey, packed);
 }

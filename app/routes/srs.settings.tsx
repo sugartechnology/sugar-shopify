@@ -11,6 +11,7 @@ import {
   Card,
   Checkbox,
   FormLayout,
+  InlineStack,
   Layout,
   Page,
   Select,
@@ -30,10 +31,11 @@ import { DEFAULT_SHOP_CONFIG } from "../types/sugar";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
   const config = await getShopConfig(admin);
-  const { sugarApiKey: _key, ...publicConfig } = config;
+  const { sugarApiKey, ...publicConfig } = config;
   return json({
     config: publicConfig,
-    hasApiKey: Boolean(config.sugarApiKey.trim()),
+    sugarApiKey,
+    hasApiKey: Boolean(sugarApiKey.trim()),
     keyPrefix: config.sugarApiKeyPrefix,
     apiMockMode: isSugarApiMockMode(config),
     sugarApiMockEnv: process.env.SUGAR_API_MOCK === "true",
@@ -50,9 +52,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     try {
       const { keyPrefix } = await provisionSugarApiKey(admin, session.shop);
       const config = await getShopConfig(admin);
-      const { sugarApiKey: _key, ...publicConfig } = config;
+      const { sugarApiKey, ...publicConfig } = config;
       return json({
         config: publicConfig,
+        sugarApiKey,
         hasApiKey: true,
         keyPrefix,
         apiMockMode: isSugarApiMockMode(config),
@@ -63,6 +66,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     } catch (error) {
       return json({
         config: null,
+        sugarApiKey: "",
         hasApiKey: false,
         keyPrefix: "",
         success: false,
@@ -111,10 +115,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   try {
     await saveShopConfig(admin, config);
-    const { sugarApiKey: _key, ...publicConfig } = config;
+    const { sugarApiKey, ...publicConfig } = config;
     return json({
       config: publicConfig,
-      hasApiKey: Boolean(config.sugarApiKey.trim()),
+      sugarApiKey,
+      hasApiKey: Boolean(sugarApiKey.trim()),
       keyPrefix: config.sugarApiKeyPrefix,
       apiMockMode: isSugarApiMockMode(config),
       success: true,
@@ -122,10 +127,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       error: null,
     });
   } catch (error) {
-    const { sugarApiKey: _key, ...publicConfig } = config;
+    const { sugarApiKey, ...publicConfig } = config;
     return json({
       config: publicConfig,
-      hasApiKey: Boolean(config.sugarApiKey.trim()),
+      sugarApiKey,
+      hasApiKey: Boolean(sugarApiKey.trim()),
       keyPrefix: config.sugarApiKeyPrefix,
       success: false,
       keyProvisioned: false,
@@ -142,8 +148,17 @@ export default function SettingsPage() {
   );
   const hasApiKey = actionData?.hasApiKey ?? loaderData.hasApiKey;
   const keyPrefix = actionData?.keyPrefix ?? loaderData.keyPrefix;
+  const sugarApiKey = actionData?.sugarApiKey ?? loaderData.sugarApiKey;
   const apiMockMode = actionData?.apiMockMode ?? loaderData.apiMockMode;
   const sugarApiMockEnv = loaderData.sugarApiMockEnv;
+  const [copied, setCopied] = useState(false);
+
+  const copyApiKey = async () => {
+    if (!sugarApiKey) return;
+    await navigator.clipboard.writeText(sugarApiKey);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  };
 
   const update = (
     key: keyof Omit<ShopConfig, "sugarApiKey">,
@@ -188,17 +203,34 @@ export default function SettingsPage() {
                 <Text as="h2" variant="headingMd">
                   Sugar API
                 </Text>
-                <Text as="p" variant="bodyMd">
-                  {hasApiKey
-                    ? `Key aktif (…${keyPrefix || "****"})`
-                    : "Key yok — oluşturun"}
-                </Text>
-                <Form method="post">
-                  <input type="hidden" name="intent" value="provisionKey" />
-                  <Button submit variant="primary">
-                    {hasApiKey ? "Key yenile" : "Key oluştur"}
-                  </Button>
-                </Form>
+                {hasApiKey ? (
+                  <TextField
+                    label="API key"
+                    value={sugarApiKey}
+                    readOnly
+                    autoComplete="off"
+                    selectTextOnFocus
+                    monospaced
+                    helpText={`Tagservice Bearer token. Prefix …${keyPrefix || "****"}`}
+                  />
+                ) : (
+                  <Text as="p" variant="bodyMd">
+                    Key yok — oluşturun
+                  </Text>
+                )}
+                <InlineStack gap="300">
+                  {hasApiKey ? (
+                    <Button onClick={copyApiKey}>
+                      {copied ? "Kopyalandı" : "Kopyala"}
+                    </Button>
+                  ) : null}
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="provisionKey" />
+                    <Button submit variant="primary">
+                      {hasApiKey ? "Key yenile" : "Key oluştur"}
+                    </Button>
+                  </Form>
+                </InlineStack>
               </BlockStack>
             </Card>
 

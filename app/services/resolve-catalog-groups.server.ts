@@ -53,6 +53,39 @@ const CATALOG_GROUPS_QUERY = `#graphql
 `;
 
 const COLLECTIONS_API_VERSION = "2026-07";
+export const CATALOG_GROUPS_TTL_MS = 2 * 60 * 1000;
+
+type CatalogCacheEntry = {
+  groups: CatalogGroup[];
+  expiresAt: number;
+};
+
+const catalogGroupsCache = new Map<string, CatalogCacheEntry>();
+
+export function catalogGroupsCacheKey(shop: string, gids: string[]): string {
+  return `${shop}|${gids.join(",")}`;
+}
+
+function readCatalogGroupsCache(key: string): CatalogGroup[] | null {
+  const entry = catalogGroupsCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    catalogGroupsCache.delete(key);
+    return null;
+  }
+  return entry.groups;
+}
+
+function writeCatalogGroupsCache(key: string, groups: CatalogGroup[]) {
+  catalogGroupsCache.set(key, {
+    groups,
+    expiresAt: Date.now() + CATALOG_GROUPS_TTL_MS,
+  });
+}
+
+export function clearCatalogGroupsCache() {
+  catalogGroupsCache.clear();
+}
 
 function toCollectionGid(raw: string): string | null {
   const value = String(raw || "").trim();
@@ -163,6 +196,10 @@ export async function resolveCatalogGroups(
 
   if (!gids.length) return [];
 
+  const cacheKey = catalogGroupsCacheKey(session.shop, gids);
+  const cached = readCatalogGroupsCache(cacheKey);
+  if (cached) return cached;
+
   const data = await adminGraphqlAtVersion<{
     nodes?: Array<CollectionNode | null>;
   }>(session, COLLECTIONS_API_VERSION, CATALOG_GROUPS_QUERY, { ids: gids });
@@ -174,7 +211,9 @@ export async function resolveCatalogGroups(
   });
 
   // Preserve merchant order from the theme collection_list
-  return gids
+  const groups = gids
     .map((gid) => byGid.get(gid))
     .filter((group): group is CatalogGroup => Boolean(group));
+  writeCatalogGroupsCache(cacheKey, groups);
+  return groups;
 }
