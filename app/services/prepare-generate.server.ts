@@ -149,6 +149,19 @@ export async function prepareGenerateFromRequest(
       mockupImageBytes,
       mockupImageName:
         mockupPart instanceof File ? mockupPart.name || "mockup.jpg" : undefined,
+      prompt: String(formData.get("prompt") ?? "").trim() || undefined,
+      enrichment: (() => {
+        const raw = formData.get("enrichment");
+        if (!raw) return undefined;
+        try {
+          const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+          if (!Array.isArray(parsed)) return undefined;
+          return parsed.map(String).filter(Boolean);
+        } catch {
+          return undefined;
+        }
+      })(),
+      isRedesign: String(formData.get("isRedesign") ?? "") === "true",
     },
   };
 }

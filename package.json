@@ -5,6 +5,8 @@
   "scripts": {
     "build": "remix vite:build",
     "dev": "sh scripts/with-node.sh shopify app dev",
+    "dev:tunnel": "sh scripts/dev-with-tunnel.sh",
+    "dev:ngrok": "sh scripts/dev-with-ngrok.sh",
     "deploy": "sh scripts/with-node.sh shopify app deploy",
     "start": "remix-serve ./build/server/index.js",
     "setup": "prisma generate && prisma migrate deploy",

@@ -42,7 +42,12 @@
     return Number.isFinite(n) ? Math.round(n) : 0;
   }
 
+  function hasDisplayPrice(raw) {
+    return normalizePriceToCents(raw) > 0;
+  }
+
   function formatMoney(rawAmount, currency, locale) {
+    if (!hasDisplayPrice(rawAmount)) return "";
     var cents = normalizePriceToCents(rawAmount);
     var amount = cents / 100;
     try {
@@ -55,6 +60,28 @@
     } catch {
       return amount + " " + (currency || "TRY");
     }
+  }
+
+  function priceHtml(className, rawAmount, currency, locale) {
+    if (!hasDisplayPrice(rawAmount)) return "";
+    return (
+      '<div class="' +
+      className +
+      '">' +
+      escapeHtml(formatMoney(rawAmount, currency, locale)) +
+      "</div>"
+    );
+  }
+
+  function priceParagraphHtml(className, rawAmount, currency, locale) {
+    if (!hasDisplayPrice(rawAmount)) return "";
+    return (
+      '<p class="' +
+      className +
+      '">' +
+      escapeHtml(formatMoney(rawAmount, currency, locale)) +
+      "</p>"
+    );
   }
 
   function fileToBase64(file) {
@@ -380,12 +407,25 @@
     this.placementDrag = null;
     this.compareAutoplayRaf = null;
     this.compareAutoplayActive = false;
-    this.compareUserPaused = false;
-    this.compareResumeTimer = null;
     this.compareAutoplayDir = 1;
     this.compareAutoplayValue = 0;
+    this.compareAutoplayHalfDone = false;
+    this.compareDragPointerId = null;
+    this.compareBoundMove = null;
+    this.compareBoundEnd = null;
     this.designResult = null;
     this.resultSelections = {};
+    this.designCompletionCount = 0;
+    this.redesignTipDismissed = false;
+    this.enrichmentHandles = this.normalizeEnrichmentHandles(
+      this.config.enrichmentHandles || {},
+    );
+    this.enrichmentPools = { accessory: [], rug: [], lighting: [] };
+    this.enrichmentPoolsLoaded = false;
+    this.enrichmentPoolsLoading = null;
+    this.resultProductIds = null;
+    this.pendingRedesignPrompt = "";
+    this.pendingEnrichmentTypes = [];
     this.loadingTimer = null;
     this.toastTimer = null;
     this.boundGridScroll = null;
@@ -1334,6 +1374,9 @@
     this.catSelectLabel = this.root.querySelector("[data-sugar-rs-cat-select-label]");
     this.catSearch = this.root.querySelector("[data-sugar-rs-cat-search]");
     this.productSearch = this.root.querySelector("[data-sugar-rs-product-search]");
+    this.productSearchMobile = this.root.querySelector(
+      "[data-sugar-rs-product-search-mobile]",
+    );
     this.grid = this.root.querySelector("[data-sugar-rs-grid]");
     this.emptyEl = this.root.querySelector("[data-sugar-rs-empty]");
     this.browseTitle = this.root.querySelector("[data-sugar-rs-browse-title]");
@@ -1363,6 +1406,16 @@
     this.roomCameraCaptureBtn = this.root.querySelector(
       "[data-sugar-rs-room-camera-capture]",
     );
+    this.photoModalEl = null;
+    this.photoModalVideo = null;
+    this.photoModalPreview = null;
+    this.photoModalCanvas = null;
+    this.photoModalStage = null;
+    this.photoModalLiveActions = null;
+    this.photoModalReviewActions = null;
+    this.photoModalTitle = null;
+    this.pendingRoomCapture = null;
+    this.pendingRoomCaptureUrl = "";
     this.roomFileInput = this.root.querySelector("[data-sugar-rs-room-file]");
     this.roomActions = this.root.querySelector("[data-sugar-rs-room-actions]");
     this.changeRoomBtn = this.root.querySelector("[data-sugar-rs-change-room]");
@@ -1379,13 +1432,19 @@
     this.backStudioBtn = this.root.querySelector("[data-sugar-rs-back-studio]");
     this.backStudioResultBtn = this.root.querySelector("[data-sugar-rs-back-studio-result]");
     this.redesignBtn = this.root.querySelector("[data-sugar-rs-redesign]");
-    this.addCartBtn = this.root.querySelector("[data-sugar-rs-add-cart]");
+    this.redesignTipEl = this.root.querySelector("[data-sugar-rs-redesign-tip]");
+    this.redesignTipTextEl = this.root.querySelector("[data-sugar-rs-redesign-tip-text]");
+    this.redesignTipCloseBtn = this.root.querySelector("[data-sugar-rs-redesign-tip-close]");
+    this.redesignModalEl = this.root.querySelector("[data-sugar-rs-redesign-modal]");
+    this.redesignPromptEl = this.root.querySelector("[data-sugar-rs-redesign-prompt]");
+    this.redesignConfirmBtn = this.root.querySelector("[data-sugar-rs-redesign-confirm]");
+    this.redesignEnrichEmptyEl = this.root.querySelector("[data-sugar-rs-redesign-enrich-empty]");
     this.loadingBar = this.root.querySelector("[data-sugar-rs-loading-bar]");
     this.loadingPct = this.root.querySelector("[data-sugar-rs-loading-pct]");
     this.compareEl = this.root.querySelector("[data-sugar-rs-compare]");
     this.compareOrigin = this.root.querySelector("[data-sugar-rs-compare-origin]");
     this.compareDesign = this.root.querySelector("[data-sugar-rs-compare-design]");
-    this.compareRange = this.root.querySelector("[data-sugar-rs-compare-range]");
+    this.compareHandle = this.root.querySelector("[data-sugar-rs-compare-handle]");
     this.resultList = this.root.querySelector("[data-sugar-rs-result-list]");
     this.panelEl =
       (this.shell && this.shell.querySelector(".sugar-rs-panel")) ||
@@ -1446,9 +1505,15 @@
     }
     if (this.productSearch) {
       this.productSearch.addEventListener("input", function () {
-        self.productQuery = String(self.productSearch.value || "").trim().toLowerCase();
-        self.resetGridPagination();
-        self.renderGrid();
+        self.setProductQuery(self.productSearch.value);
+      });
+    }
+    if (this.productSearchMobile) {
+      this.productSearchMobile.addEventListener("input", function () {
+        self.setProductQuery(self.productSearchMobile.value);
+      });
+      this.productSearchMobile.addEventListener("focus", function () {
+        self.setCategorySelectOpen(false);
       });
     }
 
@@ -1481,6 +1546,10 @@
     }
     if (this.changeRoomBtn) {
       this.changeRoomBtn.addEventListener("click", function () {
+        if (self.isMobileStudioLayout()) {
+          self.openPhotoModal();
+          return;
+        }
         self.clearRoom();
         self.openRoomGallery();
       });
@@ -1525,25 +1594,17 @@
     }
     if (this.redesignBtn) {
       this.redesignBtn.addEventListener("click", function () {
-        self.runDesign({ isRedesign: true });
+        self.openRedesignModal();
       });
     }
-    if (this.addCartBtn) {
-      this.addCartBtn.addEventListener("click", function () {
-        self.addDesignToCart();
+    if (this.redesignTipCloseBtn) {
+      this.redesignTipCloseBtn.addEventListener("click", function () {
+        self.dismissRedesignTip();
       });
     }
-    if (this.compareRange && this.compareEl) {
-      this.compareRange.addEventListener("input", function () {
-        self.pauseCompareAutoplay();
-        self.setComparePosition(Number(self.compareRange.value) || 0, {
-          skipRange: true,
-        });
-      });
-      this.compareRange.addEventListener("pointerdown", function () {
-        self.pauseCompareAutoplay();
-      });
-    }
+    this.bindRedesignModal();
+    this.bindCompareInteractions();
+    this.bindResultListLinks();
 
     if (this.designModeEl) {
       this.designModeEl.querySelectorAll("[data-sugar-rs-mode]").forEach(function (btn) {
@@ -1597,11 +1658,35 @@
     this.setCategorySelectOpen(open);
   };
 
+  SugarRoomStudio.prototype.setProductQuery = function (value) {
+    var q = String(value || "").trim().toLowerCase();
+    this.productQuery = q;
+    if (this.productSearch && String(this.productSearch.value || "").trim().toLowerCase() !== q) {
+      this.productSearch.value = value || "";
+    }
+    if (
+      this.productSearchMobile &&
+      String(this.productSearchMobile.value || "").trim().toLowerCase() !== q
+    ) {
+      this.productSearchMobile.value = value || "";
+    }
+    this.resetGridPagination();
+    this.renderGrid();
+  };
+
   SugarRoomStudio.prototype.setCategorySelectOpen = function (open) {
     if (!this.catsEl) return;
     this.catsEl.classList.toggle("is-select-open", !!open);
     if (this.catSelectTrigger) {
       this.catSelectTrigger.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    if (open && this.catSearch && this.isMobileStudioLayout()) {
+      var self = this;
+      window.requestAnimationFrame(function () {
+        try {
+          self.catSearch.focus();
+        } catch (err) {}
+      });
     }
   };
 
@@ -1690,9 +1775,7 @@
       );
     }
 
-    if (step === "result" || step === "loading") {
-      this.centerActiveStepIndicator();
-    }
+    this.centerActiveStepIndicator();
 
     if (step === "upload") {
       this.syncDesignModeUi();
@@ -1706,57 +1789,306 @@
 
   SugarRoomStudio.prototype.centerActiveStepIndicator = function () {
     var stepper = this.stepperEl;
+    if (!stepper) return;
+    var indicatorStep = this.step === "loading" ? "result" : this.step;
     var active =
-      this.stepIndicators.result ||
-      (stepper && stepper.querySelector(".sugar-rs-stepper__item.is-active"));
-    if (!stepper || !active) return;
+      (this.stepIndicators && this.stepIndicators[indicatorStep]) ||
+      stepper.querySelector(".sugar-rs-stepper__item.is-active");
+    if (!active) return;
 
-    window.requestAnimationFrame(function () {
+    var run = function () {
       try {
         var stepperRect = stepper.getBoundingClientRect();
         var activeRect = active.getBoundingClientRect();
+        if (!stepperRect.width || !activeRect.width) return;
         var delta =
           activeRect.left +
           activeRect.width / 2 -
           (stepperRect.left + stepperRect.width / 2);
-        stepper.scrollLeft += delta;
-      } catch (err) {
-        if (typeof active.scrollIntoView === "function") {
-          active.scrollIntoView({
+        if (Math.abs(delta) < 1) return;
+        if (typeof stepper.scrollTo === "function") {
+          stepper.scrollTo({
+            left: stepper.scrollLeft + delta,
             behavior: "smooth",
-            inline: "center",
-            block: "nearest",
           });
+        } else {
+          stepper.scrollLeft += delta;
         }
-      }
+      } catch (err) {}
+    };
+
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(run);
     });
   };
 
-  SugarRoomStudio.prototype.setComparePosition = function (pct, options) {
-    options = options || {};
+  SugarRoomStudio.prototype.setComparePosition = function (pct) {
     var value = Math.max(0, Math.min(100, Number(pct) || 0));
     this.compareAutoplayValue = value;
     if (this.compareEl) {
       this.compareEl.style.setProperty("--sugar-rs-compare", value + "%");
     }
-    if (this.compareRange && !options.skipRange) {
-      this.compareRange.value = String(Math.round(value));
+    if (this.compareHandle) {
+      this.compareHandle.setAttribute("aria-valuenow", String(Math.round(value)));
     }
+  };
+
+  SugarRoomStudio.prototype.lockCompareScroll = function () {
+    var result = this.compareEl && this.compareEl.closest(".sugar-rs-result");
+    if (result) result.classList.add("is-compare-scroll-lock");
+    if (this.panelEl) this.panelEl.classList.add("is-compare-scroll-lock");
+    if (typeof document !== "undefined" && document.documentElement) {
+      document.documentElement.classList.add("sugar-rs-compare-lock");
+    }
+  };
+
+  SugarRoomStudio.prototype.unlockCompareScroll = function () {
+    var result = this.compareEl && this.compareEl.closest(".sugar-rs-result");
+    if (result) result.classList.remove("is-compare-scroll-lock");
+    if (this.panelEl) this.panelEl.classList.remove("is-compare-scroll-lock");
+    if (typeof document !== "undefined" && document.documentElement) {
+      document.documentElement.classList.remove("sugar-rs-compare-lock");
+    }
+  };
+
+  SugarRoomStudio.prototype.unbindCompareDrag = function () {
+    if (!this.compareBoundMove || !this.compareBoundEnd) return;
+    window.removeEventListener("pointermove", this.compareBoundMove);
+    window.removeEventListener("pointerup", this.compareBoundEnd);
+    window.removeEventListener("pointercancel", this.compareBoundEnd);
+    window.removeEventListener("touchmove", this.compareBoundMove);
+    window.removeEventListener("touchend", this.compareBoundEnd);
+    window.removeEventListener("touchcancel", this.compareBoundEnd);
+    this.compareBoundMove = null;
+    this.compareBoundEnd = null;
+  };
+
+  SugarRoomStudio.prototype.endCompareDrag = function () {
+    this.compareDragPointerId = null;
+    if (this.compareEl) this.compareEl.classList.remove("is-dragging");
+    this.unlockCompareScroll();
+    this.unbindCompareDrag();
+  };
+
+  SugarRoomStudio.prototype.updateCompareFromClientX = function (clientX) {
+    if (!this.compareEl) return;
+    var rect = this.compareEl.getBoundingClientRect();
+    if (!rect.width) return;
+    var pct = ((clientX - rect.left) / rect.width) * 100;
+    this.setComparePosition(pct);
+  };
+
+  SugarRoomStudio.prototype.clientXFromEvent = function (e) {
+    if (!e) return 0;
+    if (typeof e.clientX === "number") return e.clientX;
+    if (e.touches && e.touches[0]) return e.touches[0].clientX;
+    if (e.changedTouches && e.changedTouches[0]) return e.changedTouches[0].clientX;
+    return 0;
+  };
+
+  SugarRoomStudio.prototype.startCompareDrag = function (pointerId, clientX) {
+    var self = this;
+    this.stopCompareAutoplay();
+    this.compareDragPointerId = pointerId;
+    if (this.compareEl) this.compareEl.classList.add("is-dragging");
+    this.lockCompareScroll();
+    this.updateCompareFromClientX(clientX);
+
+    this.unbindCompareDrag();
+    this.compareBoundMove = function (e) {
+      if (
+        self.compareDragPointerId !== "touch" &&
+        e.pointerId != null &&
+        self.compareDragPointerId !== e.pointerId
+      ) {
+        return;
+      }
+      if (e.cancelable) e.preventDefault();
+      self.updateCompareFromClientX(self.clientXFromEvent(e));
+    };
+    this.compareBoundEnd = function (e) {
+      if (
+        self.compareDragPointerId !== "touch" &&
+        e.pointerId != null &&
+        self.compareDragPointerId !== e.pointerId
+      ) {
+        return;
+      }
+      self.endCompareDrag();
+    };
+    window.addEventListener("pointermove", this.compareBoundMove, { passive: false });
+    window.addEventListener("pointerup", this.compareBoundEnd);
+    window.addEventListener("pointercancel", this.compareBoundEnd);
+    window.addEventListener("touchmove", this.compareBoundMove, { passive: false });
+    window.addEventListener("touchend", this.compareBoundEnd);
+    window.addEventListener("touchcancel", this.compareBoundEnd);
+  };
+
+  SugarRoomStudio.prototype.nudgeCompare = function (delta) {
+    this.stopCompareAutoplay();
+    var current = Number(
+      (this.compareHandle && this.compareHandle.getAttribute("aria-valuenow")) ||
+        this.compareAutoplayValue ||
+        0,
+    );
+    this.setComparePosition(current + Number(delta || 0));
+  };
+
+  SugarRoomStudio.prototype.bindCompareInteractions = function () {
+    var self = this;
+    if (!this.compareEl || this.compareEl.__sugarCompareBound) return;
+    this.compareEl.__sugarCompareBound = true;
+
+    if (!this.compareEl.querySelector("[data-sugar-rs-compare-step]")) {
+      var chevronLeft =
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6.5 9 12l5.5 5.5"/></svg>';
+      var chevronRight =
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 6.5 15 12l-5.5 5.5"/></svg>';
+      var leftBtn = document.createElement("button");
+      leftBtn.type = "button";
+      leftBtn.className = "sugar-rs-compare__step sugar-rs-compare__step--left";
+      leftBtn.setAttribute("data-sugar-rs-compare-step", "-12");
+      leftBtn.setAttribute(
+        "aria-label",
+        this.t("compareShowOrigin", "Show original"),
+      );
+      leftBtn.innerHTML = chevronLeft;
+      var rightBtn = document.createElement("button");
+      rightBtn.type = "button";
+      rightBtn.className = "sugar-rs-compare__step sugar-rs-compare__step--right";
+      rightBtn.setAttribute("data-sugar-rs-compare-step", "12");
+      rightBtn.setAttribute(
+        "aria-label",
+        this.t("compareShowDesign", "Show design"),
+      );
+      rightBtn.innerHTML = chevronRight;
+      var handle = this.compareHandle || this.compareEl.querySelector("[data-sugar-rs-compare-handle]");
+      if (handle) {
+        this.compareEl.insertBefore(leftBtn, handle);
+        this.compareEl.insertBefore(rightBtn, handle);
+      } else {
+        this.compareEl.appendChild(leftBtn);
+        this.compareEl.appendChild(rightBtn);
+      }
+    }
+
+    if (this.compareHandle) {
+      if (!this.compareHandle.getAttribute("aria-label")) {
+        this.compareHandle.setAttribute(
+          "aria-label",
+          this.t("compareAria", "Compare original room and AI design"),
+        );
+      }
+      this.compareHandle.addEventListener(
+        "pointerdown",
+        function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (self.compareHandle.setPointerCapture) {
+            try {
+              self.compareHandle.setPointerCapture(e.pointerId);
+            } catch (err) {}
+          }
+          self.startCompareDrag(e.pointerId, e.clientX);
+        },
+        { passive: false },
+      );
+      this.compareHandle.addEventListener(
+        "touchstart",
+        function (e) {
+          if (self.compareDragPointerId != null) return;
+          if (!e.touches || !e.touches.length) return;
+          e.preventDefault();
+          e.stopPropagation();
+          self.startCompareDrag("touch", e.touches[0].clientX);
+        },
+        { passive: false },
+      );
+      this.compareHandle.addEventListener("keydown", function (e) {
+        var step = e.shiftKey ? 10 : 4;
+        var current = Number(self.compareHandle.getAttribute("aria-valuenow") || 0);
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          self.stopCompareAutoplay();
+          self.setComparePosition(current - step);
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          self.stopCompareAutoplay();
+          self.setComparePosition(current + step);
+        }
+      });
+    }
+
+    this.compareEl.addEventListener(
+      "pointerdown",
+      function (e) {
+        if (e.target.closest("[data-sugar-rs-compare-handle]")) return;
+        if (e.target.closest("[data-sugar-rs-compare-step]")) return;
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        e.preventDefault();
+        if (self.compareEl.setPointerCapture) {
+          try {
+            self.compareEl.setPointerCapture(e.pointerId);
+          } catch (err) {}
+        }
+        self.startCompareDrag(e.pointerId, e.clientX);
+      },
+      { passive: false },
+    );
+
+    this.compareEl.addEventListener(
+      "touchstart",
+      function (e) {
+        if (self.compareDragPointerId != null) return;
+        if (e.target.closest("[data-sugar-rs-compare-handle]")) return;
+        if (e.target.closest("[data-sugar-rs-compare-step]")) return;
+        if (!e.touches || !e.touches.length) return;
+        e.preventDefault();
+        self.startCompareDrag("touch", e.touches[0].clientX);
+      },
+      { passive: false },
+    );
+
+    this.compareEl.querySelectorAll("[data-sugar-rs-compare-step]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        self.nudgeCompare(Number(btn.getAttribute("data-sugar-rs-compare-step") || 0));
+      });
+      btn.addEventListener("pointerdown", function (e) {
+        e.stopPropagation();
+      });
+      btn.addEventListener(
+        "touchstart",
+        function (e) {
+          e.stopPropagation();
+        },
+        { passive: true },
+      );
+    });
   };
 
   SugarRoomStudio.prototype.startCompareAutoplay = function () {
     var self = this;
     this.stopCompareAutoplay();
     if (!this.compareEl) return;
+    if (
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      this.setComparePosition(0);
+      return;
+    }
+
     this.compareAutoplayActive = true;
-    this.compareUserPaused = false;
     this.compareAutoplayDir = 1;
+    this.compareAutoplayHalfDone = false;
     this.compareAutoplayValue = 0;
     this.setComparePosition(0);
     this.compareEl.classList.add("is-autoplaying");
 
     var lastTs = null;
-    var speed = 18; // percent per second — ~5.5s one way
+    var speed = 22; // percent per second — ~4.5s one way
 
     function tick(ts) {
       if (!self.compareAutoplayActive) return;
@@ -1764,53 +2096,418 @@
       var dt = Math.min(0.05, (ts - lastTs) / 1000);
       lastTs = ts;
 
-      if (!self.compareUserPaused) {
-        var next = self.compareAutoplayValue + self.compareAutoplayDir * speed * dt;
-        if (next >= 100) {
-          next = 100;
-          self.compareAutoplayDir = -1;
-        } else if (next <= 0) {
-          next = 0;
-          self.compareAutoplayDir = 1;
-        }
+      var next = self.compareAutoplayValue + self.compareAutoplayDir * speed * dt;
+      if (next >= 100) {
+        next = 100;
+        self.compareAutoplayDir = -1;
+        self.compareAutoplayHalfDone = true;
+      } else if (self.compareAutoplayHalfDone && next <= 0) {
+        next = 0;
         self.setComparePosition(next);
+        self.stopCompareAutoplay();
+        return;
       }
-
+      self.setComparePosition(next);
       self.compareAutoplayRaf = requestAnimationFrame(tick);
     }
 
     this.compareAutoplayRaf = requestAnimationFrame(tick);
   };
 
-  SugarRoomStudio.prototype.pauseCompareAutoplay = function () {
-    var self = this;
-    this.compareUserPaused = true;
-    if (this.compareEl) this.compareEl.classList.remove("is-autoplaying");
-    if (this.compareResumeTimer) {
-      clearTimeout(this.compareResumeTimer);
-      this.compareResumeTimer = null;
-    }
-    if (!this.compareAutoplayActive) return;
-    this.compareResumeTimer = setTimeout(function () {
-      self.compareUserPaused = false;
-      if (self.compareEl && self.compareAutoplayActive) {
-        self.compareEl.classList.add("is-autoplaying");
-      }
-    }, 2500);
-  };
-
   SugarRoomStudio.prototype.stopCompareAutoplay = function () {
     this.compareAutoplayActive = false;
-    this.compareUserPaused = false;
+    this.compareAutoplayHalfDone = false;
     if (this.compareAutoplayRaf) {
       cancelAnimationFrame(this.compareAutoplayRaf);
       this.compareAutoplayRaf = null;
     }
-    if (this.compareResumeTimer) {
-      clearTimeout(this.compareResumeTimer);
-      this.compareResumeTimer = null;
-    }
     if (this.compareEl) this.compareEl.classList.remove("is-autoplaying");
+  };
+
+  SugarRoomStudio.prototype.normalizeEnrichmentHandles = function (raw) {
+    var out = { accessory: [], rug: [], lighting: [] };
+    ["accessory", "rug", "lighting"].forEach(function (key) {
+      var list = Array.isArray(raw && raw[key]) ? raw[key] : [];
+      out[key] = list
+        .map(function (h) {
+          return String(h || "").trim();
+        })
+        .filter(Boolean);
+    });
+    return out;
+  };
+
+  SugarRoomStudio.prototype.normalizeEnrichmentPools = function (raw) {
+    var self = this;
+    var pools = { accessory: [], rug: [], lighting: [] };
+    ["accessory", "rug", "lighting"].forEach(function (key) {
+      var list = Array.isArray(raw && raw[key]) ? raw[key] : [];
+      pools[key] = list
+        .map(function (item) {
+          return self.normalizeProductRow(item);
+        })
+        .filter(Boolean);
+    });
+    return pools;
+  };
+
+  SugarRoomStudio.prototype.loadEnrichmentPools = function () {
+    var self = this;
+    if (this.enrichmentPoolsLoaded) {
+      return Promise.resolve(this.enrichmentPools);
+    }
+    if (this.enrichmentPoolsLoading) return this.enrichmentPoolsLoading;
+
+    this.enrichmentPoolsLoading = (async function () {
+      var pools = { accessory: [], rug: [], lighting: [] };
+      var types = ["accessory", "rug", "lighting"];
+      for (var i = 0; i < types.length; i++) {
+        var type = types[i];
+        var handles = (self.enrichmentHandles && self.enrichmentHandles[type]) || [];
+        var seen = {};
+        var products = [];
+        for (var h = 0; h < handles.length; h++) {
+          var rawList = await self.fetchAllCollectionProducts(handles[h]);
+          rawList.forEach(function (raw) {
+            var mapped = self.mapAjaxProduct(raw);
+            var normalized = self.normalizeProductRow(mapped);
+            if (!normalized || seen[normalized.id]) return;
+            seen[normalized.id] = true;
+            products.push(normalized);
+          });
+        }
+        pools[type] = products;
+      }
+      self.enrichmentPools = pools;
+      self.enrichmentPoolsLoaded = true;
+      self.enrichmentPoolsLoading = null;
+      return pools;
+    })().catch(function (err) {
+      self.enrichmentPoolsLoading = null;
+      console.warn("[Sugar Curator] enrichment pools failed", err);
+      self.enrichmentPoolsLoaded = true;
+      return self.enrichmentPools;
+    });
+
+    return this.enrichmentPoolsLoading;
+  };
+
+  SugarRoomStudio.prototype.normalizeProductRow = function (raw) {
+    if (!raw || typeof raw !== "object") return null;
+    var productId = String(raw.productId || raw.id || "").trim();
+    var variantId = String(raw.variantId || "").trim();
+    if (!productId || !variantId) return null;
+    return {
+      id: productId,
+      productId: productId,
+      variantId: variantId,
+      title: String(raw.title || ""),
+      handle: String(raw.handle || ""),
+      productType: String(raw.productType || raw.type || ""),
+      tags: Array.isArray(raw.tags) ? raw.tags.map(String) : [],
+      price: raw.price,
+      currency: raw.currency,
+      imageUrl: String(raw.imageUrl || ""),
+      images: Array.isArray(raw.images) ? raw.images.map(String) : [],
+      categoryIds: Array.isArray(raw.categoryIds) ? raw.categoryIds.map(String) : [],
+    };
+  };
+
+  SugarRoomStudio.prototype.ensureProductInCatalog = function (product) {
+    if (!product || !product.id) return;
+    if (!this.catalog.byId[product.id]) {
+      this.catalog.byId[product.id] = product;
+      if (Array.isArray(this.catalog.products)) {
+        this.catalog.products.push(product);
+      }
+    }
+  };
+
+  SugarRoomStudio.prototype.ensureRedesignModal = function () {
+    if (!this.redesignModalEl) return false;
+    if (this.redesignModalEl.querySelector("[data-sugar-rs-redesign-confirm]")) {
+      return true;
+    }
+    var primaryClass = this.config.primaryButtonClasses || "";
+    this.redesignModalEl.innerHTML =
+      '<div class="sugar-rs-redesign-modal__backdrop" data-sugar-rs-redesign-modal-dismiss></div>' +
+      '<div class="sugar-rs-redesign-modal__panel" role="dialog" aria-modal="true" aria-labelledby="sugar-rs-redesign-title">' +
+      '<header class="sugar-rs-redesign-modal__head">' +
+      '<h3 id="sugar-rs-redesign-title"></h3>' +
+      '<button type="button" class="sugar-rs-redesign-modal__close" data-sugar-rs-redesign-modal-dismiss aria-label="">' +
+      '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+      "</button>" +
+      "</header>" +
+      '<label class="sugar-rs-redesign-modal__label" for="sugar-rs-redesign-prompt"></label>' +
+      '<textarea id="sugar-rs-redesign-prompt" class="sugar-rs-redesign-modal__prompt" data-sugar-rs-redesign-prompt rows="4" maxlength="600"></textarea>' +
+      '<p class="sugar-rs-redesign-modal__section-title" data-sugar-rs-redesign-enrich-title></p>' +
+      '<div class="sugar-rs-redesign-modal__enrich" data-sugar-rs-redesign-enrich>' +
+      '<label class="sugar-rs-redesign-chip" data-sugar-rs-enrich-option="accessory" hidden>' +
+      '<input type="checkbox" value="accessory" data-sugar-rs-enrich-check>' +
+      '<span class="sugar-rs-redesign-chip__icon" aria-hidden="true"></span>' +
+      '<span class="sugar-rs-redesign-chip__label"></span>' +
+      "</label>" +
+      '<label class="sugar-rs-redesign-chip" data-sugar-rs-enrich-option="rug" hidden>' +
+      '<input type="checkbox" value="rug" data-sugar-rs-enrich-check>' +
+      '<span class="sugar-rs-redesign-chip__icon" aria-hidden="true"></span>' +
+      '<span class="sugar-rs-redesign-chip__label"></span>' +
+      "</label>" +
+      '<label class="sugar-rs-redesign-chip" data-sugar-rs-enrich-option="lighting" hidden>' +
+      '<input type="checkbox" value="lighting" data-sugar-rs-enrich-check>' +
+      '<span class="sugar-rs-redesign-chip__icon" aria-hidden="true"></span>' +
+      '<span class="sugar-rs-redesign-chip__label"></span>' +
+      "</label>" +
+      "</div>" +
+      '<p class="sugar-rs-redesign-modal__hint" data-sugar-rs-redesign-enrich-empty hidden></p>' +
+      '<div class="sugar-rs-redesign-modal__actions">' +
+      '<button type="button" class="sugar-rs-primary-btn ' +
+      escapeHtml(primaryClass) +
+      '" data-sugar-rs-redesign-confirm></button>' +
+      "</div></div>";
+
+    this.redesignPromptEl = this.redesignModalEl.querySelector("[data-sugar-rs-redesign-prompt]");
+    this.redesignConfirmBtn = this.redesignModalEl.querySelector("[data-sugar-rs-redesign-confirm]");
+    this.redesignEnrichEmptyEl = this.redesignModalEl.querySelector(
+      "[data-sugar-rs-redesign-enrich-empty]",
+    );
+
+    var title = this.redesignModalEl.querySelector("#sugar-rs-redesign-title");
+    if (title) title.textContent = this.t("redesignModalTitle", "Refine your design");
+    var label = this.redesignModalEl.querySelector(".sugar-rs-redesign-modal__label");
+    if (label) label.textContent = this.t("redesignPromptLabel", "What should we change?");
+    if (this.redesignPromptEl) {
+      this.redesignPromptEl.placeholder = this.t(
+        "redesignPromptPlaceholder",
+        "e.g. warmer lighting, add a rug…",
+      );
+    }
+    var enrichTitle = this.redesignModalEl.querySelector("[data-sugar-rs-redesign-enrich-title]");
+    if (enrichTitle) {
+      enrichTitle.innerHTML =
+        '<span class="sugar-rs-redesign-modal__section-icon" aria-hidden="true">' +
+        '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M15 4l5 5"/><path d="M14 5l-9.5 9.5a2.1 2.1 0 000 3L7.5 20a2.1 2.1 0 003 0L20 10.5"/><path d="M5 5l.5 1.5L7 7l-1.5.5L5 9l-.5-1.5L3 7l1.5-.5L5 5z"/><path d="M18 14l.4 1.2L20 16l-1.2.4L18 18l-.4-1.6L16 16l1.6-.4L18 14z"/>' +
+        "</svg></span>" +
+        '<span class="sugar-rs-redesign-modal__section-text">' +
+        escapeHtml(this.t("redesignEnrichTitle", "Enrichment")) +
+        "</span>";
+    }
+    var empty = this.redesignEnrichEmptyEl;
+    if (empty) {
+      empty.textContent = this.t(
+        "redesignEnrichEmpty",
+        "No enrichment collections configured in theme settings.",
+      );
+    }
+    var enrichIcons = {
+      accessory:
+        '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 10.5c0-2.2 1.3-4 3.5-4.5 0 0 .2 2.4 1.8 3.6 1.2.9 2.2 2.2 2.2 3.9 0 2.5-2 4.5-4.5 4.5S8 16 8 13.5c0-1.2.5-2.3 1.5-3z"/><path d="M12 3.5c1.2 1.4 1.8 2.8 1.8 4"/><path d="M10.5 21h5"/><path d="M13 18.5v2.5"/></svg>',
+      rug:
+        '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="6.5" width="17" height="11" rx="2"/><path d="M7 6.5v11M17 6.5v11"/><path d="M10.5 9.5h3M10.5 12h3M10.5 14.5h3"/></svg>',
+      lighting:
+        '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3"/><path d="M8.5 10.5c0-2.2 1.6-4 3.5-4s3.5 1.8 3.5 4c0 1.5-.7 2.5-1.5 3.4-.5.5-.8 1.1-.8 1.8v.3H10.8v-.3c0-.7-.3-1.3-.8-1.8-.8-.9-1.5-1.9-1.5-3.4z"/><path d="M10.5 16h3"/><path d="M11 18h2"/><path d="M10.5 20h3"/></svg>',
+    };
+    var labels = {
+      accessory: this.t("enrichAccessory", "Add accessories"),
+      rug: this.t("enrichRug", "Add a rug"),
+      lighting: this.t("enrichLighting", "Add lighting"),
+    };
+    Object.keys(labels).forEach(function (key) {
+      var chip = this.redesignModalEl.querySelector(
+        '[data-sugar-rs-enrich-option="' + key + '"]',
+      );
+      if (!chip) return;
+      var icon = chip.querySelector(".sugar-rs-redesign-chip__icon");
+      var label = chip.querySelector(".sugar-rs-redesign-chip__label");
+      if (icon) icon.innerHTML = enrichIcons[key] || "";
+      if (label) label.textContent = labels[key];
+    }, this);
+
+    var closeLabel = this.t("closeAria", "Close");
+    this.redesignModalEl.querySelectorAll("[data-sugar-rs-redesign-modal-dismiss]").forEach(
+      function (el) {
+        if (el.classList.contains("sugar-rs-redesign-modal__close")) {
+          el.setAttribute("aria-label", closeLabel);
+        }
+      },
+      this,
+    );
+    if (this.redesignConfirmBtn) {
+      this.redesignConfirmBtn.textContent = this.t("redesignConfirm", "Generate redesign");
+      this.redesignConfirmBtn.addEventListener("click", function () {
+        this.confirmRedesignModal();
+      }.bind(this));
+    }
+    this.redesignModalEl.querySelectorAll("[data-sugar-rs-redesign-modal-dismiss]").forEach(
+      function (el) {
+        el.addEventListener("click", function () {
+          this.closeRedesignModal();
+        }.bind(this));
+      }.bind(this),
+    );
+    return true;
+  };
+
+  SugarRoomStudio.prototype.bindRedesignModal = function () {
+    // Modal DOM is created lazily in ensureRedesignModal().
+  };
+
+  SugarRoomStudio.prototype.openRedesignModal = async function () {
+    var self = this;
+    if (!this.redesignModalEl) {
+      this.runDesign({ isRedesign: true });
+      return;
+    }
+    this.ensureRedesignModal();
+    if (this.redesignPromptEl) {
+      this.redesignPromptEl.value = this.pendingRedesignPrompt || "";
+    }
+    this.redesignModalEl.hidden = false;
+    if (this.redesignPromptEl && typeof this.redesignPromptEl.focus === "function") {
+      this.redesignPromptEl.focus();
+    }
+
+    await this.loadEnrichmentPools();
+    var available = 0;
+    ["accessory", "rug", "lighting"].forEach(function (key) {
+      var opt = self.redesignModalEl.querySelector(
+        '[data-sugar-rs-enrich-option="' + key + '"]',
+      );
+      var pool = (self.enrichmentPools && self.enrichmentPools[key]) || [];
+      var has = pool.length > 0;
+      if (opt) {
+        opt.hidden = !has;
+        var check = opt.querySelector("[data-sugar-rs-enrich-check]");
+        if (check) check.checked = false;
+      }
+      if (has) available += 1;
+    });
+    if (this.redesignEnrichEmptyEl) {
+      this.redesignEnrichEmptyEl.hidden = available > 0;
+    }
+  };
+
+  SugarRoomStudio.prototype.closeRedesignModal = function () {
+    if (this.redesignModalEl) this.redesignModalEl.hidden = true;
+  };
+
+  SugarRoomStudio.prototype.confirmRedesignModal = async function () {
+    var self = this;
+    await this.loadEnrichmentPools();
+    var prompt = this.redesignPromptEl
+      ? String(this.redesignPromptEl.value || "").trim()
+      : "";
+    var types = [];
+    var scope = this.redesignModalEl || this.root;
+    scope.querySelectorAll("[data-sugar-rs-enrich-check]").forEach(function (input) {
+      if (input.checked && input.value) types.push(String(input.value));
+    });
+    this.pendingRedesignPrompt = prompt;
+    this.pendingEnrichmentTypes = types;
+    this.closeRedesignModal();
+    this.runDesign({
+      isRedesign: true,
+      prompt: prompt,
+      enrichmentTypes: types,
+    });
+  };
+
+  SugarRoomStudio.prototype.scoreEnrichmentCandidate = function (candidate, selectedProducts) {
+    var score = 0;
+    var candTags = (candidate.tags || []).map(function (t) {
+      return String(t).toLowerCase();
+    });
+    var candTitle = String(candidate.title || "").toLowerCase();
+    var candType = String(candidate.productType || "").toLowerCase();
+    (selectedProducts || []).forEach(function (p) {
+      (p.tags || []).forEach(function (tag) {
+        var t = String(tag).toLowerCase();
+        if (!t) return;
+        if (candTags.indexOf(t) !== -1) score += 3;
+        if (candTitle.indexOf(t) !== -1) score += 1;
+      });
+      var pType = String(p.productType || "").toLowerCase();
+      if (pType && candType && (candType.indexOf(pType) !== -1 || pType.indexOf(candType) !== -1)) {
+        score += 2;
+      }
+      var words = String(p.title || "")
+        .toLowerCase()
+        .split(/[^a-z0-9çğıöşü]+/i)
+        .filter(function (w) {
+          return w.length > 3;
+        });
+      words.forEach(function (w) {
+        if (candTitle.indexOf(w) !== -1) score += 1;
+      });
+    });
+    return score + Math.random() * 0.25;
+  };
+
+  SugarRoomStudio.prototype.pickEnrichmentProducts = function (types) {
+    var self = this;
+    var selected = this.selectedIds
+      .map(function (id) {
+        return self.catalog.byId[id];
+      })
+      .filter(Boolean);
+    var used = {};
+    this.selectedIds.forEach(function (id) {
+      used[String(id)] = true;
+    });
+    var picked = [];
+    (types || []).forEach(function (type) {
+      var pool = (self.enrichmentPools && self.enrichmentPools[type]) || [];
+      var best = null;
+      var bestScore = -1;
+      pool.forEach(function (candidate) {
+        if (!candidate || used[String(candidate.id)]) return;
+        var score = self.scoreEnrichmentCandidate(candidate, selected);
+        if (score > bestScore) {
+          bestScore = score;
+          best = candidate;
+        }
+      });
+      if (best) {
+        used[String(best.id)] = true;
+        self.ensureProductInCatalog(best);
+        picked.push(best);
+      }
+    });
+    return picked;
+  };
+
+  SugarRoomStudio.prototype.dismissRedesignTip = function () {
+    this.redesignTipDismissed = true;
+    this.syncRedesignTip();
+  };
+
+  SugarRoomStudio.prototype.syncRedesignTip = function () {
+    if (!this.redesignTipEl) return;
+    if (this.redesignTipTextEl) {
+      this.redesignTipTextEl.textContent = this.t(
+        "redesignTip",
+        "Having an issue? You can always regenerate your design.",
+      );
+    }
+    if (this.redesignTipCloseBtn) {
+      this.redesignTipCloseBtn.setAttribute(
+        "aria-label",
+        this.t("redesignTipClose", "Dismiss tip"),
+      );
+    }
+    var show = this.designCompletionCount === 1 && !this.redesignTipDismissed;
+    this.redesignTipEl.hidden = !show;
+  };
+
+  SugarRoomStudio.prototype.getProductUrl = function (product) {
+    if (!product) return "";
+    if (product.url) return String(product.url);
+    var handle = product.handle ? String(product.handle).replace(/^\/+|\/+$/g, "") : "";
+    if (!handle) return "";
+    var root =
+      (window.Shopify && window.Shopify.routes && window.Shopify.routes.root) || "/";
+    if (root.slice(-1) !== "/") root += "/";
+    return root + "products/" + encodeURIComponent(handle);
   };
 
   SugarRoomStudio.prototype.getShopAttemptKey = function () {
@@ -2105,19 +2802,10 @@
       });
   };
 
-  SugarRoomStudio.prototype.productHasPrice = function (p) {
-    return !!(p && normalizePriceToCents(p.price) > 0);
-  };
-
   SugarRoomStudio.prototype.buildProductCardHtml = function (p, atLimit) {
     var selected = this.selectedIds.indexOf(p.productId) !== -1;
     var disabled = !selected && atLimit;
     var title = String(p.title || "").trim() || "—";
-    var priceHtml = this.productHasPrice(p)
-      ? '<div class="sugar-rs-card__price">' +
-        escapeHtml(formatMoney(p.price, p.currency || this.config.currency, this.locale)) +
-        "</div>"
-      : "";
     return (
       '<article class="sugar-rs-card' +
       (selected ? " is-selected" : "") +
@@ -2151,14 +2839,23 @@
       '"' +
       (disabled ? " disabled" : "") +
       ">" +
-      (selected ? "✓" : "+") +
+      (selected
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>'
+        : '<span aria-hidden="true">+</span>') +
       "</button>" +
       "</div>" +
       '<div class="sugar-rs-card__meta">' +
-      '<div class="sugar-rs-card__title">' +
+      '<div class="sugar-rs-card__title" title="' +
+      escapeHtml(title) +
+      '">' +
       escapeHtml(title) +
       "</div>" +
-      priceHtml +
+      priceHtml(
+        "sugar-rs-card__price",
+        p.price,
+        p.currency || this.config.currency,
+        this.locale,
+      ) +
       "</div></article>"
     );
   };
@@ -2329,11 +3026,6 @@
       var id = this.selectedIds[i];
       var product = id ? this.catalog.byId[id] : null;
       if (product) {
-        var priceHtml = this.productHasPrice(product)
-          ? '<p class="sugar-rs-slot__price">' +
-            escapeHtml(formatMoney(product.price, product.currency || currency, this.locale)) +
-            "</p>"
-          : "";
         html +=
           '<article class="sugar-rs-slot is-filled" data-slot-id="' +
           escapeHtml(product.productId) +
@@ -2349,7 +3041,12 @@
           '<p class="sugar-rs-slot__title">' +
           escapeHtml(product.title) +
           "</p>" +
-          priceHtml +
+          priceParagraphHtml(
+            "sugar-rs-slot__price",
+            product.price,
+            product.currency || currency,
+            this.locale,
+          ) +
           "</div>" +
           '<button type="button" class="sugar-rs-slot__remove" data-remove-slot="' +
           escapeHtml(product.productId) +
@@ -2369,21 +3066,17 @@
       });
     });
 
+    var totalCents = this.getSelectedCartTotalCents();
     if (this.slotsTotalEl) {
-      var totalCents = this.getSelectedCartTotalCents();
       var hasItems = this.selectedIds.length > 0 && totalCents > 0;
       this.slotsTotalEl.hidden = !hasItems;
-      if (hasItems) {
-        if (this.slotsTotalLabel) {
-          this.slotsTotalLabel.textContent = this.t("cartTotal", "Cart total");
-        }
-        if (this.slotsTotalValue) {
-          this.slotsTotalValue.textContent = formatMoney(
-            totalCents,
-            currency,
-            this.locale,
-          );
-        }
+      if (this.slotsTotalLabel) {
+        this.slotsTotalLabel.textContent = this.t("cartTotal", "Cart total");
+      }
+      if (this.slotsTotalValue) {
+        this.slotsTotalValue.textContent = hasItems
+          ? formatMoney(totalCents, currency, this.locale)
+          : "";
       }
     }
   };
@@ -2543,6 +3236,9 @@
     if (this.roomCameraWrap) {
       this.roomCameraWrap.classList.toggle("is-loading", !!loading);
     }
+    if (this.photoModalStage) {
+      this.photoModalStage.classList.toggle("is-loading", !!loading);
+    }
   };
 
   SugarRoomStudio.prototype.stopRoomCameraStream = function () {
@@ -2552,22 +3248,196 @@
     });
     this.cameraStream = null;
     if (this.roomCameraVideo) this.roomCameraVideo.srcObject = null;
+    if (this.photoModalVideo) this.photoModalVideo.srcObject = null;
   };
 
   SugarRoomStudio.prototype.attachRoomCameraStream = function (stream) {
     this.cameraStream = stream;
-    if (!this.roomCameraVideo) return;
-    this.roomCameraVideo.srcObject = stream;
+    var video = this.isPhotoModalOpen()
+      ? this.photoModalVideo
+      : this.roomCameraVideo;
+    if (!video) return;
+    video.srcObject = stream;
     this.setRoomCameraLoading(false);
-    var playPromise = this.roomCameraVideo.play();
+    var playPromise = video.play();
     if (playPromise && typeof playPromise.catch === "function") {
       playPromise.catch(function () {});
     }
   };
 
-  SugarRoomStudio.prototype.openRoomCamera = function () {
-    var self = this;
+  SugarRoomStudio.prototype.isPhotoModalOpen = function () {
+    return !!(this.photoModalEl && !this.photoModalEl.hidden);
+  };
+
+  SugarRoomStudio.prototype.clearPendingRoomCapture = function () {
+    if (this.pendingRoomCaptureUrl) {
+      try {
+        URL.revokeObjectURL(this.pendingRoomCaptureUrl);
+      } catch (err) {}
+    }
+    this.pendingRoomCapture = null;
+    this.pendingRoomCaptureUrl = "";
+    if (this.photoModalPreview) {
+      this.photoModalPreview.removeAttribute("src");
+      this.photoModalPreview.hidden = true;
+    }
+  };
+
+  SugarRoomStudio.prototype.ensurePhotoModal = function () {
+    if (this.photoModalEl) return true;
+    var host = this.panelEl || this.root;
+    if (!host) return false;
+    var el = document.createElement("div");
+    el.className = "sugar-rs-photo-modal";
+    el.setAttribute("data-sugar-rs-photo-modal", "");
+    el.hidden = true;
+    el.innerHTML =
+      '<div class="sugar-rs-photo-modal__panel" role="dialog" aria-modal="true">' +
+      '<header class="sugar-rs-photo-modal__head">' +
+      '<h3 data-sugar-rs-photo-modal-title></h3>' +
+      '<button type="button" class="sugar-rs-photo-modal__close" data-sugar-rs-photo-modal-close aria-label="">' +
+      '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+      "</button></header>" +
+      '<div class="sugar-rs-photo-modal__stage" data-sugar-rs-photo-modal-stage>' +
+      '<video class="sugar-rs-photo-modal__video" data-sugar-rs-photo-modal-video autoplay playsinline muted webkit-playsinline></video>' +
+      '<img class="sugar-rs-photo-modal__preview" data-sugar-rs-photo-modal-preview alt="" hidden>' +
+      '<p class="sugar-rs-photo-modal__loading" data-sugar-rs-photo-modal-loading></p>' +
+      "</div>" +
+      '<canvas data-sugar-rs-photo-modal-canvas hidden></canvas>' +
+      '<div class="sugar-rs-photo-modal__actions" data-sugar-rs-photo-modal-live-actions>' +
+      '<button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-photo-modal-cancel></button>' +
+      '<button type="button" class="sugar-rs-primary-btn" data-sugar-rs-photo-modal-capture></button>' +
+      "</div>" +
+      '<div class="sugar-rs-photo-modal__actions" data-sugar-rs-photo-modal-review-actions hidden>' +
+      '<button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-photo-modal-retake></button>' +
+      '<button type="button" class="sugar-rs-primary-btn" data-sugar-rs-photo-modal-approve></button>' +
+      "</div></div>";
+    host.appendChild(el);
+
+    this.photoModalEl = el;
+    this.photoModalVideo = el.querySelector("[data-sugar-rs-photo-modal-video]");
+    this.photoModalPreview = el.querySelector("[data-sugar-rs-photo-modal-preview]");
+    this.photoModalCanvas = el.querySelector("[data-sugar-rs-photo-modal-canvas]");
+    this.photoModalStage = el.querySelector("[data-sugar-rs-photo-modal-stage]");
+    this.photoModalLiveActions = el.querySelector(
+      "[data-sugar-rs-photo-modal-live-actions]",
+    );
+    this.photoModalReviewActions = el.querySelector(
+      "[data-sugar-rs-photo-modal-review-actions]",
+    );
+    this.photoModalTitle = el.querySelector("[data-sugar-rs-photo-modal-title]");
+    var loading = el.querySelector("[data-sugar-rs-photo-modal-loading]");
+    if (loading) loading.textContent = this.t("cameraLoading", "Opening camera…");
+    if (this.photoModalTitle) {
+      this.photoModalTitle.textContent = this.t("cameraLabel", "Camera");
+    }
+    var closeBtn = el.querySelector("[data-sugar-rs-photo-modal-close]");
+    if (closeBtn) {
+      closeBtn.setAttribute("aria-label", this.t("closeAria", "Close"));
+      closeBtn.addEventListener("click", this.closePhotoModal.bind(this));
+    }
+    var cancelBtn = el.querySelector("[data-sugar-rs-photo-modal-cancel]");
+    if (cancelBtn) {
+      cancelBtn.textContent = this.t("cameraCancel", "Back");
+      cancelBtn.addEventListener("click", this.closePhotoModal.bind(this));
+    }
+    var captureBtn = el.querySelector("[data-sugar-rs-photo-modal-capture]");
+    if (captureBtn) {
+      captureBtn.textContent = this.t("cameraCapture", "Take photo");
+      captureBtn.addEventListener("click", this.captureRoomCamera.bind(this));
+    }
+    var retakeBtn = el.querySelector("[data-sugar-rs-photo-modal-retake]");
+    if (retakeBtn) {
+      retakeBtn.textContent = this.t("cameraRetake", "Retake");
+      retakeBtn.addEventListener("click", this.retakePhotoModalCapture.bind(this));
+    }
+    var approveBtn = el.querySelector("[data-sugar-rs-photo-modal-approve]");
+    if (approveBtn) {
+      approveBtn.textContent = this.t("cameraApprove", "Approve");
+      approveBtn.addEventListener("click", this.approvePhotoModalCapture.bind(this));
+    }
+    return true;
+  };
+
+  SugarRoomStudio.prototype.setPhotoModalMode = function (mode) {
+    var isReview = mode === "review";
+    if (this.photoModalLiveActions) this.photoModalLiveActions.hidden = isReview;
+    if (this.photoModalReviewActions) this.photoModalReviewActions.hidden = !isReview;
+    if (this.photoModalVideo) this.photoModalVideo.hidden = isReview;
+    if (this.photoModalPreview) this.photoModalPreview.hidden = !isReview;
+    if (this.photoModalTitle) {
+      this.photoModalTitle.textContent = isReview
+        ? this.t("cameraReviewTitle", "Review your photo")
+        : this.t("cameraLabel", "Camera");
+    }
+  };
+
+  SugarRoomStudio.prototype.openPhotoModal = function () {
+    if (!this.ensurePhotoModal()) {
+      this.openRoomCameraInline();
+      return;
+    }
     this.hideMessage();
+    this.clearPendingRoomCapture();
+    this.photoModalEl.hidden = false;
+    this.setPhotoModalMode("live");
+    this.startRoomCameraStream();
+  };
+
+  SugarRoomStudio.prototype.closePhotoModal = function () {
+    this.stopRoomCameraStream();
+    this.setRoomCameraLoading(false);
+    this.clearPendingRoomCapture();
+    if (this.photoModalEl) this.photoModalEl.hidden = true;
+    if (this.roomSourcesEl && !this.roomFile) this.roomSourcesEl.hidden = false;
+  };
+
+  SugarRoomStudio.prototype.showPhotoModalReview = function (file) {
+    if (!this.ensurePhotoModal()) return;
+    this.clearPendingRoomCapture();
+    this.pendingRoomCapture = file;
+    this.pendingRoomCaptureUrl = URL.createObjectURL(file);
+    if (this.photoModalPreview) {
+      this.photoModalPreview.src = this.pendingRoomCaptureUrl;
+      this.photoModalPreview.hidden = false;
+    }
+    this.stopRoomCameraStream();
+    this.setRoomCameraLoading(false);
+    this.photoModalEl.hidden = false;
+    this.setPhotoModalMode("review");
+  };
+
+  SugarRoomStudio.prototype.retakePhotoModalCapture = function () {
+    this.clearPendingRoomCapture();
+    this.setPhotoModalMode("live");
+    this.startRoomCameraStream();
+  };
+
+  SugarRoomStudio.prototype.approvePhotoModalCapture = function () {
+    var file = this.pendingRoomCapture;
+    if (!file) return;
+    this.pendingRoomCapture = null;
+    var url = this.pendingRoomCaptureUrl;
+    this.pendingRoomCaptureUrl = "";
+    if (this.photoModalEl) this.photoModalEl.hidden = true;
+    this.stopRoomCameraStream();
+    this.setRoomCameraLoading(false);
+    var self = this;
+    this.handleRoomFile(file).then(function () {
+      if (url) {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (err) {}
+      }
+      if (self.photoModalPreview) {
+        self.photoModalPreview.removeAttribute("src");
+        self.photoModalPreview.hidden = true;
+      }
+    });
+  };
+
+  SugarRoomStudio.prototype.startRoomCameraStream = function () {
+    var self = this;
     if (!ensureMediaDevices()) {
       this.showError(
         this.t(
@@ -2575,13 +3445,12 @@
           "Could not open the camera. You can choose a photo from the gallery.",
         ),
       );
+      this.closePhotoModal();
+      this.closeRoomCamera();
       return;
     }
 
-    if (this.roomSourcesEl) this.roomSourcesEl.hidden = true;
-    if (this.roomCameraEl) this.roomCameraEl.hidden = false;
     this.setRoomCameraLoading(true);
-
     var constraintsList = [
       { video: { facingMode: { ideal: "environment" } }, audio: false },
       { video: { facingMode: "user" }, audio: false },
@@ -2592,7 +3461,8 @@
       if (index >= constraintsList.length) {
         self.stopRoomCameraStream();
         self.setRoomCameraLoading(false);
-        self.closeRoomCamera();
+        if (self.isPhotoModalOpen()) self.closePhotoModal();
+        else self.closeRoomCamera();
         self.showError(
           self.t(
             "errorCamera",
@@ -2615,7 +3485,26 @@
     tryOpen(0);
   };
 
+  SugarRoomStudio.prototype.openRoomCameraInline = function () {
+    if (this.roomSourcesEl) this.roomSourcesEl.hidden = true;
+    if (this.roomCameraEl) this.roomCameraEl.hidden = false;
+    this.startRoomCameraStream();
+  };
+
+  SugarRoomStudio.prototype.openRoomCamera = function () {
+    this.hideMessage();
+    if (this.isMobileStudioLayout()) {
+      this.openPhotoModal();
+      return;
+    }
+    this.openRoomCameraInline();
+  };
+
   SugarRoomStudio.prototype.closeRoomCamera = function () {
+    if (this.isPhotoModalOpen()) {
+      this.closePhotoModal();
+      return;
+    }
     this.stopRoomCameraStream();
     this.setRoomCameraLoading(false);
     if (this.roomCameraEl) this.roomCameraEl.hidden = true;
@@ -2623,7 +3512,10 @@
   };
 
   SugarRoomStudio.prototype.captureRoomCamera = function () {
-    if (!this.roomCameraVideo || !this.roomCameraCanvas || !this.cameraStream) {
+    var useModal = this.isPhotoModalOpen();
+    var video = useModal ? this.photoModalVideo : this.roomCameraVideo;
+    var canvas = useModal ? this.photoModalCanvas : this.roomCameraCanvas;
+    if (!video || !canvas || !this.cameraStream) {
       this.showError(
         this.t(
           "errorCamera",
@@ -2633,8 +3525,6 @@
       return;
     }
 
-    var video = this.roomCameraVideo;
-    var canvas = this.roomCameraCanvas;
     var width = video.videoWidth;
     var height = video.videoHeight;
     if (!width || !height) {
@@ -2663,10 +3553,13 @@
           self.showError(self.t("errorGeneric", "Something went wrong"));
           return;
         }
+        var file = new File([blob], "room-camera.jpg", { type: "image/jpeg" });
+        if (useModal || self.isMobileStudioLayout()) {
+          self.showPhotoModalReview(file);
+          return;
+        }
         self.stopRoomCameraStream();
-        self.handleRoomFile(
-          new File([blob], "room-camera.jpg", { type: "image/jpeg" }),
-        );
+        self.handleRoomFile(file);
       },
       "image/jpeg",
       0.92,
@@ -2767,6 +3660,12 @@
   SugarRoomStudio.prototype.renderUploadProducts = function () {
     if (!this.uploadProductsEl) return;
     var self = this;
+    var currency =
+      (this.selectedIds[0] &&
+        this.catalog.byId[this.selectedIds[0]] &&
+        this.catalog.byId[this.selectedIds[0]].currency) ||
+      this.config.currency ||
+      "TRY";
     var isManual = this.designMode === "manual";
 
     if (this.uploadProductsTitle) {
@@ -2786,21 +3685,10 @@
     }
 
     var html = "";
-    var currency =
-      (this.selectedIds[0] &&
-        this.catalog.byId[this.selectedIds[0]] &&
-        this.catalog.byId[this.selectedIds[0]].currency) ||
-      this.config.currency ||
-      "TRY";
     this.selectedIds.forEach(function (id) {
       var product = self.catalog.byId[id];
       if (!product) return;
       var placed = !!self.placementsByProductId[id];
-      var priceHtml = self.productHasPrice(product)
-        ? '<p class="sugar-rs-upload-item__price">' +
-          escapeHtml(formatMoney(product.price, product.currency || currency, self.locale)) +
-          "</p>"
-        : "";
       html +=
         '<article class="sugar-rs-upload-item' +
         (isManual ? " is-draggable" : "") +
@@ -2827,8 +3715,35 @@
         '<p class="sugar-rs-upload-item__title">' +
         escapeHtml(product.title) +
         "</p>" +
-        priceHtml +
+        priceParagraphHtml(
+          "sugar-rs-upload-item__price",
+          product.price,
+          product.currency || currency,
+          self.locale,
+        ) +
         "</div>" +
+        (isManual
+          ? '<div class="sugar-rs-upload-item__nudge">' +
+            '<button type="button" class="sugar-rs-upload-item__nudge-btn" data-upload-nudge="' +
+            escapeHtml(product.productId) +
+            '" data-nudge-x="-0.06" aria-label="' +
+            escapeHtml(self.t("moveLeft", "Move left")) +
+            '"' +
+            (placed ? "" : " disabled") +
+            ">" +
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M14.5 6.5 9 12l5.5 5.5"/></svg>' +
+            "</button>" +
+            '<button type="button" class="sugar-rs-upload-item__nudge-btn" data-upload-nudge="' +
+            escapeHtml(product.productId) +
+            '" data-nudge-x="0.06" aria-label="' +
+            escapeHtml(self.t("moveRight", "Move right")) +
+            '"' +
+            (placed ? "" : " disabled") +
+            ">" +
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9.5 6.5 15 12l-5.5 5.5"/></svg>' +
+            "</button>" +
+            "</div>"
+          : "") +
         "</article>";
     });
     this.uploadProductsEl.innerHTML = html;
@@ -2837,8 +3752,24 @@
     if (!isManual) return;
 
     this.uploadProductsEl.querySelectorAll("[data-upload-product-id]").forEach(function (item) {
+      var productId = item.getAttribute("data-upload-product-id");
+      item.addEventListener("click", function (e) {
+        if (e.target.closest("[data-upload-nudge]")) return;
+        e.preventDefault();
+        if (self.placementsByProductId[productId]) {
+          self.selectedPlacementId = productId;
+          self.renderPlacementLayers();
+          self.renderUploadProducts();
+        } else {
+          self.placeProductAt(productId, 0.5, 0.5);
+        }
+        if (self.roomPreviewEl && self.isMobileStudioLayout()) {
+          try {
+            self.roomPreviewEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          } catch (err) {}
+        }
+      });
       item.addEventListener("dragstart", function (e) {
-        var productId = item.getAttribute("data-upload-product-id");
         if (!productId || !e.dataTransfer) return;
         e.dataTransfer.setData("text/sugar-rs-product-id", productId);
         e.dataTransfer.setData("text/plain", productId);
@@ -2848,6 +3779,22 @@
       item.addEventListener("dragend", function () {
         item.classList.remove("is-dragging");
         if (self.roomPreviewEl) self.roomPreviewEl.classList.remove("is-drop-target");
+      });
+    });
+
+    this.uploadProductsEl.querySelectorAll("[data-upload-nudge]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var id = btn.getAttribute("data-upload-nudge");
+        if (!self.placementsByProductId[id]) {
+          self.placeProductAt(id, 0.5, 0.5);
+        }
+        self.nudgePlacement(
+          id,
+          Number(btn.getAttribute("data-nudge-x") || 0),
+          Number(btn.getAttribute("data-nudge-y") || 0),
+        );
       });
     });
   };
@@ -2876,6 +3823,17 @@
     this.selectedPlacementId = id;
     this.renderUploadProducts();
     this.renderPlacementLayers();
+  };
+
+  SugarRoomStudio.prototype.nudgePlacement = function (productId, dx, dy) {
+    var id = String(productId || "");
+    var placement = this.placementsByProductId[id];
+    if (!placement) return;
+    placement.x = Math.min(0.96, Math.max(0.04, Number(placement.x || 0.5) + Number(dx || 0)));
+    placement.y = Math.min(0.96, Math.max(0.04, Number(placement.y || 0.5) + Number(dy || 0)));
+    this.selectedPlacementId = id;
+    this.renderPlacementLayers();
+    this.renderUploadProducts();
   };
 
   SugarRoomStudio.prototype.removePlacement = function (productId) {
@@ -2920,6 +3878,22 @@
             escapeHtml(product.imageUrl) +
             '" alt="" draggable="false">'
           : "") +
+        '<div class="sugar-rs-place-layer__controls">' +
+        '<button type="button" class="sugar-rs-place-layer__nudge" data-nudge-placement="' +
+        escapeHtml(id) +
+        '" data-nudge-x="-0.06" aria-label="' +
+        escapeHtml(self.t("moveLeft", "Move left")) +
+        '">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M14.5 6.5 9 12l5.5 5.5"/></svg>' +
+        "</button>" +
+        '<button type="button" class="sugar-rs-place-layer__nudge" data-nudge-placement="' +
+        escapeHtml(id) +
+        '" data-nudge-x="0.06" aria-label="' +
+        escapeHtml(self.t("moveRight", "Move right")) +
+        '">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9.5 6.5 15 12l-5.5 5.5"/></svg>' +
+        "</button>" +
+        "</div>" +
         '<button type="button" class="sugar-rs-place-layer__remove" data-remove-placement="' +
         escapeHtml(id) +
         '" aria-label="' +
@@ -2934,6 +3908,21 @@
         e.preventDefault();
         e.stopPropagation();
         self.removePlacement(btn.getAttribute("data-remove-placement"));
+      });
+    });
+
+    this.roomLayersEl.querySelectorAll("[data-nudge-placement]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        self.nudgePlacement(
+          btn.getAttribute("data-nudge-placement"),
+          Number(btn.getAttribute("data-nudge-x") || 0),
+          Number(btn.getAttribute("data-nudge-y") || 0),
+        );
+      });
+      btn.addEventListener("pointerdown", function (e) {
+        e.stopPropagation();
       });
     });
   };
@@ -2972,6 +3961,7 @@
       if (self.designMode !== "manual" || !self.roomFile) return;
       var removeBtn = e.target.closest("[data-remove-placement]");
       if (removeBtn) return;
+      if (e.target.closest("[data-nudge-placement]")) return;
       var layer = e.target.closest(".sugar-rs-place-layer");
       if (!layer || !self.roomLayersEl || !self.roomLayersEl.contains(layer)) return;
       var productId = layer.getAttribute("data-placement-id");
@@ -3033,10 +4023,11 @@
     this.roomPreviewEl.addEventListener("pointercancel", endDrag);
   };
 
-  SugarRoomStudio.prototype.buildSelections = function () {
+  SugarRoomStudio.prototype.buildSelections = function (extraProducts) {
     var self = this;
     var isManual = this.designMode === "manual";
-    return this.selectedIds
+    var extras = Array.isArray(extraProducts) ? extraProducts : [];
+    var base = this.selectedIds
       .map(function (id, index) {
         var p = self.catalog.byId[id];
         if (!p || !p.variantId) return null;
@@ -3056,6 +4047,22 @@
         };
       })
       .filter(Boolean);
+
+    extras.forEach(function (p) {
+      if (!p || !p.variantId) return;
+      var already = base.some(function (s) {
+        return String(s.productId) === String(p.productId);
+      });
+      if (already) return;
+      base.push({
+        productId: p.productId,
+        variantId: p.variantId,
+        isPrimary: false,
+        quantity: 1,
+        position: null,
+      });
+    });
+    return base;
   };
 
   SugarRoomStudio.prototype.requestGenerateSync = async function (formData) {
@@ -3142,7 +4149,10 @@
       this.setStep("upload");
       return;
     }
-    var selections = this.buildSelections();
+    var enrichmentProducts = options.isRedesign
+      ? this.pickEnrichmentProducts(options.enrichmentTypes || this.pendingEnrichmentTypes || [])
+      : [];
+    var selections = this.buildSelections(enrichmentProducts);
     if (selections.length === 0) {
       this.showError(this.t("errorSelectProduct", "Select at least one product."));
       this.setStep("studio");
@@ -3153,6 +4163,21 @@
       this.showError(this.t("errorGenerate", "Could not create design."));
       return;
     }
+
+    var promptText = String(
+      options.prompt != null ? options.prompt : this.pendingRedesignPrompt || "",
+    ).trim();
+    var enrichmentTypes = options.enrichmentTypes || this.pendingEnrichmentTypes || [];
+    this.resultProductIds = this.selectedIds
+      .slice()
+      .concat(
+        enrichmentProducts.map(function (p) {
+          return p.id;
+        }),
+      )
+      .filter(function (id, idx, arr) {
+        return arr.indexOf(id) === idx;
+      });
 
     this.hideMessage();
     this.setStep("loading");
@@ -3180,6 +4205,11 @@
         "productDetailMetafieldNamespace",
         this.config.productDetailMetafieldNamespace || "custom",
       );
+      if (promptText) formData.append("prompt", promptText);
+      if (enrichmentTypes.length) {
+        formData.append("enrichment", JSON.stringify(enrichmentTypes));
+      }
+      if (options.isRedesign) formData.append("isRedesign", "true");
 
       var generateClient = window.SugarPdpKit && window.SugarPdpKit.generate;
       var data = generateClient
@@ -3208,6 +4238,8 @@
       );
       this.setComparePosition(0);
 
+      this.designCompletionCount += 1;
+      this.syncRedesignTip();
       this.renderResultList();
       if (!this.unlimitedAttempts) {
         this.attemptCount = recordAttempt(this.getShopAttemptKey());
@@ -3218,6 +4250,8 @@
       }
       this.setStep("result");
       this.updateGenerateState();
+      this.pendingRedesignPrompt = "";
+      this.pendingEnrichmentTypes = [];
     } catch (err) {
       this.stopLoadingProgress();
       this.showError(
@@ -3227,19 +4261,57 @@
     }
   };
 
+  SugarRoomStudio.prototype.bindResultListLinks = function () {
+    if (!this.resultList || this.resultList.__sugarResultLinksBound) return;
+    this.resultList.__sugarResultLinksBound = true;
+    this.resultList.addEventListener("click", function (e) {
+      var link = e.target && e.target.closest
+        ? e.target.closest("a.sugar-rs-result-list__link")
+        : null;
+      if (!link) return;
+      var href = link.getAttribute("href");
+      if (!href || href === "#") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === "function") {
+        e.stopImmediatePropagation();
+      }
+      var opened = window.open(href, "_blank", "noopener,noreferrer");
+      if (opened) {
+        try {
+          opened.opener = null;
+        } catch (err) {}
+      }
+    });
+  };
+
   SugarRoomStudio.prototype.renderResultList = function () {
     if (!this.resultList) return;
     var self = this;
+    var ids =
+      Array.isArray(this.resultProductIds) && this.resultProductIds.length
+        ? this.resultProductIds
+        : this.selectedIds;
     var html = "";
-    this.selectedIds.forEach(function (id) {
+    ids.forEach(function (id) {
       var p = self.catalog.byId[id];
       if (!p) return;
-      html +=
-        "<li>" +
+      var url = self.getProductUrl(p);
+      var inner =
         (p.imageUrl ? '<img src="' + escapeHtml(p.imageUrl) + '" alt="">' : "") +
         "<span>" +
         escapeHtml(p.title) +
-        "</span></li>";
+        "</span>";
+      if (url) {
+        html +=
+          '<li><a class="sugar-rs-result-list__link" href="' +
+          escapeHtml(url) +
+          '" target="_blank" rel="noopener noreferrer" data-sugar-rs-product-link>' +
+          inner +
+          "</a></li>";
+      } else {
+        html += "<li>" + inner + "</li>";
+      }
     });
     this.resultList.innerHTML = html;
   };
