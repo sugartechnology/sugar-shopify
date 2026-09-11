@@ -30,6 +30,53 @@ export type DecorAiPackedCommand = {
   products: DesignProductOutput[];
 };
 
+export type ShopifyPdpPipelineImage = {
+  contentBase64: string;
+  mimeType: string;
+  name: string;
+};
+
+export type ShopifyPdpPipelineInput = {
+  prompt: string;
+  roomImage: ShopifyPdpPipelineImage | "";
+  roomImageUrl: string;
+  mockupImage: ShopifyPdpPipelineImage | "";
+  mockupImageUrl: string;
+  products: Array<{
+    productId: string;
+    variantId: string;
+    title: string;
+    price: string;
+    currency: string;
+    description: string;
+    imageUrl: string;
+    images: string[];
+    quantity: number;
+    position: { x: number; y: number; scale?: number } | null;
+    productDetails: DesignProductInput["productDetails"];
+  }>;
+  platform: string;
+  filename: string;
+  folder: string;
+  jobId: string;
+  shopDomain: string;
+};
+
+export type ShopifyPdpPackedPipeline = {
+  jobId: string;
+  shopDomain: string;
+  input: ShopifyPdpPipelineInput;
+  products: DesignProductOutput[];
+};
+
+function guessImageMime(name?: string): string {
+  const text = (name || "").toLowerCase();
+  if (text.endsWith(".png")) return "image/png";
+  if (text.endsWith(".webp")) return "image/webp";
+  if (text.endsWith(".gif")) return "image/gif";
+  return "image/jpeg";
+}
+
 function normalizeCdnUrl(url: string | undefined): string {
   if (!url) return "";
   if (url.startsWith("//")) return `https:${url}`;
@@ -68,6 +115,71 @@ async function loadProductImages(product: DesignProductInput): Promise<Buffer[]>
     if (bytes?.length) loaded.push(bytes);
   }
   return loaded;
+}
+
+export function packShopifyPdpPipeline(
+  request: GenerateImageRequest,
+  jobId = crypto.randomUUID(),
+): ShopifyPdpPackedPipeline {
+  const products = request.products || [];
+  const roomImage: ShopifyPdpPipelineImage | "" = request.roomImageBase64
+    ? {
+        contentBase64: request.roomImageBase64,
+        mimeType: guessImageMime(request.roomImageName),
+        name: request.roomImageName || "room.jpg",
+      }
+    : "";
+  const mockupImage: ShopifyPdpPipelineImage | "" = request.mockupImageBytes?.length
+    ? {
+        contentBase64: Buffer.from(request.mockupImageBytes).toString("base64"),
+        mimeType: guessImageMime(request.mockupImageName),
+        name: request.mockupImageName || "mockup.jpg",
+      }
+    : "";
+
+  return {
+    jobId,
+    shopDomain: request.shopDomain,
+    products: toOutputProducts(products),
+    input: {
+      prompt: "",
+      roomImage,
+      roomImageUrl: "",
+      mockupImage,
+      mockupImageUrl: "",
+      products: products.map((product) => ({
+        productId: product.productId || "",
+        variantId: product.variantId || "",
+        title: product.title || "",
+        price: product.price || "",
+        currency: product.currency || "TRY",
+        description: product.description || "",
+        imageUrl: normalizeCdnUrl(product.imageUrl || product.images?.[0]),
+        images: (product.images || [])
+          .map((url) => normalizeCdnUrl(url))
+          .filter(Boolean),
+        quantity:
+          typeof product.quantity === "number" && product.quantity >= 1
+            ? Math.min(99, Math.floor(product.quantity))
+            : 1,
+        position: product.position
+          ? {
+              x: product.position.x,
+              y: product.position.y,
+              ...(typeof product.position.scale === "number"
+                ? { scale: product.position.scale }
+                : {}),
+            }
+          : null,
+        productDetails: product.productDetails || [],
+      })),
+      platform: "GOOGLE",
+      filename: `${jobId}.png`,
+      folder: "ai-command-logs/responses/",
+      jobId,
+      shopDomain: request.shopDomain,
+    },
+  };
 }
 
 export async function packDecorAiCommand(

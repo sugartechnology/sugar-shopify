@@ -6,11 +6,11 @@ import type {
   ShopConfig,
 } from "../types/sugar";
 import { BLANK_DESIGN_IMAGE } from "../types/sugar";
-import { packDecorAiCommand } from "./decor-ai-client.server";
+import { packShopifyPdpPipeline } from "./decor-ai-client.server";
 import {
   getSugarApiBaseUrl,
   isTagserviceConfigured,
-  runTagservicePackedCommand,
+  runTagservicePipeline,
 } from "./tagservice-pdp.server";
 
 export { getSugarApiBaseUrl };
@@ -120,12 +120,12 @@ export async function generateProductImage(
     throw new Error("Shop API key is not configured");
   }
 
-  const packed = await packDecorAiCommand(
+  const packed = packShopifyPdpPipeline(
     {
       ...request,
       products: normalizeProductsForApi(request.products || []),
     },
     `shopify-${crypto.randomUUID()}`,
   );
-  return runTagservicePackedCommand(apiKey, packed);
+  return runTagservicePipeline(apiKey, packed);
 }

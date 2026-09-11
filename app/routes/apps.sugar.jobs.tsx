@@ -4,9 +4,9 @@ import {
   generateFailureResponse,
   prepareGenerateFromRequest,
 } from "../services/prepare-generate.server";
-import { packDecorAiCommand } from "../services/decor-ai-client.server";
+import { packShopifyPdpPipeline } from "../services/decor-ai-client.server";
 import { rememberDecorAiJob } from "../services/decor-ai-job-context.server";
-import { startTagserviceAsyncJob } from "../services/tagservice-pdp.server";
+import { startTagservicePipelineJob } from "../services/tagservice-pdp.server";
 import {
   getShopApiKey,
   isSugarApiMockMode,
@@ -57,11 +57,11 @@ async function startJob(request: Request) {
     );
   }
 
-  const packed = await packDecorAiCommand(
+  const packed = packShopifyPdpPipeline(
     generateRequest,
     `shopify-${crypto.randomUUID()}`,
   );
-  const started = await startTagserviceAsyncJob(apiKey, packed);
+  const started = await startTagservicePipelineJob(apiKey, packed);
   rememberDecorAiJob(started.jobId, prepared.shop, packed.products, undefined, apiKey);
 
   return json(

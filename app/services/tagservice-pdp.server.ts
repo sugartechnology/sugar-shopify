@@ -1,4 +1,8 @@
-import type { DecorAiJobResponse, DecorAiPackedCommand } from "./decor-ai-client.server";
+import type {
+  DecorAiJobResponse,
+  DecorAiPackedCommand,
+  ShopifyPdpPackedPipeline,
+} from "./decor-ai-client.server";
 import { jobToGenerateResponse } from "./decor-ai-client.server";
 import type { GenerateImageResponse } from "../types/sugar";
 
@@ -69,6 +73,28 @@ export async function startTagserviceAsyncJob(
   return { jobId: data.jobId };
 }
 
+export async function startTagservicePipelineJob(
+  apiKey: string,
+  packed: ShopifyPdpPackedPipeline,
+): Promise<{ jobId: string }> {
+  const response = await tagserviceFetch(
+    "/api/shopify/pdp/pipelines/run-async",
+    apiKey,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(packed.input),
+    },
+  );
+  const data = (await response.json().catch(() => ({}))) as DecorAiJobResponse;
+  if (!response.ok || !data.jobId) {
+    throw new Error(
+      data.error || `Tagservice pipeline start failed (${response.status})`,
+    );
+  }
+  return { jobId: data.jobId };
+}
+
 export async function getTagserviceJob(
   apiKey: string,
   jobId: string,
@@ -94,10 +120,26 @@ export async function runTagservicePackedCommand(
   packed: DecorAiPackedCommand,
 ): Promise<GenerateImageResponse> {
   const started = await startTagserviceAsyncJob(apiKey, packed);
+  return pollTagserviceJob(apiKey, started.jobId, packed.products);
+}
+
+export async function runTagservicePipeline(
+  apiKey: string,
+  packed: ShopifyPdpPackedPipeline,
+): Promise<GenerateImageResponse> {
+  const started = await startTagservicePipelineJob(apiKey, packed);
+  return pollTagserviceJob(apiKey, started.jobId, packed.products);
+}
+
+async function pollTagserviceJob(
+  apiKey: string,
+  jobId: string,
+  products: ShopifyPdpPackedPipeline["products"],
+): Promise<GenerateImageResponse> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < SYNC_MAX_MS) {
-    const job = await getTagserviceJob(apiKey, started.jobId);
-    const result = jobToGenerateResponse(job, packed.products);
+    const job = await getTagserviceJob(apiKey, jobId);
+    const result = jobToGenerateResponse(job, products);
     if (result.status === "completed" || result.status === "failed") {
       if (result.status === "failed") {
         throw new Error(result.message || "Tagservice generate failed");

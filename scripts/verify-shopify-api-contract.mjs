@@ -7,10 +7,13 @@ const endpoints = {
   register: "/api/shopify/credentials/register",
   generate: "/api/shopify/pdp/generate",
   pdpAsync: "/api/shopify/pdp/commands/with-files-async",
+  pdpPipelineAsync: "/api/shopify/pdp/pipelines/run-async",
   pdpJob: "/api/shopify/pdp/jobs/{id}",
   decorAi: "/api/ai/commands/with-files",
   decorAiAsync: "/api/ai/commands/with-files-async",
   decorAiJob: "/api/ai/commands/jobs/{id}",
+  decorAiPipelineAsync: "/api/ai/pipelines/shopify-pdp/run-async",
+  decorAiPipelineJob: "/api/ai/pipelines/jobs/{id}",
 };
 
 const requiredEnv = [

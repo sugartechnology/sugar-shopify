@@ -397,6 +397,9 @@
     this.selectedIds = [];
     this.gridPageSize = 12;
     this.gridRenderLimit = 12;
+    this.collectionPrefetchPages = 2;
+    this.collectionPages = {};
+    this.collectionHandleSet = {};
     this.roomFile = null;
     this.roomPreviewUrl = "";
     this.roomNaturalSize = null;
@@ -1025,11 +1028,20 @@
     };
   };
 
-  SugarRoomStudio.prototype.fetchCollectionPage = async function (handle, page) {
+  SugarRoomStudio.prototype.fetchCollectionPage = async function (
+    handle,
+    page,
+    limit,
+  ) {
+    var pageSize = Number(limit);
+    if (!pageSize || pageSize < 1) pageSize = 250;
+    if (pageSize > 250) pageSize = 250;
     var url =
       "/collections/" +
       encodeURIComponent(handle) +
-      "/products.json?limit=250&page=" +
+      "/products.json?limit=" +
+      pageSize +
+      "&page=" +
       page;
     var res = await fetch(url, { credentials: "same-origin" });
     if (!res.ok) return [];
@@ -1041,13 +1053,250 @@
     var all = [];
     var page = 1;
     while (page <= 40) {
-      var batch = await this.fetchCollectionPage(handle, page);
+      var batch = await this.fetchCollectionPage(handle, page, 250);
       if (!batch.length) break;
       all = all.concat(batch);
       if (batch.length < 250) break;
       page += 1;
     }
     return all;
+  };
+
+  SugarRoomStudio.prototype.registerCollectionHandle = function (handle) {
+    var key = String(handle || "").trim();
+    if (!key || key.indexOf("type-") === 0) return;
+    this.collectionHandleSet[key] = true;
+  };
+
+  SugarRoomStudio.prototype.isCollectionHandle = function (handle) {
+    return !!(handle && this.collectionHandleSet[handle]);
+  };
+
+  SugarRoomStudio.prototype.getActiveCollectionHandle = function () {
+    var sub = this.getActiveSubcategory();
+    if (sub && sub.id) return String(sub.id);
+    var cat = this.getActiveCategory();
+    return cat && cat.id ? String(cat.id) : "";
+  };
+
+  SugarRoomStudio.prototype.getCollectionPager = function (handle) {
+    if (!this.collectionPages[handle]) {
+      this.collectionPages[handle] = {
+        nextPage: 1,
+        done: false,
+        loading: false,
+      };
+    }
+    return this.collectionPages[handle];
+  };
+
+  SugarRoomStudio.prototype.initCollectionPager = function (handle, seededCount) {
+    var pager = this.getCollectionPager(handle);
+    var size = this.gridPageSize || 12;
+    var seeded = Math.max(0, Number(seededCount) || 0);
+    if (pager.nextPage === 1 && seeded > 0) {
+      pager.nextPage = Math.floor(seeded / size) + 1;
+    }
+  };
+
+  SugarRoomStudio.prototype.collectionProductCount = function (handle) {
+    if (handle === "all") return (this.catalog.products || []).length;
+    var cats = this.catalog.categories || [];
+    for (var i = 0; i < cats.length; i++) {
+      if (cats[i] && cats[i].id === handle) {
+        return (cats[i].productIds || []).length;
+      }
+      var children = (cats[i] && cats[i].children) || [];
+      for (var j = 0; j < children.length; j++) {
+        if (children[j] && children[j].id === handle) {
+          return (children[j].productIds || []).length;
+        }
+      }
+    }
+    return 0;
+  };
+
+  SugarRoomStudio.prototype.syncCollectionPagers = function () {
+    var self = this;
+    Object.keys(this.collectionHandleSet || {}).forEach(function (handle) {
+      self.initCollectionPager(handle, self.collectionProductCount(handle));
+    });
+  };
+
+  SugarRoomStudio.prototype.getCollectionFetchPages = function () {
+    var pages = Number(this.collectionPrefetchPages);
+    return pages >= 1 ? pages : 2;
+  };
+
+  SugarRoomStudio.prototype.getCollectionBufferSize = function () {
+    return (this.gridPageSize || 12) * this.getCollectionFetchPages();
+  };
+
+  SugarRoomStudio.prototype.canFetchMoreForActiveCollection = function () {
+    var handle = this.getActiveCollectionHandle();
+    if (!this.isCollectionHandle(handle)) return false;
+    var pager = this.getCollectionPager(handle);
+    return !pager.done && !pager.loading;
+  };
+
+  SugarRoomStudio.prototype.fetchNextCollectionPage = async function (handle) {
+    if (!this.isCollectionHandle(handle)) return false;
+    var pager = this.getCollectionPager(handle);
+    if (pager.done || pager.loading) return false;
+    var pageSize = this.gridPageSize || 12;
+    var pagesToFetch = this.getCollectionFetchPages();
+    var stuck = this.gridRenderLimit >= this.getVisibleProducts().length;
+    pager.loading = true;
+    if (stuck && this.grid) this.grid.setAttribute("aria-busy", "true");
+    try {
+      var self = this;
+      var mapped = [];
+      for (var i = 0; i < pagesToFetch; i++) {
+        var batch = await this.fetchCollectionPage(
+          handle,
+          pager.nextPage,
+          pageSize,
+        );
+        pager.nextPage += 1;
+        if (!batch.length || batch.length < pageSize) pager.done = true;
+        batch.forEach(function (raw) {
+          var product = self.mapAjaxProduct(raw);
+          if (product) mapped.push(product);
+        });
+        if (pager.done) break;
+      }
+      if (mapped.length) {
+        this.mergeProductsIntoCatalog(mapped, handle);
+        this.catalog = this.normalizeCatalog({
+          products: this.catalog.products,
+          categories: this.catalog.sourceCategories || this.catalog.categories,
+        });
+        if (stuck) {
+          this.gridRenderLimit = Math.min(
+            this.getVisibleProducts().length,
+            this.gridRenderLimit + pageSize,
+          );
+        }
+      }
+      this.renderCategories();
+      this.renderGrid({ preserveScroll: true });
+      return mapped.length > 0;
+    } catch (err) {
+      console.warn("[Sugar Curator] collection page failed", err);
+      pager.done = true;
+      return false;
+    } finally {
+      pager.loading = false;
+      if (this.grid) this.grid.removeAttribute("aria-busy");
+    }
+  };
+
+  SugarRoomStudio.prototype.prefetchActiveCollectionIfNeeded = function () {
+    var handle = this.getActiveCollectionHandle();
+    if (!this.isCollectionHandle(handle)) return;
+    var unseen = this.getVisibleProducts().length - this.gridRenderLimit;
+    if (unseen >= this.getCollectionBufferSize()) return;
+    if (!this.canFetchMoreForActiveCollection()) return;
+    this.fetchNextCollectionPage(handle);
+  };
+
+  SugarRoomStudio.prototype.ensureActiveCollectionPage = async function () {
+    var handle = this.getActiveCollectionHandle();
+    if (!this.isCollectionHandle(handle)) return;
+    if (this.getVisibleProducts().length >= this.getCollectionBufferSize()) {
+      return;
+    }
+    await this.fetchNextCollectionPage(handle);
+  };
+
+  SugarRoomStudio.prototype.applyCatalogGroupsTree = function (groups) {
+    var self = this;
+    this.collectionHandleSet = {};
+    if (this.config.useAllProducts === true) {
+      this.registerCollectionHandle("all");
+    }
+    (Array.isArray(this.config.catalogHandles)
+      ? this.config.catalogHandles
+      : []
+    ).forEach(function (h) {
+      self.registerCollectionHandle(h);
+    });
+    (this.catalog.categories || []).forEach(function (c) {
+      if (c && c.id && c.id !== "all") self.registerCollectionHandle(c.id);
+    });
+
+    if (!Array.isArray(groups) || !groups.length) return;
+
+    var existing = {};
+    (this.catalog.sourceCategories || this.catalog.categories || []).forEach(
+      function (c) {
+        if (c && c.id) existing[c.id] = c;
+      },
+    );
+
+    var categories = (
+      this.catalog.sourceCategories ||
+      this.catalog.categories ||
+      []
+    ).map(function (c) {
+      if (!c || c.id === "all") return c;
+      var group = null;
+      for (var i = 0; i < groups.length; i++) {
+        if (groups[i] && groups[i].handle === c.id) {
+          group = groups[i];
+          break;
+        }
+      }
+      if (!group) return c;
+      self.registerCollectionHandle(c.id);
+      var children = (group.children || [])
+        .map(function (child) {
+          if (!child || !child.handle) return null;
+          self.registerCollectionHandle(child.handle);
+          return {
+            id: String(child.handle),
+            title: child.title || child.handle,
+            productIds: [],
+            count: 0,
+          };
+        })
+        .filter(Boolean);
+      return {
+        id: c.id,
+        title: group.title || c.title,
+        productIds: c.productIds || [],
+        count: c.count,
+        children: children.length ? children : c.children || [],
+      };
+    });
+
+    groups.forEach(function (group) {
+      if (!group || !group.handle || existing[group.handle]) return;
+      self.registerCollectionHandle(group.handle);
+      categories.push({
+        id: String(group.handle),
+        title: group.title || group.handle,
+        productIds: [],
+        count: 0,
+        children: (group.children || [])
+          .map(function (child) {
+            if (!child || !child.handle) return null;
+            self.registerCollectionHandle(child.handle);
+            return {
+              id: String(child.handle),
+              title: child.title || child.handle,
+              productIds: [],
+              count: 0,
+            };
+          })
+          .filter(Boolean),
+      });
+    });
+
+    this.catalog = this.normalizeCatalog({
+      products: this.catalog.products,
+      categories: categories,
+    });
   };
 
   SugarRoomStudio.prototype.mergeProductsIntoCatalog = function (products, categoryId) {
@@ -1084,7 +1333,10 @@
       return byId[id];
     });
 
-    categories = categories.map(function (c) {
+    function mergeCategoryNode(c) {
+      var children = Array.isArray(c.children)
+        ? c.children.map(mergeCategoryNode)
+        : [];
       if (c.id === "all") {
         return {
           id: "all",
@@ -1093,24 +1345,17 @@
             return p.productId;
           }),
           count: productList.length,
-          children: c.children || [],
+          children: children,
         };
       }
       if (categoryId && c.id === categoryId) {
-        var ids = productList
-          .filter(function (p) {
-            return p.categoryIds.indexOf(categoryId) !== -1;
-          })
-          .map(function (p) {
-            return p.productId;
-          });
-        // Prefer ids from fetched products for this handle
+        var ids = (c.productIds || []).slice();
         var fromFetch = products.map(function (p) {
-          return p.productId;
+          return p && p.productId;
         });
         var merged = {};
         ids.concat(fromFetch).forEach(function (id) {
-          if (byId[id]) merged[id] = true;
+          if (id && byId[id]) merged[id] = true;
         });
         var finalIds = Object.keys(merged);
         return {
@@ -1118,11 +1363,19 @@
           title: c.title,
           productIds: finalIds,
           count: finalIds.length,
-          children: c.children || [],
+          children: children,
         };
       }
-      return c;
-    });
+      return {
+        id: c.id,
+        title: c.title,
+        productIds: c.productIds || [],
+        count: (c.productIds || []).length,
+        children: children,
+      };
+    }
+
+    categories = categories.map(mergeCategoryNode);
 
     this.catalog = {
       products: productList,
@@ -1176,184 +1429,17 @@
   };
 
   SugarRoomStudio.prototype.hydrateCatalog = async function () {
-    var self = this;
     if (this.grid) {
       this.grid.setAttribute("aria-busy", "true");
     }
 
     try {
       var groups = await this.fetchCatalogGroups();
-      var handles = [];
-      var categories = [];
-
-      if (this.config.useAllProducts === true) {
-        handles.push("all");
-      }
-
-      if (Array.isArray(groups) && groups.length) {
-        groups.forEach(function (group) {
-          if (!group || !group.handle) return;
-          var children = Array.isArray(group.children) ? group.children : [];
-          // Always hydrate parent: may include direct products + sub-collection union
-          if (handles.indexOf(group.handle) === -1) {
-            handles.push(String(group.handle));
-          }
-          children.forEach(function (child) {
-            if (child && child.handle && handles.indexOf(child.handle) === -1) {
-              handles.push(String(child.handle));
-            }
-          });
-        });
-      } else {
-        // Fallback: theme catalogHandles (parent list / all)
-        handles = Array.isArray(this.config.catalogHandles)
-          ? this.config.catalogHandles.filter(Boolean).map(String)
-          : [];
-      }
-
-      if (!handles.length) return;
-
-      var productsByHandle = {};
-      for (var i = 0; i < handles.length; i++) {
-        var handle = String(handles[i]);
-        var rawProducts = await this.fetchAllCollectionProducts(handle);
-        productsByHandle[handle] = rawProducts
-          .map(function (raw) {
-            return self.mapAjaxProduct(raw);
-          })
-          .filter(Boolean);
-      }
-
-      var byId = {};
-      function upsert(list, catIds) {
-        (list || []).forEach(function (p) {
-          if (!p || !p.productId) return;
-          var existing = byId[p.productId];
-          if (existing) {
-            (catIds || []).forEach(function (cid) {
-              if (existing.categoryIds.indexOf(cid) === -1) {
-                existing.categoryIds.push(cid);
-              }
-            });
-            return;
-          }
-          p.categoryIds = (catIds || []).slice();
-          byId[p.productId] = p;
-        });
-      }
-
-      if (productsByHandle.all) {
-        upsert(productsByHandle.all, ["all"]);
-        categories.push({
-          id: "all",
-          title: this.t("allProducts", "All Products"),
-          productIds: [],
-          count: 0,
-          children: [],
-        });
-      }
-
-      if (Array.isArray(groups) && groups.length) {
-        groups.forEach(function (group) {
-          if (!group || !group.handle) return;
-          var groupId = String(group.handle);
-          var children = Array.isArray(group.children) ? group.children : [];
-          var childCats = [];
-          var union = {};
-
-          // Parent membership = direct products + sub-collection products (Shopify union)
-          var parentList = productsByHandle[groupId] || [];
-          parentList.forEach(function (p) {
-            if (p && p.productId) union[p.productId] = true;
-          });
-          upsert(parentList, [groupId]);
-
-          children.forEach(function (child) {
-            if (!child || !child.handle) return;
-            var childId = String(child.handle);
-            var list = productsByHandle[childId] || [];
-            var ids = list.map(function (p) {
-              return p.productId;
-            });
-            ids.forEach(function (id) {
-              union[id] = true;
-            });
-            upsert(list, [groupId, childId]);
-            childCats.push({
-              id: childId,
-              title: child.title || childId,
-              productIds: ids,
-              count: ids.length,
-            });
-          });
-
-          var groupIds = Object.keys(union);
-          categories.push({
-            id: groupId,
-            title: group.title || groupId,
-            productIds: groupIds,
-            count: groupIds.length,
-            children: childCats,
-          });
-        });
-      } else {
-        // Legacy flat handles → merge then normalize (product-type children)
-        Object.keys(productsByHandle).forEach(function (h) {
-          if (h === "all") return;
-          self.mergeProductsIntoCatalog(productsByHandle[h], h);
-        });
-        if (productsByHandle.all) {
-          self.mergeProductsIntoCatalog(productsByHandle.all, "all");
-        }
-        self.catalog = self.normalizeCatalog({
-          products: self.catalog.products,
-          categories: self.catalog.sourceCategories || self.catalog.categories,
-        });
-        if (self.activeSubcategoryId && !self.getActiveSubcategory()) {
-          self.activeSubcategoryId = null;
-        }
-        if (self.activeCategoryId && !self.getActiveCategory()) {
-          self.activeCategoryId = self.getDefaultCategoryId();
-          self.activeSubcategoryId = null;
-        }
-        self.expandAllCategoriesWithChildren();
-        self.renderCategories();
-        self.renderGrid();
-        self.renderSlots();
-        self.renderSelectedCount();
-        self.updateContinueState();
-        self.updateGenerateState();
-        return;
-      }
-
-      if (categories[0] && categories[0].id === "all") {
-        categories[0].productIds = Object.keys(byId);
-        categories[0].count = categories[0].productIds.length;
-      }
-
-      var productList = Object.keys(byId).map(function (id) {
-        return byId[id];
-      });
-
-      this.catalog = this.normalizeCatalog({
-        products: productList,
-        categories: categories,
-      });
-
-      if (this.activeSubcategoryId && !this.getActiveSubcategory()) {
-        this.activeSubcategoryId = null;
-      }
-      if (this.activeCategoryId && !this.getActiveCategory()) {
-        this.activeCategoryId = this.getDefaultCategoryId();
-        this.activeSubcategoryId = null;
-      }
-      this.expandAllCategoriesWithChildren();
+      this.applyCatalogGroupsTree(groups);
+      this.syncCollectionPagers();
       this.renderCategories();
       this.renderGrid();
-      this.renderSlots();
-      this.renderSelectedCount();
-      this.updateContinueState();
-      this.updateGenerateState();
+      await this.ensureActiveCollectionPage();
     } catch (err) {
       console.warn("[Sugar Curator] catalog hydrate failed", err);
     } finally {
@@ -2567,6 +2653,7 @@
     if (this.isMobileStudioLayout()) {
       this.setCategorySelectOpen(false);
     }
+    this.ensureActiveCollectionPage();
   };
 
   SugarRoomStudio.prototype.onParentCategoryClick = function (categoryId) {
@@ -2584,6 +2671,7 @@
       this.renderCategories();
       this.renderGrid();
       this.updateCategorySelectLabel();
+      this.ensureActiveCollectionPage();
       return;
     }
     this.selectCategory(id, null);
@@ -2596,18 +2684,20 @@
   SugarRoomStudio.prototype.maybeLoadMoreProducts = function () {
     if (!this.grid) return;
     var total = this.getVisibleProducts().length;
-    if (this.gridRenderLimit >= total) return;
-
     var remaining =
       this.grid.scrollHeight - this.grid.scrollTop - this.grid.clientHeight;
     var needsFill = this.grid.scrollHeight <= this.grid.clientHeight + 8;
-    if (!needsFill && remaining > 140) return;
+    var nearEnd = needsFill || remaining <= 140;
 
-    this.gridRenderLimit = Math.min(
-      total,
-      this.gridRenderLimit + this.gridPageSize,
-    );
-    this.renderGrid({ preserveScroll: true });
+    if (nearEnd && this.gridRenderLimit < total) {
+      this.gridRenderLimit = Math.min(
+        total,
+        this.gridRenderLimit + this.gridPageSize,
+      );
+      this.renderGrid({ preserveScroll: true });
+    }
+
+    this.prefetchActiveCollectionIfNeeded();
   };
 
   SugarRoomStudio.prototype.bindGridInfiniteScroll = function () {
@@ -2714,9 +2804,6 @@
         '<span class="sugar-rs-cat-item__label">' +
         escapeHtml(cat.title) +
         "</span>" +
-        '<span class="sugar-rs-cat-item__count">' +
-        escapeHtml(String(cat.count)) +
-        "</span>" +
         (hasChildren
           ? '<span class="sugar-rs-cat-item__chevron" aria-hidden="true">' +
             '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>' +
@@ -2753,9 +2840,6 @@
             "</span>" +
             '<span class="sugar-rs-cat-item__label">' +
             escapeHtml(child.title) +
-            "</span>" +
-            '<span class="sugar-rs-cat-item__count">' +
-            escapeHtml(String(child.count)) +
             "</span>" +
             "</button></li>";
         });
@@ -2915,7 +2999,7 @@
       html += self.buildProductCardHtml(p, atLimit);
     });
 
-    if (visible.length < products.length) {
+    if (visible.length < products.length || this.canFetchMoreForActiveCollection()) {
       html +=
         '<div class="sugar-rs-grid__sentinel" data-sugar-rs-grid-sentinel>' +
         escapeHtml(
