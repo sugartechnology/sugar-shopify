@@ -1,8 +1,3 @@
-{% comment %}
-  Shared Sugar PDP markup. Render with:
-  {% render 'sugar-pdp-root', settings: section.settings, sugar_attributes: section.shopify_attributes %}
-{% endcomment %}
-
 {{ 'sugar-pdp.css' | asset_url | stylesheet_tag }}
 <script src="{{ 'sugar-i18n.js' | asset_url }}" defer></script>
 <script src="{{ 'sugar-image-utils.js' | asset_url }}" defer></script>
@@ -165,20 +160,12 @@
 -%}
 
 {%- capture sugar_css_vars -%}
-{%- if theme_preset == 'dawn' -%}
+{%- if theme_preset == 'dawn' or theme_preset == 'normod' -%}
 --sugar-modal-bg: rgb(var(--color-background, 255 255 255));
 --sugar-text: rgb(var(--color-foreground, 18 18 18));
 --sugar-muted: rgba(var(--color-foreground, 18 18 18), 0.65);
 --sugar-border: rgba(var(--color-foreground, 18 18 18), 0.12);
---sugar-modal-radius: var(--buttons-radius, var(--button-border-radius, 16px));
---sugar-btn-bg: rgb(var(--color-background, 255 255 255));
---sugar-btn-color: rgb(var(--color-foreground, 18 18 18));
-{%- elsif theme_preset == 'normod' -%}
---sugar-modal-bg: rgb(var(--color-background, 255 255 255));
---sugar-text: rgb(var(--color-foreground, 18 18 18));
---sugar-muted: rgba(var(--color-foreground, 18 18 18), 0.65);
---sugar-border: rgba(var(--color-foreground, 18 18 18), 0.12);
---sugar-modal-radius: var(--buttons-radius, 16px);
+--sugar-modal-radius: {% if theme_preset == 'dawn' %}var(--buttons-radius, var(--button-border-radius, 16px)){% else %}var(--buttons-radius, 16px){% endif %};
 --sugar-btn-bg: rgb(var(--color-background, 255 255 255));
 --sugar-btn-color: rgb(var(--color-foreground, 18 18 18));
 {%- else -%}
@@ -376,7 +363,7 @@
           src="{{ trigger_banner_url }}"
           alt="{{ button_label | escape }}"
           width="{{ trigger_banner_width }}"
-          {% if trigger_banner_height != blank %}height="{{ trigger_banner_height }}"{% endif %}
+          height="{{ trigger_banner_height | default: 400 }}"
           loading="lazy"
         >
       </button>

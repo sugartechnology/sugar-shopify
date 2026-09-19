@@ -1,0 +1,100 @@
+{{ 'shop-assistant.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'shop-assistant-i18n.js' | asset_url }}" defer></script>
+<script src="{{ 'shop-assistant-util.js' | asset_url }}" defer></script>
+<script src="{{ 'shop-assistant-el-empty.js' | asset_url }}" defer></script>
+<script src="{{ 'shop-assistant-el-thinking.js' | asset_url }}" defer></script>
+<script src="{{ 'shop-assistant-el-message.js' | asset_url }}" defer></script>
+<script src="{{ 'shop-assistant-el-products.js' | asset_url }}" defer></script>
+<script src="{{ 'shop-assistant-el-ask.js' | asset_url }}" defer></script>
+<script src="{{ 'shop-assistant-workspace.js' | asset_url }}" defer></script>
+<script src="{{ 'shop-assistant-el-cart.js' | asset_url }}" defer></script>
+<script src="{{ 'shop-assistant.js' | asset_url }}" defer></script>
+
+{%- liquid
+  assign display_mode = settings.display_mode | default: 'modal'
+  if display_mode != 'embedded'
+    assign display_mode = 'modal'
+  endif
+  assign shop_locale = request.locale.iso_code | default: 'tr'
+  assign shop_currency = cart.currency.iso_code | default: shop.currency
+  assign mf = shop.metafields.sugar_shopify
+  assign button_label = settings.button_label | default: 'Alışveriş asistanı'
+  assign modal_title = settings.modal_title | default: 'Alışveriş asistanı'
+  assign modal_subtitle = settings.modal_subtitle | default: 'İhtiyacını söyle, bütçene göre sepet önerelim.'
+  assign add_cart_label = settings.add_cart_label | default: 'Sepete ekle'
+  assign button_helper = settings.button_helper
+  assign modal_bg_color = settings.modal_bg_color | default: '#f6f3ee'
+  assign modal_text_color = settings.modal_text_color | default: '#1c1916'
+  assign accent_color = settings.accent_color | default: '#c4a574'
+  assign modal_radius = settings.modal_radius | default: 16
+  assign assistant_enabled = mf.shopAssistantEnabled | default: 'true'
+-%}
+
+<div
+  class="sugar-sa-root sugar-sa-root--{{ display_mode }}"
+  data-sugar-sa-root
+  data-display-mode="{{ display_mode }}"
+  style="--sugar-sa-accent: {{ accent_color }}; --sugar-sa-text: {{ modal_text_color }}; --sugar-sa-bg: {{ modal_bg_color }}; --sugar-sa-radius: {{ modal_radius }}px;"
+  {{ sugar_attributes }}
+  data-sugar-sa-config='{"sessionUrl":"/apps/sugar/shop/session","displayMode":{{ display_mode | json }},"enabled":{% if assistant_enabled == 'false' %}false{% else %}true{% endif %},"locale":{{ shop_locale | json }},"currency":{{ shop_currency | json }},"addCartLabel":{{ add_cart_label | json }}}'
+>
+  {%- if display_mode == 'modal' -%}
+    <div class="sugar-sa-trigger-wrap">
+      <button type="button" class="sugar-sa-trigger-btn" data-sugar-sa-open>
+        <span class="sugar-sa-trigger-btn__icon" aria-hidden="true">✦</span>
+        <span>{{ button_label }}</span>
+      </button>
+      {%- if button_helper != blank -%}
+        <p class="sugar-sa-trigger-helper">{{ button_helper }}</p>
+      {%- endif -%}
+    </div>
+    <dialog class="sugar-sa-dialog" data-sugar-sa-dialog>
+  {%- endif -%}
+
+  <section class="sugar-sa-panel" {% if display_mode == 'modal' %}role="document"{% else %}role="region"{% endif %} aria-labelledby="sugar-sa-title">
+    <div class="sugar-sa-shell" data-sugar-sa-shell>
+      <div class="sugar-sa-chat">
+        <header class="sugar-sa-header">
+          <div>
+            <h2 id="sugar-sa-title" class="sugar-sa-title">{{ modal_title }}</h2>
+            <p class="sugar-sa-subtitle">{{ modal_subtitle }}</p>
+          </div>
+          <div class="sugar-sa-header__actions">
+            <button type="button" class="sugar-sa-text-btn" data-sugar-sa-reset>Yeni sohbet</button>
+            {%- if display_mode == 'modal' -%}
+              <button type="button" class="sugar-sa-icon-btn" data-sugar-sa-close aria-label="Kapat">×</button>
+            {%- endif -%}
+          </div>
+        </header>
+        <div class="sugar-sa-thread" data-sugar-sa-thread role="log" aria-live="polite"></div>
+        <form class="sugar-sa-composer" data-sugar-sa-form>
+          <button
+            type="button"
+            class="sugar-sa-composer__resize"
+            data-sugar-sa-composer-resize
+            aria-controls="sugar-sa-input"
+          >
+            <span class="sugar-sa-composer__resize-grip" aria-hidden="true"></span>
+          </button>
+          <div class="sugar-sa-composer__row">
+            <label class="visually-hidden" for="sugar-sa-input">Mesajın</label>
+            <textarea id="sugar-sa-input" class="sugar-sa-input" data-sugar-sa-input rows="2" placeholder="Örn. 25.000 TL bütçem var, salona koltuk arıyorum"></textarea>
+            <button type="submit" class="sugar-sa-primary sugar-sa-send" data-sugar-sa-send>Gönder</button>
+          </div>
+        </form>
+      </div>
+      <aside class="sugar-sa-workspace" data-sugar-sa-workspace hidden>
+        <div class="sugar-sa-workspace__handle" aria-hidden="true"></div>
+        <header class="sugar-sa-workspace__header">
+          <h3 class="sugar-sa-workspace__title" data-sugar-sa-workspace-title></h3>
+          <button type="button" class="sugar-sa-icon-btn" data-sugar-sa-workspace-close aria-label="Kapat">×</button>
+        </header>
+        <div class="sugar-sa-workspace__body" data-sugar-sa-workspace-body></div>
+      </aside>
+    </div>
+  </section>
+
+  {%- if display_mode == 'modal' -%}
+    </dialog>
+  {%- endif -%}
+</div>

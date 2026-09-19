@@ -51,6 +51,11 @@ export interface ShopConfig {
   overlayColor: string;
   modalRadius: number;
   fontScale: number;
+  shopAssistantEnabled: boolean;
+  shopAssistantCollectionIds: string;
+  shopAssistantInStockOnly: boolean;
+  shopAssistantMinPrice: string;
+  shopAssistantMaxPrice: string;
 }
 
 export const DEFAULT_SHOP_CONFIG: ShopConfig = {
@@ -90,6 +95,11 @@ export const DEFAULT_SHOP_CONFIG: ShopConfig = {
   overlayColor: DEFAULT_SUGAR_THEME.overlayColor,
   modalRadius: DEFAULT_SUGAR_THEME.modalRadius,
   fontScale: DEFAULT_SUGAR_THEME.fontScale,
+  shopAssistantEnabled: true,
+  shopAssistantCollectionIds: "",
+  shopAssistantInStockOnly: true,
+  shopAssistantMinPrice: "",
+  shopAssistantMaxPrice: "",
 };
 
 export const THEME_PRESET_CLASSES: Record<

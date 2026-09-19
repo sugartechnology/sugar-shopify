@@ -1,0 +1,20 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "c2e3a7ad5d1890075e581e3427a06cd9"
+application_url = "https://example.com"
+embedded = true
+name = "Sugar Connect"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_products,write_products"
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
+
+[webhooks]
+api_version = "2026-10"
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true

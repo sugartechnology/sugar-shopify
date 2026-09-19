@@ -1,0 +1,36 @@
+{% render 'shop-assistant-root',
+  settings: block.settings,
+  sugar_attributes: block.shopify_attributes
+%}
+
+{% schema %}
+{
+  "name": "Sugar Shop Assistant",
+  "target": "body",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "App embeds. Buton body sonuna düşer. Sayfada konum için Add block → Sugar Shop Assistant kullan."
+    },
+    {
+      "type": "select",
+      "id": "display_mode",
+      "label": "Görünüm",
+      "options": [
+        {"value": "modal", "label": "Modal (popup)"},
+        {"value": "embedded", "label": "Gömülü (sayfa içi)"}
+      ],
+      "default": "modal"
+    },
+    {"type": "text", "id": "button_label", "label": "Buton metni", "default": "Alışveriş asistanı"},
+    {"type": "text", "id": "button_helper", "label": "Buton alt metni"},
+    {"type": "text", "id": "modal_title", "label": "Başlık", "default": "Alışveriş asistanı"},
+    {"type": "text", "id": "modal_subtitle", "label": "Alt başlık", "default": "İhtiyacını söyle, bütçene göre sepet önerelim."},
+    {"type": "text", "id": "add_cart_label", "label": "Sepete ekle butonu", "default": "Sepete ekle"},
+    {"type": "color", "id": "modal_bg_color", "label": "Arka plan", "default": "#f6f3ee"},
+    {"type": "color", "id": "modal_text_color", "label": "Metin rengi", "default": "#1c1916"},
+    {"type": "color", "id": "accent_color", "label": "Vurgu rengi", "default": "#c4a574"},
+    {"type": "range", "id": "modal_radius", "label": "Köşe radius (px)", "min": 0, "max": 32, "step": 1, "default": 16}
+  ]
+}
+{% endschema %}

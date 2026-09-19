@@ -25,6 +25,7 @@ export default function AppLayout() {
           Ana Sayfa
         </Link>
         <Link to="/srs/settings">Ayarlar</Link>
+        <Link to="/srs/shop-assistant">Shop Assistant</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

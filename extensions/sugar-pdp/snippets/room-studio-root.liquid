@@ -1,8 +1,3 @@
-{% comment %}
-  Shared Sugar Curator markup.
-  {% render 'room-studio-root', settings: block.settings, sugar_attributes: block.shopify_attributes %}
-{% endcomment %}
-
 {{ 'room-studio.css' | asset_url | stylesheet_tag }}
 <script src="{{ 'sugar-rs-i18n.js' | asset_url }}" defer></script>
 <script src="{{ 'sugar-image-utils.js' | asset_url }}" defer></script>
@@ -347,7 +342,7 @@
             src="{{ trigger_banner_url }}"
             alt="{{ button_label | escape }}"
             width="{{ trigger_banner_width }}"
-            {% if trigger_banner_height != blank %}height="{{ trigger_banner_height }}"{% endif %}
+            height="{{ trigger_banner_height | default: 400 }}"
             loading="lazy"
           >
         </button>

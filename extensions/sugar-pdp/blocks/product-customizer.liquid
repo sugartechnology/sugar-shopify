@@ -1,4 +1,3 @@
-{% comment %} Sugar PDP — app block (Add block, @app destekleyen section'larda) {% endcomment %}
 {% render 'sugar-pdp-root', settings: block.settings, sugar_attributes: block.shopify_attributes %}
 
 {% schema %}
@@ -7,247 +6,64 @@
   "target": "section",
   "templates": ["product"],
   "settings": [
-    {
-      "type": "text",
-      "id": "button_label",
-      "label": "Buton metni"
-    },
-    {
-      "type": "text",
-      "id": "button_helper",
-      "label": "Buton alt metni"
-    },
-    {
-      "type": "image_picker",
-      "id": "trigger_banner_image",
-      "label": "Banner görseli",
-      "info": "Doluysa buton yerine tıklanabilir banner gösterilir. Tıklanınca deneyim açılır."
-    },
-    {
-      "type": "text",
-      "id": "trigger_banner_image_url",
-      "label": "Banner görseli URL",
-      "info": "Harici CDN URL. Image picker doluysa picker önceliklidir."
-    },
-    {
-      "type": "text",
-      "id": "modal_title",
-      "label": "Popup başlık"
-    },
-    {
-      "type": "text",
-      "id": "modal_subtitle",
-      "label": "Popup alt başlık"
-    },
-    {
-      "type": "textarea",
-      "id": "modal_description",
-      "label": "Upload açıklama ({productTitle} kullanılabilir)"
-    },
-    {
-      "type": "textarea",
-      "id": "instruction",
-      "label": "Ürün seçim açıklama"
-    },
-    {
-      "type": "text",
-      "id": "add_cart_label",
-      "label": "Sepete ekle butonu"
-    },
-    {
-      "type": "collection",
-      "id": "collection",
-      "label": "Ek ürün collection",
-      "info": "İlişkili ürün metafield'ı yoksa kullanılır."
-    },
-    {
-      "type": "text",
-      "id": "related_products_namespace",
-      "label": "İlişkili ürün metafield namespace",
-      "default": "custom",
-      "info": "Örn: custom.related_products (list.product_reference)"
-    },
-    {
-      "type": "text",
-      "id": "related_products_key",
-      "label": "İlişkili ürün metafield key",
-      "default": "related_products"
-    },
-    {
-      "type": "textarea",
-      "id": "product_detail_metafields",
-      "label": "AI prompt ürün detay metafield'ları (JSON)",
-      "default": "[{\"namespace\":\"custom\",\"key\":\"material\",\"label\":\"Malzeme\"},{\"namespace\":\"custom\",\"key\":\"dimensions\",\"label\":\"Ölçü\"},{\"namespace\":\"custom\",\"key\":\"color\",\"label\":\"Renk\"}]",
-      "info": "Önce bu sabit key'ler denenir. Üründe yoksa aynı namespace içinde ipucu taraması yapılır (renk, ölçü, malzeme vb.). Boş dizi [] = sadece otomatik tarama."
-    },
-    {
-      "type": "text",
-      "id": "product_detail_metafield_namespace",
-      "label": "Ürün detay metafield namespace (ipucu taraması)",
-      "default": "custom",
-      "info": "Otomatik metafield araması bu namespace altında yapılır. Örn: custom"
-    },
-    {
-      "type": "range",
-      "id": "max_design_attempts",
-      "label": "Maksimum AI tasarım denemesi",
-      "min": 1,
-      "max": 10,
-      "step": 1,
-      "default": 3,
-      "info": "Deneme limiti şu an kapalıdır; ziyaretçiler sınırsız tasarım üretebilir."
-    },
-    {
-      "type": "checkbox",
-      "id": "skip_product_selection",
-      "label": "Ürün seçim adımını atla",
-      "info": "Açıksa veya ek ürün collection yoksa, fotoğraf yüklendikten sonra doğrudan AI üretimi başlar.",
-      "default": false
-    },
+    {"type": "text", "id": "button_label", "label": "Buton metni"},
+    {"type": "text", "id": "button_helper", "label": "Buton alt metni"},
+    {"type": "image_picker", "id": "trigger_banner_image", "label": "Banner görseli"},
+    {"type": "text", "id": "trigger_banner_image_url", "label": "Banner görseli URL"},
+    {"type": "text", "id": "modal_title", "label": "Popup başlık"},
+    {"type": "text", "id": "modal_subtitle", "label": "Popup alt başlık"},
+    {"type": "textarea", "id": "modal_description", "label": "Upload açıklama ({productTitle} kullanılabilir)"},
+    {"type": "textarea", "id": "instruction", "label": "Ürün seçim açıklama"},
+    {"type": "text", "id": "add_cart_label", "label": "Sepete ekle butonu"},
+    {"type": "collection", "id": "collection", "label": "Ek ürün collection"},
+    {"type": "text", "id": "related_products_namespace", "label": "İlişkili ürün metafield namespace", "default": "custom"},
+    {"type": "text", "id": "related_products_key", "label": "İlişkili ürün metafield key", "default": "related_products"},
+    {"type": "textarea", "id": "product_detail_metafields", "label": "AI prompt ürün detay metafield'ları (JSON)", "default": "[{\"namespace\":\"custom\",\"key\":\"material\",\"label\":\"Malzeme\"},{\"namespace\":\"custom\",\"key\":\"dimensions\",\"label\":\"Ölçü\"},{\"namespace\":\"custom\",\"key\":\"color\",\"label\":\"Renk\"}]"},
+    {"type": "text", "id": "product_detail_metafield_namespace", "label": "Ürün detay metafield namespace (ipucu taraması)", "default": "custom"},
+    {"type": "range", "id": "max_design_attempts", "label": "Maksimum AI tasarım denemesi", "min": 1, "max": 10, "step": 1, "default": 3},
+    {"type": "checkbox", "id": "skip_product_selection", "label": "Ürün seçim adımını atla", "default": false},
     {
       "type": "select",
       "id": "theme_preset",
       "label": "Tema preset",
       "options": [
-        { "value": "custom", "label": "Custom" },
-        { "value": "dawn", "label": "Dawn" },
-        { "value": "normod", "label": "Normod" }
+        {"value": "custom", "label": "Custom"},
+        {"value": "dawn", "label": "Dawn"},
+        {"value": "normod", "label": "Normod"}
       ],
-      "default": "dawn",
-      "info": "Dawn/Normod: tema renk ve radius değişkenleri kullanılır."
+      "default": "dawn"
     },
-    {
-      "type": "header",
-      "content": "Renkler (boş = preset / admin varsayılanı)"
-    },
-    {
-      "type": "color",
-      "id": "modal_bg_color",
-      "label": "Modal arka plan",
-      "info": "Boş bırakın → preset/admin varsayılanı (#ffffff)"
-    },
-    {
-      "type": "color",
-      "id": "modal_text_color",
-      "label": "Modal metin rengi",
-      "info": "Boş → #121212"
-    },
-    {
-      "type": "color",
-      "id": "accent_color",
-      "label": "Vurgu rengi (accent)",
-      "info": "Boş → #c4a574"
-    },
-    {
-      "type": "color",
-      "id": "overlay_color",
-      "label": "Overlay arka plan",
-      "info": "RGBA için admin custom CSS kullanın: --sugar-overlay-bg"
-    },
-    {
-      "type": "range",
-      "id": "modal_radius",
-      "label": "Modal köşe radius (px)",
-      "min": 0,
-      "max": 32,
-      "step": 1,
-      "default": 16
-    },
-    {
-      "type": "range",
-      "id": "font_scale",
-      "label": "Font ölçeği",
-      "min": 75,
-      "max": 150,
-      "step": 5,
-      "default": 100,
-      "unit": "%",
-      "info": "100 = tema boyutu. Küçük görünüyorsa 110–125 deneyin."
-    },
-    {
-      "type": "header",
-      "content": "Upload adımı görseli"
-    },
-    {
-      "type": "image_picker",
-      "id": "upload_illustration",
-      "label": "Akış görseli (upload adımı)",
-      "info": "Ürün → AI → sonuç akışını gösteren görsel. Boş bırakılırsa varsayılan veya URL kullanılır."
-    },
-    {
-      "type": "text",
-      "id": "upload_illustration_url",
-      "label": "Akış görseli URL",
-      "info": "Harici CDN URL. Image picker doluysa picker önceliklidir."
-    },
+    {"type": "header", "content": "Renkler (boş = preset / admin varsayılanı)"},
+    {"type": "color", "id": "modal_bg_color", "label": "Modal arka plan"},
+    {"type": "color", "id": "modal_text_color", "label": "Modal metin rengi"},
+    {"type": "color", "id": "accent_color", "label": "Vurgu rengi (accent)"},
+    {"type": "color", "id": "overlay_color", "label": "Overlay arka plan"},
+    {"type": "range", "id": "modal_radius", "label": "Modal köşe radius (px)", "min": 0, "max": 32, "step": 1, "default": 16},
+    {"type": "range", "id": "font_scale", "label": "Font ölçeği", "min": 75, "max": 150, "step": 5, "default": 100, "unit": "%"},
+    {"type": "header", "content": "Upload adımı görseli"},
+    {"type": "image_picker", "id": "upload_illustration", "label": "Akış görseli (upload adımı)"},
+    {"type": "text", "id": "upload_illustration_url", "label": "Akış görseli URL"},
     {
       "type": "select",
       "id": "upload_illustration_fit",
       "label": "Akış görseli yerleşimi",
       "default": "cover",
       "options": [
-        { "value": "cover", "label": "Cover — alanı doldur" },
-        { "value": "contain", "label": "Contain — tamamını göster" }
+        {"value": "cover", "label": "Cover — alanı doldur"},
+        {"value": "contain", "label": "Contain — tamamını göster"}
       ]
     },
-    {
-      "type": "image_picker",
-      "id": "hero_image",
-      "label": "Upload hero (eski alan)",
-      "info": "Geriye dönük uyumluluk. upload_illustration kullanın."
-    },
-    {
-      "type": "header",
-      "content": "İkonlar"
-    },
-    {
-      "type": "image_picker",
-      "id": "header_icon",
-      "label": "Header ikon (sol üst)"
-    },
-    {
-      "type": "image_picker",
-      "id": "gallery_icon",
-      "label": "Galeri buton ikonu"
-    },
-    {
-      "type": "image_picker",
-      "id": "camera_icon",
-      "label": "Kamera buton ikonu"
-    },
-    {
-      "type": "text",
-      "id": "gallery_icon_url",
-      "label": "Galeri ikon URL (alternatif)"
-    },
-    {
-      "type": "text",
-      "id": "camera_icon_url",
-      "label": "Kamera ikon URL (alternatif)"
-    },
-    {
-      "type": "text",
-      "id": "ai_button_classes",
-      "label": "AI button CSS classes",
-      "default": "sugar-ai-btn"
-    },
-    {
-      "type": "text",
-      "id": "primary_button_classes",
-      "label": "Primary button classes",
-      "default": "button button--primary"
-    },
-    {
-      "type": "text",
-      "id": "secondary_button_classes",
-      "label": "Secondary button classes",
-      "default": "button button--secondary"
-    },
-    {
-      "type": "text",
-      "id": "modal_panel_classes",
-      "label": "Modal panel classes"
-    }
+    {"type": "image_picker", "id": "hero_image", "label": "Upload hero (eski alan)"},
+    {"type": "header", "content": "İkonlar"},
+    {"type": "image_picker", "id": "header_icon", "label": "Header ikon (sol üst)"},
+    {"type": "image_picker", "id": "gallery_icon", "label": "Galeri buton ikonu"},
+    {"type": "image_picker", "id": "camera_icon", "label": "Kamera buton ikonu"},
+    {"type": "text", "id": "gallery_icon_url", "label": "Galeri ikon URL (alternatif)"},
+    {"type": "text", "id": "camera_icon_url", "label": "Kamera ikon URL (alternatif)"},
+    {"type": "text", "id": "ai_button_classes", "label": "AI button CSS classes", "default": "sugar-ai-btn"},
+    {"type": "text", "id": "primary_button_classes", "label": "Primary button classes", "default": "button button--primary"},
+    {"type": "text", "id": "secondary_button_classes", "label": "Secondary button classes", "default": "button button--secondary"},
+    {"type": "text", "id": "modal_panel_classes", "label": "Modal panel classes"}
   ]
 }
 {% endschema %}

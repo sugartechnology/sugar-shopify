@@ -1,0 +1,22 @@
+# Sugar Connect — thin catalog write app. Separate Partners app from Room Studio.
+
+client_id = ""
+application_url = "https://connect.sugartech.io"
+embedded = true
+name = "Sugar Connect"
+
+[access_scopes]
+scopes = "read_products,write_products"
+
+[auth]
+redirect_urls = [ "https://connect.sugartech.io/auth/callback" ]
+
+[webhooks]
+api_version = "2026-07"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+[build]
+automatically_update_urls_on_dev = true

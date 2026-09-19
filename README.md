@@ -2,6 +2,8 @@
 
 Shopify Remix uygulaması + Theme App Extension. PDP'de buton açar, popup'ta müşteriden oda fotoğrafı ister (galeri veya kamera), ürün görsellerini Sugar API'ye gönderir ve üretilen görseli sepete line item property olarak ekler.
 
+CRM katalog yazımı bu uygulamada değildir. Super-admin ürün aktarımı için ayrı Partners uygulaması: [`connect/`](connect/README.md).
+
 ## Gereksinimler
 
 - Node.js >= 20.19

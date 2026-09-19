@@ -22,6 +22,7 @@ export default function SrsIndex() {
       <TitleBar title="Sugar Room Studio" />
       <Layout>
         <Layout.Section>
+          <BlockStack gap="400">
           <Card>
             <BlockStack gap="400">
               <Text as="h2" variant="headingMd">
@@ -61,6 +62,37 @@ export default function SrsIndex() {
               </List>
             </BlockStack>
           </Card>
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">
+                Shop Assistant
+              </Text>
+              <Text as="p" variant="bodyMd">
+                Room Studio gibi sayfaya bir buton eklenir. Müşteri butona
+                basınca alışveriş sohbeti popup açılır.
+              </Text>
+              <List type="number">
+                <List.Item>
+                  <Link url="/srs/shop-assistant">Shop Assistant</Link>{" "}
+                  ayarlarından asistanı açın ve katalog filtresini kaydedin.
+                </List.Item>
+                <List.Item>
+                  Theme Editor → bir section → <strong>Add block</strong> →
+                  <strong> Sugar Shop Assistant</strong>. Buton o section&apos;da
+                  görünür.
+                </List.Item>
+                <List.Item>
+                  Block ayarında Görünüm = <strong>Modal (popup)</strong> kalsın.
+                  Buton metnini değiştirebilirsiniz.
+                </List.Item>
+                <List.Item>
+                  Vitrinde butona basın; sohbet popup&apos;ı açılır. İhtiyaç +
+                  bütçe yazın, ürün kartları ve sepet önerisi gelir.
+                </List.Item>
+              </List>
+            </BlockStack>
+          </Card>
+          </BlockStack>
         </Layout.Section>
       </Layout>
     </Page>

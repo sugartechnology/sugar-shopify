@@ -11,8 +11,14 @@ const METAFIELD_KEYS = Object.keys(DEFAULT_SHOP_CONFIG) as (keyof ShopConfig)[];
 /** Shopify metafieldsSet mutation limit per request */
 const METAFIELDS_BATCH_SIZE = 25;
 
+const BOOLEAN_KEYS = new Set<keyof ShopConfig>([
+  "skipProductSelection",
+  "shopAssistantEnabled",
+  "shopAssistantInStockOnly",
+]);
+
 function parseMetafieldValue(key: keyof ShopConfig, value: string): unknown {
-  if (key === "skipProductSelection") {
+  if (BOOLEAN_KEYS.has(key)) {
     return value === "true";
   }
   if (key === "modalRadius" || key === "fontScale") {

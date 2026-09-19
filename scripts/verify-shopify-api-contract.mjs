@@ -9,6 +9,7 @@ const endpoints = {
   pdpAsync: "/api/shopify/pdp/commands/with-files-async",
   pdpPipelineAsync: "/api/shopify/pdp/pipelines/run-async",
   pdpJob: "/api/shopify/pdp/jobs/{id}",
+  shoppingStream: "/api/shopify/shopping/responses/stream",
   decorAi: "/api/ai/commands/with-files",
   decorAiAsync: "/api/ai/commands/with-files-async",
   decorAiJob: "/api/ai/commands/jobs/{id}",
