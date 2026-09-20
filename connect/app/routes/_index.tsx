@@ -1,9 +1,9 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
-import { redirect } from "@remix-run/node";
+import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import { authenticate, login } from "../shopify.server";
 import { loadShopIdentity } from "../services/catalog.server";
-import { notifyInstalled, resolveReturnUrl } from "../services/crm.server";
+import { notifyInstalled } from "../services/crm.server";
 import { takePendingConnect } from "../services/pending-connect.server";
 import { clearStateCookie, readStateCookie, verifyConnectState } from "../services/state.server";
 
@@ -35,22 +35,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         shopGid: shop.shopGid,
         connectSessionId,
       });
-      const returnUrl = resolveReturnUrl(installed.returnUrl);
-      if (returnUrl) {
-        throw redirect(returnUrl, {
-          headers: { "Set-Cookie": clearStateCookie() },
-        });
-      }
-      return {
-        shop: shop.shopDomain,
-        companyName: installed.companyName,
-        error: null,
-        crmLinked: true,
-      };
+      return json(
+        {
+          shop: shop.shopDomain,
+          companyName: installed.companyName,
+          error: null,
+          crmLinked: true,
+        },
+        { headers: { "Set-Cookie": clearStateCookie() } },
+      );
     } catch (error) {
-      if (error instanceof Response) {
-        throw error;
-      }
       return {
         shop: session.shop,
         companyName: null,
@@ -78,13 +72,12 @@ export default function Index() {
           <p>{data.error}</p>
         ) : data.crmLinked ? (
           <p>
-            {data.shop} CRM şirketine bağlandı
-            {data.companyName ? `: ${data.companyName}` : ""}. Super Admin’e dönebilirsiniz.
+            {data.shop} bağlandı
+            {data.companyName ? `: ${data.companyName}` : ""}. Katalog aktarımı CRM’den devam eder.
           </p>
         ) : (
           <p>
-            {data.shop} Shopify’de kurulu, ama CRM haberdar değil. Super Admin’de şirketi açıp
-            tekrar Connect’e basın.
+            {data.shop} Shopify’de kurulu, ama CRM bağlantısı yok.
           </p>
         )}
       </main>

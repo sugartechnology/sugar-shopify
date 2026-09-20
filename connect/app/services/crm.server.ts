@@ -6,7 +6,6 @@ export type InstalledResponse = {
   shopDomain: string;
   shopGid?: string | null;
   status: string;
-  returnUrl?: string | null;
 };
 
 function crmBaseUrl() {
@@ -58,16 +57,3 @@ export async function notifyUninstalled(shopDomain: string) {
   }
 }
 
-export function resolveReturnUrl(returnUrl?: string | null) {
-  if (!returnUrl) {
-    return null;
-  }
-  if (returnUrl.startsWith("http://") || returnUrl.startsWith("https://")) {
-    return returnUrl;
-  }
-  const webBase = (process.env.CRM_WEB_PUBLIC_BASE_URL || "").replace(/\/$/, "");
-  if (returnUrl.startsWith("/") && webBase) {
-    return `${webBase}${returnUrl}`;
-  }
-  return returnUrl;
-}
