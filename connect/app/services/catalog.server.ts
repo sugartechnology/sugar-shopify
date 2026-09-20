@@ -50,6 +50,17 @@ const SHOP_QUERY = `#graphql
   }
 `;
 
+const PRODUCT_HANDLE_QUERY = `#graphql
+  query ConnectProductByHandle($query: String!) {
+    products(first: 1, query: $query) {
+      nodes {
+        id
+        handle
+      }
+    }
+  }
+`;
+
 const VARIANT_SKU_QUERY = `#graphql
   query ConnectVariantsBySku($query: String!) {
     productVariants(first: 20, query: $query) {
@@ -104,38 +115,39 @@ const METAFIELDS_SET_MUTATION = `#graphql
 export async function upsertCatalog(request: CatalogUpsertRequest): Promise<CatalogUpsertResponse> {
   const shop = normalizeShop(request.shopDomain);
   const admin = await adminForShop(shop);
-  const product = request.product;
-  const existingProductGid = product.shopifyProductGid || undefined;
+  const product: CatalogProduct = {
+    ...request.product,
+    shopifyProductGid: request.product.shopifyProductGid || (await findExistingProductGid(admin, request.product)),
+  };
 
-  const conflict = await findSkuConflict(admin, product, existingProductGid);
+  const conflict = await findSkuConflict(admin, product, product.shopifyProductGid || undefined);
   if (conflict) {
     return conflict;
   }
 
-  const input = toProductSetInput(product);
-  const response = await admin.graphql(PRODUCT_SET_MUTATION, {
-    variables: { input, synchronous: true },
-  });
-  const body = await response.json();
-  const payload = body.data?.productSet;
-  const errors = payload?.userErrors || [];
-  if (errors.length > 0 || !payload?.product?.id) {
+  const created = await runProductSet(admin, product, true);
+  const result = created.ok || !created.inputHadFiles
+    ? created
+    : await runProductSet(admin, product, false);
+  if (!result.ok || !result.product?.id) {
     return {
       status: "FAILED",
-      message: errors.map((error: { message: string }) => error.message).join("; ") || "productSet failed",
+      message: result.message || "productSet failed",
     };
   }
 
-  const shopifyProductGid = payload.product.id as string;
-  const shopifyVariants = payload.product.variants?.nodes || [];
-  const mappedVariants = mapVariants(product.variants || [], shopifyVariants);
-
-  await writeMetafields(admin, request.crmCompanyId, product, shopifyProductGid, mappedVariants);
+  const shopifyProductGid = result.product.id;
+  const mappedVariants = mapVariants(product.variants || [], result.product.variants?.nodes || []);
+  try {
+    await writeMetafields(admin, request.crmCompanyId, product, shopifyProductGid, mappedVariants);
+  } catch (error) {
+    console.error("Connect metafields failed", shop, error instanceof Error ? error.message : error);
+  }
 
   return {
-    status: existingProductGid ? "UPDATED" : "CREATED",
+    status: product.shopifyProductGid ? "UPDATED" : "CREATED",
     shopifyProductGid,
-    handle: payload.product.handle,
+    handle: result.product.handle,
     variants: mappedVariants,
   };
 }
@@ -161,21 +173,84 @@ async function adminForShop(shop: string) {
   }
 }
 
+type ProductSetResult = {
+  ok: boolean;
+  message?: string;
+  inputHadFiles: boolean;
+  product?: {
+    id: string;
+    handle?: string;
+    variants?: { nodes: Array<{ id: string; sku?: string | null; selectedOptions?: Array<{ name: string; value: string }> }> };
+  };
+};
+
+async function runProductSet(
+  admin: AdminClient,
+  product: CatalogProduct,
+  includeFiles: boolean,
+): Promise<ProductSetResult> {
+  const input = toProductSetInput(product, includeFiles);
+  const inputHadFiles = Array.isArray(input.files) && input.files.length > 0;
+  const response = await admin.graphql(PRODUCT_SET_MUTATION, {
+    variables: { input, synchronous: true },
+  });
+  const body = await response.json();
+  const payload = body.data?.productSet;
+  const message = collectGraphErrors(body, payload?.userErrors);
+  if (message || !payload?.product?.id) {
+    return { ok: false, message: message || "productSet failed", inputHadFiles, product: payload?.product };
+  }
+  return { ok: true, inputHadFiles, product: payload.product };
+}
+
+function collectGraphErrors(
+  body: { errors?: Array<{ message?: string }> },
+  userErrors?: Array<{ message?: string }>,
+) {
+  return [
+    ...(userErrors || []).map((error) => error.message),
+    ...(body.errors || []).map((error) => error.message),
+  ].filter((message): message is string => Boolean(message)).join("; ");
+}
+
+async function findExistingProductGid(admin: AdminClient, product: CatalogProduct) {
+  if (product.handle) {
+    const response = await admin.graphql(PRODUCT_HANDLE_QUERY, {
+      variables: { query: `handle:${escapeSku(product.handle)}` },
+    });
+    const body = await response.json();
+    const id = body.data?.products?.nodes?.[0]?.id as string | undefined;
+    if (id) {
+      return id;
+    }
+  }
+  const skuHits = await findSkuNodes(admin, product);
+  const productIds = [...new Set(skuHits.map((node) => node.product?.id).filter((id): id is string => Boolean(id)))];
+  return productIds.length === 1 ? productIds[0] : undefined;
+}
+
+async function findSkuNodes(admin: AdminClient, product: CatalogProduct) {
+  const skus = (product.variants || [])
+    .map((variant) => variant.sku?.trim())
+    .filter((sku): sku is string => Boolean(sku));
+  if (skus.length === 0) {
+    return [];
+  }
+  const query = skus.map((sku) => `sku:${escapeSku(sku)}`).join(" OR ");
+  const response = await admin.graphql(VARIANT_SKU_QUERY, { variables: { query } });
+  const body = await response.json();
+  return body.data?.productVariants?.nodes || [];
+}
+
 async function findSkuConflict(
   admin: AdminClient,
   product: CatalogProduct,
   existingProductGid?: string,
 ): Promise<CatalogUpsertResponse | null> {
-  const skus = (product.variants || [])
-    .map((variant) => variant.sku?.trim())
-    .filter((sku): sku is string => Boolean(sku));
-  if (skus.length === 0) {
+  const nodes = await findSkuNodes(admin, product);
+  if (nodes.length === 0) {
     return null;
   }
-  const query = skus.map((sku) => `sku:${escapeSku(sku)}`).join(" OR ");
-  const response = await admin.graphql(VARIANT_SKU_QUERY, { variables: { query } });
-  const body = await response.json();
-  const nodes = body.data?.productVariants?.nodes || [];
   for (const node of nodes) {
     const productId = node.product?.id as string | undefined;
     if (productId && productId !== existingProductGid) {
@@ -190,8 +265,10 @@ async function findSkuConflict(
   return null;
 }
 
-function toProductSetInput(product: CatalogProduct) {
-  const variants = product.variants || [];
+function toProductSetInput(product: CatalogProduct, includeFiles: boolean) {
+  const variants = (product.variants || []).length > 0
+    ? product.variants
+    : [{ crmVariantProductId: product.crmProductId, price: "0.00", options: [] }];
   const optionNames = uniqueOptionNames(variants);
   const productOptions = optionNames.length > 0
     ? optionNames.map((name, index) => ({
@@ -200,6 +277,7 @@ function toProductSetInput(product: CatalogProduct) {
         values: uniqueOptionValues(variants, name).map((value) => ({ name: value })),
       }))
     : [{ name: "Title", values: [{ name: "Default Title" }] }];
+  const files = includeFiles ? publicImageFiles(product) : [];
 
   return {
     id: product.shopifyProductGid || undefined,
@@ -220,31 +298,54 @@ function toProductSetInput(product: CatalogProduct) {
             name: option.value,
           }))
         : [{ optionName: "Title", name: "Default Title" }],
-      inventoryItem: variant.weight
-        ? {
-            sku: variant.sku || undefined,
-            measurement: {
-              weight: {
-                value: variant.weight,
-                unit: "KILOGRAMS",
-              },
-            },
-          }
-        : variant.sku
-          ? { sku: variant.sku }
-          : undefined,
+      inventoryItem: inventoryItemInput(variant),
     })),
-    ...((product.images || []).length > 0
+    ...(files.length > 0 ? { files } : {}),
+  };
+}
+
+function inventoryItemInput(variant: CatalogVariant) {
+  const weight = Number(variant.weight);
+  const hasWeight = Number.isFinite(weight) && weight > 0 && weight < 100000;
+  if (!hasWeight && !variant.sku) {
+    return undefined;
+  }
+  return {
+    sku: variant.sku || undefined,
+    ...(hasWeight
       ? {
-          files: (product.images || []).map((url, index) => ({
-            originalSource: url,
-            contentType: "IMAGE",
-            alt: `${product.title} ${index + 1}`,
-            filename: filenameFromUrl(url, index),
-          })),
+          measurement: {
+            weight: {
+              value: weight,
+              unit: "KILOGRAMS",
+            },
+          },
         }
       : {}),
   };
+}
+
+function publicImageFiles(product: CatalogProduct) {
+  return (product.images || [])
+    .filter((url) => isPublicImageUrl(url))
+    .map((url, index) => ({
+      originalSource: url,
+      contentType: "IMAGE" as const,
+      alt: `${product.title} ${index + 1}`,
+      filename: filenameFromUrl(url, index),
+    }));
+}
+
+function isPublicImageUrl(url: string) {
+  if (!url || url.includes(";")) {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 async function writeMetafields(
