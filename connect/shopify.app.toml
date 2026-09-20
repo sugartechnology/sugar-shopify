@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "c2e3a7ad5d1890075e581e3427a06cd9"
-application_url = "https://example.com"
+application_url = "https://shopify-connect.sugartech.io"
 embedded = true
 name = "Sugar Connect"
 
@@ -10,11 +10,10 @@ name = "Sugar Connect"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://shopify-connect.sugartech.io/auth/callback" ]
 
 [webhooks]
 api_version = "2026-10"
 
 [build]
-include_config_on_deploy = true
 automatically_update_urls_on_dev = true

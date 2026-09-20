@@ -13,7 +13,7 @@ Bu dosya CRM + Connect env’lerinin **ne olduğunu**, **örnek değerini** ve *
 | `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET` | Yalnızca Connect `.env` | Evet. Partners → Sugar Connect app. |
 | `SHOPIFY_APP_URL` | Yalnızca Connect `.env` | Hayır. Connect’in kendi public URL’si. |
 | `SCOPES` | Connect `.env` | Sabit: `read_products,write_products` |
-| `DATABASE_URL` | Connect `.env` | Hayır. Session / token DB. |
+| `DATABASE_URL` | Connect `.env` | Hayır. Yalnızca Shopify `Session` (token). Lokal SQLite, prod Postgres. |
 | Mağaza offline token | Connect Prisma `Session` | OAuth sonrası Shopify verir. Env’e yazılmaz. |
 | `shop_domain` / `shop_gid` | CRM tablosu `shopify_shop_links` | Install sonrası callback ile gelir. Env’e yazılmaz. |
 
@@ -157,7 +157,7 @@ veya `cd connect && shopify app config link` sonrası `shopify.app.toml` içinde
 ```bash
 # lokal
 DATABASE_URL=file:./dev.sqlite
-# prod örnek
+# prod — kalıcı token; schema provider o zaman postgresql olmalı
 # DATABASE_URL=postgresql://connect:SECRET@db-host:5432/sugar_connect
 ```
 
