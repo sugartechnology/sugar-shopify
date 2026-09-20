@@ -8,18 +8,32 @@ export type CatalogVariant = {
   price?: string | null;
   currency?: string | null;
   weight?: number | null;
+  width?: number | null;
+  height?: number | null;
+  depth?: number | null;
   shopifyVariantGid?: string | null;
   options?: CatalogOption[] | null;
+};
+export type CatalogImage = {
+  filename?: string | null;
+  contentType?: string | null;
+  data?: string | null;
+  alt?: string | null;
 };
 export type CatalogProduct = {
   crmProductId: string;
   title: string;
   description?: string | null;
   handle?: string | null;
+  sku?: string | null;
   status?: string | null;
   productType?: string | null;
   tags?: string[] | null;
-  images?: string[] | null;
+  width?: number | null;
+  height?: number | null;
+  depth?: number | null;
+  volume?: number | null;
+  images?: CatalogImage[] | null;
   rrProductId?: number | null;
   shopifyProductGid?: string | null;
   variants: CatalogVariant[];
@@ -76,6 +90,25 @@ const VARIANT_SKU_QUERY = `#graphql
   }
 `;
 
+const STAGED_UPLOADS_MUTATION = `#graphql
+  mutation ConnectStagedUploads($input: [StagedUploadInput!]!) {
+    stagedUploadsCreate(input: $input) {
+      stagedTargets {
+        url
+        resourceUrl
+        parameters {
+          name
+          value
+        }
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
 const PRODUCT_SET_MUTATION = `#graphql
   mutation ConnectProductSet($input: ProductSetInput!, $synchronous: Boolean!) {
     productSet(synchronous: $synchronous, input: $input) {
@@ -125,10 +158,11 @@ export async function upsertCatalog(request: CatalogUpsertRequest): Promise<Cata
     return conflict;
   }
 
-  const created = await runProductSet(admin, product, true);
-  const result = created.ok || !created.inputHadFiles
+  const files = await uploadProductImages(admin, product);
+  const created = await runProductSet(admin, product, files);
+  const result = created.ok || files.length === 0
     ? created
-    : await runProductSet(admin, product, false);
+    : await runProductSet(admin, product, []);
   if (!result.ok || !result.product?.id) {
     return {
       status: "FAILED",
@@ -173,10 +207,16 @@ async function adminForShop(shop: string) {
   }
 }
 
+type ProductFileInput = {
+  originalSource: string;
+  contentType: "IMAGE";
+  alt: string;
+  filename: string;
+};
+
 type ProductSetResult = {
   ok: boolean;
   message?: string;
-  inputHadFiles: boolean;
   product?: {
     id: string;
     handle?: string;
@@ -187,10 +227,9 @@ type ProductSetResult = {
 async function runProductSet(
   admin: AdminClient,
   product: CatalogProduct,
-  includeFiles: boolean,
+  files: ProductFileInput[],
 ): Promise<ProductSetResult> {
-  const input = toProductSetInput(product, includeFiles);
-  const inputHadFiles = Array.isArray(input.files) && input.files.length > 0;
+  const input = toProductSetInput(product, files);
   const response = await admin.graphql(PRODUCT_SET_MUTATION, {
     variables: { input, synchronous: true },
   });
@@ -198,9 +237,9 @@ async function runProductSet(
   const payload = body.data?.productSet;
   const message = collectGraphErrors(body, payload?.userErrors);
   if (message || !payload?.product?.id) {
-    return { ok: false, message: message || "productSet failed", inputHadFiles, product: payload?.product };
+    return { ok: false, message: message || "productSet failed", product: payload?.product };
   }
-  return { ok: true, inputHadFiles, product: payload.product };
+  return { ok: true, product: payload.product };
 }
 
 function collectGraphErrors(
@@ -265,7 +304,7 @@ async function findSkuConflict(
   return null;
 }
 
-function toProductSetInput(product: CatalogProduct, includeFiles: boolean) {
+function toProductSetInput(product: CatalogProduct, files: ProductFileInput[]) {
   const variants = (product.variants || []).length > 0
     ? product.variants
     : [{ crmVariantProductId: product.crmProductId, price: "0.00", options: [] }];
@@ -277,7 +316,6 @@ function toProductSetInput(product: CatalogProduct, includeFiles: boolean) {
         values: uniqueOptionValues(variants, name).map((value) => ({ name: value })),
       }))
     : [{ name: "Title", values: [{ name: "Default Title" }] }];
-  const files = includeFiles ? publicImageFiles(product) : [];
 
   return {
     id: product.shopifyProductGid || undefined,
@@ -325,27 +363,62 @@ function inventoryItemInput(variant: CatalogVariant) {
   };
 }
 
-function publicImageFiles(product: CatalogProduct) {
-  return (product.images || [])
-    .filter((url) => isPublicImageUrl(url))
-    .map((url, index) => ({
-      originalSource: url,
-      contentType: "IMAGE" as const,
-      alt: `${product.title} ${index + 1}`,
-      filename: filenameFromUrl(url, index),
-    }));
+async function uploadProductImages(admin: AdminClient, product: CatalogProduct): Promise<ProductFileInput[]> {
+  const files: ProductFileInput[] = [];
+  for (const [index, image] of (product.images || []).entries()) {
+    if (!image?.data) {
+      continue;
+    }
+    try {
+      const bytes = Buffer.from(image.data, "base64");
+      if (bytes.length === 0) {
+        continue;
+      }
+      const filename = image.filename || `image-${index + 1}.jpg`;
+      const mimeType = image.contentType || "image/jpeg";
+      const resourceUrl = await stagedUpload(admin, filename, mimeType, bytes);
+      files.push({
+        originalSource: resourceUrl,
+        contentType: "IMAGE",
+        alt: image.alt || `${product.title} ${index + 1}`,
+        filename,
+      });
+    } catch (error) {
+      console.error("Connect image upload failed", product.crmProductId, error instanceof Error ? error.message : error);
+    }
+  }
+  return files;
 }
 
-function isPublicImageUrl(url: string) {
-  if (!url || url.includes(";")) {
-    return false;
+async function stagedUpload(admin: AdminClient, filename: string, mimeType: string, bytes: Buffer) {
+  const response = await admin.graphql(STAGED_UPLOADS_MUTATION, {
+    variables: {
+      input: [{
+        filename,
+        mimeType,
+        httpMethod: "POST",
+        resource: "PRODUCT_IMAGE",
+        fileSize: String(bytes.length),
+      }],
+    },
+  });
+  const body = await response.json();
+  const payload = body.data?.stagedUploadsCreate;
+  const target = payload?.stagedTargets?.[0];
+  const errors = collectGraphErrors(body, payload?.userErrors);
+  if (errors || !target?.url || !target.resourceUrl) {
+    throw new Error(errors || "stagedUploadsCreate failed");
   }
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
+  const form = new FormData();
+  for (const parameter of target.parameters || []) {
+    form.append(parameter.name, parameter.value);
   }
+  form.append("file", new Blob([new Uint8Array(bytes)], { type: mimeType }), filename);
+  const uploaded = await fetch(target.url, { method: "POST", body: form });
+  if (!uploaded.ok) {
+    throw new Error(`Shopify file upload failed status=${uploaded.status}`);
+  }
+  return target.resourceUrl as string;
 }
 
 async function writeMetafields(
@@ -359,15 +432,29 @@ async function writeMetafields(
     metafield(productGid, "crm_product_id", product.crmProductId),
     metafield(productGid, "crm_company_id", companyId),
   ];
+  addTextMetafield(metafields, productGid, "sku", product.sku);
+  addDecimalMetafield(metafields, productGid, "width", product.width);
+  addDecimalMetafield(metafields, productGid, "height", product.height);
+  addDecimalMetafield(metafields, productGid, "depth", product.depth);
+  addDecimalMetafield(metafields, productGid, "volume", product.volume);
   if (product.rrProductId != null) {
     metafields.push(metafield(productGid, "rr_product_id", String(product.rrProductId)));
   }
   for (const variant of variants) {
+    const source = (product.variants || []).find((item) => item.crmVariantProductId === variant.crmVariantProductId);
     metafields.push(metafield(variant.shopifyVariantGid, "crm_variant_id", variant.crmVariantProductId));
     metafields.push(metafield(variant.shopifyVariantGid, "crm_product_id", product.crmProductId));
     metafields.push(metafield(variant.shopifyVariantGid, "crm_company_id", companyId));
+    addTextMetafield(metafields, variant.shopifyVariantGid, "sku", source?.sku);
+    addDecimalMetafield(metafields, variant.shopifyVariantGid, "width", source?.width);
+    addDecimalMetafield(metafields, variant.shopifyVariantGid, "height", source?.height);
+    addDecimalMetafield(metafields, variant.shopifyVariantGid, "depth", source?.depth);
   }
-  await admin.graphql(METAFIELDS_SET_MUTATION, { variables: { metafields } });
+  for (let index = 0; index < metafields.length; index += 25) {
+    await admin.graphql(METAFIELDS_SET_MUTATION, {
+      variables: { metafields: metafields.slice(index, index + 25) },
+    });
+  }
 }
 
 function mapVariants(
@@ -395,14 +482,37 @@ function mapVariants(
   return mapped;
 }
 
-function metafield(ownerId: string, key: string, value: string) {
+function metafield(ownerId: string, key: string, value: string, type = "single_line_text_field") {
   return {
     ownerId,
     namespace: "sugar",
     key,
-    type: "single_line_text_field",
+    type,
     value,
   };
+}
+
+function addTextMetafield(
+  metafields: Array<ReturnType<typeof metafield>>,
+  ownerId: string,
+  key: string,
+  value?: string | null,
+) {
+  if (value) {
+    metafields.push(metafield(ownerId, key, value));
+  }
+}
+
+function addDecimalMetafield(
+  metafields: Array<ReturnType<typeof metafield>>,
+  ownerId: string,
+  key: string,
+  value?: number | null,
+) {
+  if (value == null || !Number.isFinite(Number(value))) {
+    return;
+  }
+  metafields.push(metafield(ownerId, key, String(value), "number_decimal"));
 }
 
 function uniqueOptionNames(variants: CatalogVariant[]) {
@@ -434,16 +544,6 @@ function optionSignature(options: Array<{ name?: string; value?: string }>) {
     .map((option) => `${option.name || ""}=${option.value || ""}`)
     .sort()
     .join("|");
-}
-
-function filenameFromUrl(url: string, index: number) {
-  try {
-    const pathname = new URL(url).pathname;
-    const name = pathname.split("/").filter(Boolean).pop();
-    return name && name.includes(".") ? name : `image-${index + 1}.jpg`;
-  } catch {
-    return `image-${index + 1}.jpg`;
-  }
 }
 
 function escapeSku(sku: string) {
