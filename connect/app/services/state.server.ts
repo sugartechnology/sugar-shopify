@@ -22,13 +22,18 @@ export function verifyConnectState(state: string | null): string {
   return payload;
 }
 
-export function stateCookie(state: string) {
+function cookieFlags(maxAge: number) {
   const secure = (process.env.SHOPIFY_APP_URL || "").startsWith("https://");
-  return `${COOKIE_NAME}=${encodeURIComponent(state)}; Path=/; HttpOnly; Max-Age=900; SameSite=Lax${secure ? "; Secure" : ""}`;
+  // Embedded admin iframe üçüncü taraf isteği; Lax cookie gitmez.
+  return `Path=/; HttpOnly; Max-Age=${maxAge}; SameSite=None${secure ? "; Secure" : ""}`;
+}
+
+export function stateCookie(state: string) {
+  return `${COOKIE_NAME}=${encodeURIComponent(state)}; ${cookieFlags(900)}`;
 }
 
 export function clearStateCookie() {
-  return `${COOKIE_NAME}=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax`;
+  return `${COOKIE_NAME}=; ${cookieFlags(0)}`;
 }
 
 export function readStateCookie(request: Request): string | null {

@@ -1,4 +1,5 @@
 import { unauthenticated } from "../shopify.server";
+import { normalizeShop } from "./shop.server";
 
 export type CatalogOption = { name: string; value: string };
 export type CatalogVariant = {
@@ -346,9 +347,4 @@ function filenameFromUrl(url: string, index: number) {
 
 function escapeSku(sku: string) {
   return `"${sku.replaceAll('"', '\\"')}"`;
-}
-
-function normalizeShop(shop: string) {
-  const normalized = shop.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0];
-  return normalized.includes(".") ? normalized : `${normalized}.myshopify.com`;
 }

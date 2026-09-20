@@ -4,6 +4,7 @@ import { useLoaderData } from "@remix-run/react";
 import { authenticate, login } from "../shopify.server";
 import { loadShopIdentity } from "../services/catalog.server";
 import { notifyInstalled, resolveReturnUrl } from "../services/crm.server";
+import { takePendingConnect } from "../services/pending-connect.server";
 import { clearStateCookie, readStateCookie, verifyConnectState } from "../services/state.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -14,9 +15,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const { session } = await authenticate.admin(request);
   const state = readStateCookie(request);
+  let connectSessionId: string | null = null;
   if (state) {
     try {
-      const connectSessionId = verifyConnectState(state);
+      connectSessionId = verifyConnectState(state);
+    } catch (error) {
+      console.warn("Connect state cookie invalid", error);
+    }
+  }
+  if (!connectSessionId) {
+    connectSessionId = await takePendingConnect(session.shop);
+  }
+
+  if (connectSessionId) {
+    try {
       const shop = await loadShopIdentity(session.shop);
       const installed = await notifyInstalled({
         shopDomain: shop.shopDomain,
@@ -29,10 +41,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           headers: { "Set-Cookie": clearStateCookie() },
         });
       }
-      return Response.json(
-        { shop: shop.shopDomain, companyName: installed.companyName, error: null },
-        { headers: { "Set-Cookie": clearStateCookie() } },
-      );
+      return {
+        shop: shop.shopDomain,
+        companyName: installed.companyName,
+        error: null,
+        crmLinked: true,
+      };
     } catch (error) {
       if (error instanceof Response) {
         throw error;
@@ -41,11 +55,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         shop: session.shop,
         companyName: null,
         error: error instanceof Error ? error.message : "Shopify connection failed",
+        crmLinked: false,
       };
     }
   }
 
-  return { shop: session.shop, companyName: null, error: null };
+  return {
+    shop: session.shop,
+    companyName: null,
+    error: null,
+    crmLinked: false,
+  };
 };
 
 export default function Index() {
@@ -56,10 +76,15 @@ export default function Index() {
         <h1>Sugar Connect</h1>
         {data.error ? (
           <p>{data.error}</p>
+        ) : data.crmLinked ? (
+          <p>
+            {data.shop} CRM şirketine bağlandı
+            {data.companyName ? `: ${data.companyName}` : ""}. Super Admin’e dönebilirsiniz.
+          </p>
         ) : (
           <p>
-            {data.shop} is connected
-            {data.companyName ? ` to ${data.companyName}` : ""}. Catalog transfer continues in CRM Super Admin.
+            {data.shop} Shopify’de kurulu, ama CRM haberdar değil. Super Admin’de şirketi açıp
+            tekrar Connect’e basın.
           </p>
         )}
       </main>

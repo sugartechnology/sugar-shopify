@@ -3,6 +3,9 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { Form, useActionData, useLoaderData } from "@remix-run/react";
 import { LoginErrorType, type LoginError } from "@shopify/shopify-app-remix/server";
 import { login } from "../shopify.server";
+import { savePendingConnect } from "../services/pending-connect.server";
+import { normalizeShop } from "../services/shop.server";
+import { readStateCookie, verifyConnectState } from "../services/state.server";
 
 type LoginErrors = { shop?: string };
 
@@ -22,6 +25,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
+  const form = await request.clone().formData();
+  const shop = String(form.get("shop") ?? "").trim();
+  const state = readStateCookie(request);
+  if (shop && state) {
+    try {
+      await savePendingConnect(normalizeShop(shop), verifyConnectState(state));
+    } catch (error) {
+      console.error("Connect pending save failed", error);
+    }
+  }
   const errors: LoginErrors = loginErrorMessage(await login(request));
   return { errors };
 };

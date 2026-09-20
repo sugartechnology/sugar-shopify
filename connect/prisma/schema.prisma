@@ -28,3 +28,10 @@ model Session {
 
   @@index([shop])
 }
+
+// CRM Connect butonu → OAuth arası. Token değil; cookie iframe'de kayboluyor.
+model ConnectPending {
+  shop             String   @id
+  connectSessionId String
+  expiresAt        DateTime
+}
