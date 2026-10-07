@@ -26,3 +26,36 @@ model Session {
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
+
+/// Koshoy studio conversation. Only the sha256 of the opaque browser token is stored.
+model KoshoySession {
+  id             String         @id
+  shop           String
+  tokenHash      String         @unique
+  /// JSON: model session id, brief, transcript, pending tool calls
+  state          String
+  activeDesignId String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  expiresAt      DateTime
+  designs        KoshoyDesign[]
+
+  @@index([shop])
+  @@index([expiresAt])
+}
+
+/// One Koshoy product design (cabinet composition) inside a session.
+model KoshoyDesign {
+  id          String        @id
+  sessionId   String
+  session     KoshoySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  kind        String
+  label       String
+  version     Int           @default(1)
+  /// JSON: CabinComposition
+  composition String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([sessionId])
+}
