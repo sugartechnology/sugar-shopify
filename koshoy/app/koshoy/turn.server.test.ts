@@ -160,6 +160,35 @@ describe("koshoy turn loop", () => {
     assert.equal(saved?.events.length, 1, "transcript keeps the merged assistant text");
   });
 
+  it("adds a server summary when the model plans and asks without any text", async () => {
+    const ctx = await setup();
+    const { stream } = scriptedStream([
+      [
+        {
+          event: "tool_call",
+          data: { callId: "call_plan", name: "plan_cabinet", arguments: { kind: "gardirop", targetWidthCm: 200 } },
+        },
+      ],
+      [
+        {
+          event: "tool_call",
+          data: {
+            callId: "call_ask",
+            name: "ask_user",
+            arguments: { question: "Nasıl devam edelim?", options: [{ id: "a", label: "Böyle kalsın" }, { id: "b", label: "Raf ekle" }] },
+          },
+        },
+      ],
+    ]);
+    const events = await turn(ctx, ctx.session, { type: "message", text: "2 metre gardırop" }, { stream });
+    const texts = events.filter((event) => event.type === "text");
+    assert.equal(texts.length, 1);
+    assert.ok(texts[0].type === "text");
+    assert.equal(texts[0].text, "Senin için Gardırop 192 cm hazırladım. Genişlik 200 cm → 192 cm (96 + 96 cm).");
+    assert.ok(events.findIndex((event) => event.type === "text") < events.findIndex((event) => event.type === "done"));
+    assertNoLeak(events);
+  });
+
   it("stops on ask_user and posts the choice as that call's tool result", async () => {
     const ctx = await setup();
     const first = scriptedStream([

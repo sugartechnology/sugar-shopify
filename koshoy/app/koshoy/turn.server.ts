@@ -99,6 +99,8 @@ interface TurnContext {
   designIds: Set<string>;
   stop: TurnStop;
   textSent: boolean;
+  /** Server-side one-line summary of what this turn's tools did. */
+  summary: string;
   publish(raw: unknown): void;
 }
 
@@ -419,6 +421,7 @@ export async function executeKoshoyTool(
     if (!created) return { payload: { ok: false, error: "design_limit", hint: DESIGN_LIMIT_HINT } };
     const { design, plan } = created;
     ctx.designIds.add(design.id);
+    ctx.summary = [`Senin için ${design.label} hazırladım.`, ...plan.notes.map((note) => `${note}.`)].join(" ");
     const quote = await quoteAndPublish(ctx, design, true);
     ctx.publish(designsEvent(await deps.store.listDesigns(session.id), session.activeDesignId));
     return {
@@ -438,6 +441,7 @@ export async function executeKoshoyTool(
       return { payload: { ok: false, error: "rejected", hint: editRejectHint(result.reason) } };
     }
     const switched = session.activeDesignId !== result.design.id;
+    if (result.changed) ctx.summary = `${result.design.label} tasarımını güncelledim.`;
     session.activeDesignId = result.design.id;
     const quote = await quoteAndPublish(ctx, result.design, result.changed || switched);
     if (result.design.label !== design.label || switched) {
@@ -615,6 +619,8 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
     toolResults = results;
     if (askedUser) {
       session.pendingTools = results;
+      // Some models send only the choice tool; never leave the turn without text.
+      if (!ctx.textSent && ctx.summary) publishText(ctx, ctx.summary);
       return;
     }
   }
@@ -791,6 +797,7 @@ export async function runKoshoyTurn(input: {
     designIds: new Set<string>(),
     stop,
     textSent: false,
+    summary: "",
     publish(raw) {
       const event = toPublicEvent(raw);
       if (!event || doneSent) return;
