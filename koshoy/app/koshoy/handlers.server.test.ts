@@ -279,7 +279,7 @@ describe("koshoy studio handlers", () => {
     assert.ok(nextScene.type === "scene" && nextPrice.type === "price" && line.type === "text");
     assert.equal(nextScene.version, 2);
     assert.equal(nextPrice.version, 2);
-    assert.equal(line.text, "2. gövdeye raf ekledim.");
+    assert.equal(line.text, "Panelden: 2. gövdeye raf eklendi.");
 
     const stale = await handleKoshoyEdit(
       post("edit", { designId: scene.designId, version: 1, op: { action: "set_depth", depthMm: 480 } }, { token }),
@@ -341,7 +341,7 @@ describe("koshoy studio handlers", () => {
     assert.ok(view.type === "scene" && line.type === "text");
     assert.deepEqual(view.view.units.map((unit) => unit.widthMm), [480, 960]);
     assert.equal(view.label, "Gardırop 144 cm");
-    assert.equal(line.text, "1. gövdenin genişliğini 48 cm yaptım.");
+    assert.equal(line.text, "Panelden: 1. gövdenin genişliği 48 cm oldu.");
 
     const lowered = (await (
       await handleKoshoyEdit(
@@ -353,7 +353,7 @@ describe("koshoy studio handlers", () => {
     const loweredText = lowered.events.find((event) => event.type === "text");
     assert.deepEqual(loweredText, {
       type: "text",
-      text: "2. gövdenin yüksekliğini 54,4 cm yaptım. Sığmayan iç parçaları çıkardım. Kapak artık sığmadığından kapağı kaldırdım.",
+      text: "Panelden: 2. gövdenin yüksekliği 54,4 cm oldu. Sığmayan iç parçalar çıkarıldı. Kapak artık sığmadığından kaldırıldı.",
     });
 
     // A valid op that changes nothing is an idempotent success at the same version.
@@ -749,7 +749,7 @@ describe("koshoy studio handlers", () => {
     assert.equal((await ctx.store.listDesigns(session.id)).length, 2);
     const transcript = session.events.map((event) => (event.type === "text" ? event.text : "")).join("\n");
     assert.match(transcript, /komodin/i, "the turn's reply survived the edit");
-    assert.match(transcript, /2\. gövdeye raf ekledim\./);
+    assert.match(transcript, /Panelden: 2\. gövdeye raf eklendi\./);
   });
 
   it("refuses a turn that starts while an edit holds the session", async () => {
@@ -808,6 +808,6 @@ describe("koshoy studio handlers", () => {
     assert.equal(turned.status, 200);
     const session = await findSession(token, SHOP);
     const transcript = session!.events.map((event) => (event.type === "text" ? event.text : "")).join("\n");
-    assert.match(transcript, /2\. gövdeye raf ekledim\./, "the edit's line survived the turn");
+    assert.match(transcript, /Panelden: 2\. gövdeye raf eklendi\./, "the edit's line survived the turn");
   });
 });

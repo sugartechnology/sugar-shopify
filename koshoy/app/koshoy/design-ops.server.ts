@@ -76,9 +76,9 @@ const EDIT_REJECT_HINTS: Record<EditRejectReason | "stale", string> = {
 };
 
 const EDIT_WARNING_TEXTS: Record<EditWarning, string> = {
-  fittings_trimmed: "Sığmayan iç parçaları çıkardım.",
-  door_removed: "Kapak artık sığmadığından kapağı kaldırdım.",
-  units_removed: "Genişlik küçüldüğü için fazla gövdeleri kaldırdım.",
+  fittings_trimmed: "Sığmayan iç parçalar çıkarıldı.",
+  door_removed: "Kapak artık sığmadığından kaldırıldı.",
+  units_removed: "Genişlik küçüldüğü için fazla gövdeler kaldırıldı.",
 };
 
 /**
@@ -251,7 +251,8 @@ export function editSummaryText(
   design: KoshoyDesign,
   warnings: readonly EditWarning[] = [],
 ): string {
-  return [editActionText(op, design), ...editWarningNotes(warnings)].join(" ");
+  // Panel edits are the customer's own; never phrase them as the assistant's.
+  return ["Panelden:", editActionText(op, design), ...editWarningNotes(warnings)].join(" ");
 }
 
 function editActionText(op: EditOp, design: KoshoyDesign): string {
@@ -260,28 +261,28 @@ function editActionText(op: EditOp, design: KoshoyDesign): string {
   const unitAt = (index: number) => c.units[index];
   switch (op.action) {
     case "add_fitting":
-      return `${nth(op.unit)}ye ${FITTING_LABELS[op.kind]} ekledim.`;
+      return `${nth(op.unit)}ye ${FITTING_LABELS[op.kind]} eklendi.`;
     case "remove_fitting":
-      return `${nth(op.unit)}den bir parça çıkardım.`;
+      return `${nth(op.unit)}den bir parça çıkarıldı.`;
     case "set_unit_width":
-      return `${nth(op.unit)}nin genişliğini ${cmText(unitAt(op.unit)?.widthMm ?? op.widthMm)} cm yaptım.`;
+      return `${nth(op.unit)}nin genişliği ${cmText(unitAt(op.unit)?.widthMm ?? op.widthMm)} cm oldu.`;
     case "set_unit_height":
-      return `${nth(op.unit)}nin yüksekliğini ${cmText(unitAt(op.unit)?.heightMm ?? op.heightMm)} cm yaptım.`;
+      return `${nth(op.unit)}nin yüksekliği ${cmText(unitAt(op.unit)?.heightMm ?? op.heightMm)} cm oldu.`;
     case "set_total_width":
-      return `Toplam genişliği ${cmText(totalWidthMm(c))} cm yaptım.`;
+      return `Toplam genişlik ${cmText(totalWidthMm(c))} cm oldu.`;
     case "set_depth":
-      return `Derinliği ${cmText(c.depthMm)} cm yaptım.`;
+      return `Derinlik ${cmText(c.depthMm)} cm oldu.`;
     case "set_door":
-      return op.hasDoor ? `${nth(op.unit)}ye kapak ekledim.` : `${nth(op.unit)}nin kapağını kaldırdım.`;
+      return op.hasDoor ? `${nth(op.unit)}ye kapak eklendi.` : `${nth(op.unit)}nin kapağı çıkarıldı.`;
     case "set_color": {
       const color = CABIN_COLOR_LABELS[op.color].toLocaleLowerCase("tr-TR");
-      if (op.target === "all") return `Rengi ${color} yaptım.`;
+      if (op.target === "all") return `Renk ${color} oldu.`;
       if (op.target === "door") {
         return op.unit === undefined
-          ? `Kapak rengini ${color} yaptım.`
-          : `${nth(op.unit)}nin kapak rengini ${color} yaptım.`;
+          ? `Kapak rengi ${color} oldu.`
+          : `${nth(op.unit)}nin kapak rengi ${color} oldu.`;
       }
-      return `${nth(op.unit ?? 0)}nin rengini ${color} yaptım.`;
+      return `${nth(op.unit ?? 0)}nin rengi ${color} oldu.`;
     }
   }
 }
