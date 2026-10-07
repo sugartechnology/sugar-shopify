@@ -8,10 +8,12 @@ import { authenticate } from "../shopify.server";
 import { isLlmGatewayConfigured } from "../services/llm-gateway.server";
 import { getShopApiKey } from "../services/shop-credentials.server";
 import { getCabinetEngine } from "./engine";
+import { createKoshoyBundler } from "./bundle.server";
 import type { KoshoyRequestContext } from "./handlers.server";
 import {
   createKoshoyPricer,
   createKoshoySkuResolver,
+  isKoshoyPriceMock,
   type KoshoyAdminGraphql,
 } from "./pricing.server";
 import { createBusyLock, createRateLimiter, KOSHOY_LIMITS } from "./rate-limit.server";
@@ -76,6 +78,8 @@ export async function koshoyContextFromProxy(
     store,
     engine,
     pricer: createKoshoyPricer(engine, resolver),
+    // Mock prices must never become real products.
+    bundler: isKoshoyPriceMock() ? undefined : createKoshoyBundler(shopAdmin, shop),
     limits,
     busy,
     async chatConfig() {

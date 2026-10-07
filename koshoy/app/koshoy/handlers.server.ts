@@ -22,6 +22,7 @@ import {
   type KoshoyBusyLock,
   type KoshoyRateLimiter,
 } from "./rate-limit.server";
+import { bundleSpec, type KoshoyBundler } from "./bundle.server";
 import { buildKoshoyCartLines } from "./pricing.server";
 import { appendTranscriptEvent, type KoshoyDesign, type KoshoySessionState } from "./store.server";
 import {
@@ -60,6 +61,8 @@ export interface KoshoyRequestContext extends KoshoyDesignDeps {
   /** Loaded lazily (shop metafields) only when a turn actually runs. */
   chatConfig(): Promise<{ apiKey: string; mock: boolean }>;
   stream?: KoshoyStreamFn;
+  /** Builds the cart bundle; without it the cart gets the part variants. */
+  bundler?: KoshoyBundler;
 }
 
 export const KOSHOY_WELCOME_CARDS = [
@@ -455,7 +458,20 @@ export async function handleKoshoyCart(
     if (!lines) {
       return koshoyJson({ ok: false, error: "cart_failed", lines: [], display: quote.display });
     }
-    return koshoyJson({ ok: true, lines, display: quote.display });
+    if (!ctx.bundler) return koshoyJson({ ok: true, lines, display: quote.display });
+
+    // The parts are not sold on the storefront; the cart gets one bundle
+    // product built from them (see bundle.server.ts).
+    const spec = bundleSpec(design.kind, design.composition, quote);
+    if (!spec) {
+      return koshoyJson({ ok: false, error: "cart_failed", lines: [], display: quote.display });
+    }
+    const variantId = await ctx.bundler.ensure(spec);
+    return koshoyJson({
+      ok: true,
+      lines: [{ variantId, quantity: 1, properties: { _tasarim: design.id } }],
+      display: quote.display,
+    });
   } catch (error) {
     console.error("[koshoy] cart failed", error);
     return koshoyErrorResponse("unavailable");

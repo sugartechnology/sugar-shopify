@@ -74,7 +74,7 @@ export function auditSkus(required: readonly RequiredSku[], variants: readonly S
 
 const PRODUCTS_QUERY = `#graphql
   query KoshoySkuAudit($after: String) {
-    products(first: 100, after: $after) {
+    products(first: 100, after: $after, query: "-tag:koshoy-tasarim") {
       pageInfo { hasNextPage endCursor }
       nodes {
         title
