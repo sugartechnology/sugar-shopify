@@ -168,9 +168,9 @@ describe("bundler", () => {
     ]);
   });
 
-  it("reuses a finished bundle without writing", async () => {
+  it("reuses a finished bundle, only re-publishing it", async () => {
     const { admin, ops } = fakeAdmin(true);
     assert.equal(await createKoshoyBundler(admin, "b.myshopify.com").ensure(spec), 99);
-    assert.deepEqual(ops, ["KoshoyBundleFind"]);
+    assert.deepEqual(ops, ["KoshoyBundleFind", "KoshoyPublications", "KoshoyBundlePublish"]);
   });
 });

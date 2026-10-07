@@ -106,7 +106,10 @@ export function bundleSpec(
   return {
     title: bundleTitle(kind, composition, quote),
     productType: BUNDLE_TYPES[kind] ?? "Dolap",
-    components: [...merged].map(([variantId, quantity]) => ({ variantId, quantity })),
+    components: [...merged].map(([variantId, quantity]) => ({
+      variantId,
+      quantity,
+    })),
     priceCents: quote.totalCents,
   };
 }
@@ -186,11 +189,9 @@ const inflight = new Map<string, Promise<number>>();
 async function onlineStorePublicationId(admin: KoshoyAdminGraphql, shop: string): Promise<string> {
   const cached = onlineStoreByShop.get(shop);
   if (cached) return cached;
-  const data = await gql<{ publications: { nodes: Array<{ id: string; name: string }> } }>(
-    admin,
-    PUBLICATIONS_QUERY,
-    {},
-  );
+  const data = await gql<{
+    publications: { nodes: Array<{ id: string; name: string }> };
+  }>(admin, PUBLICATIONS_QUERY, {});
   const found = data.publications.nodes.find((p) => /online store|çevrimiçi mağaza/i.test(p.name));
   if (!found) throw new Error("Online Store publication not found");
   onlineStoreByShop.set(shop, found.id);
@@ -211,15 +212,22 @@ async function createProduct(
   };
   type CreateData = {
     productCreate: {
-      product: { id: string; variants: { nodes: Array<{ id: string }> } } | null;
+      product: {
+        id: string;
+        variants: { nodes: Array<{ id: string }> };
+      } | null;
       userErrors: Array<{ field?: string[]; message?: string }>;
     };
   };
-  let data = await gql<CreateData>(admin, CREATE_MUTATION, { product: { ...base, status: "UNLISTED" } });
+  let data = await gql<CreateData>(admin, CREATE_MUTATION, {
+    product: { ...base, status: "UNLISTED" },
+  });
   if (data.productCreate.userErrors.length) {
     // Shops without the UNLISTED status: fall back to ACTIVE.
     console.warn("[koshoy] bundle UNLISTED refused", data.productCreate.userErrors);
-    data = await gql<CreateData>(admin, CREATE_MUTATION, { product: { ...base, status: "ACTIVE" } });
+    data = await gql<CreateData>(admin, CREATE_MUTATION, {
+      product: { ...base, status: "ACTIVE" },
+    });
   }
   assertNoUserErrors("productCreate", data.productCreate.userErrors);
   const product = data.productCreate.product;
@@ -236,42 +244,55 @@ async function completeBundle(
   variantId: string,
   hasComponents: boolean,
 ) {
-  const price = await gql<{ productVariantsBulkUpdate: { userErrors: Array<{ message?: string }> } }>(
-    admin,
-    PRICE_MUTATION,
-    {
-      productId,
-      variants: [{ id: variantId, price: centsToMoney(spec.priceCents), inventoryItem: { tracked: false } }],
-    },
-  );
+  await setPrice(admin, spec, productId, variantId);
+  if (!hasComponents) await linkComponents(admin, spec, variantId);
+  await publishToOnlineStore(admin, shop, productId);
+}
+
+async function setPrice(admin: KoshoyAdminGraphql, spec: BundleSpec, productId: string, variantId: string) {
+  const price = await gql<{
+    productVariantsBulkUpdate: { userErrors: Array<{ message?: string }> };
+  }>(admin, PRICE_MUTATION, {
+    productId,
+    variants: [
+      {
+        id: variantId,
+        price: centsToMoney(spec.priceCents),
+        inventoryItem: { tracked: false },
+      },
+    ],
+  });
   assertNoUserErrors("productVariantsBulkUpdate", price.productVariantsBulkUpdate.userErrors);
+}
 
-  if (!hasComponents) {
-    const relation = await gql<{
-      productVariantRelationshipBulkUpdate: { userErrors: Array<{ message?: string }> };
-    }>(admin, RELATION_MUTATION, {
-      input: [
-        {
-          parentProductVariantId: variantId,
-          productVariantRelationshipsToCreate: spec.components.map((c) => ({
-            id: variantGid(c.variantId),
-            quantity: c.quantity,
-          })),
-        },
-      ],
-    });
-    assertNoUserErrors(
-      "productVariantRelationshipBulkUpdate",
-      relation.productVariantRelationshipBulkUpdate.userErrors,
-    );
-  }
-
-  const publicationId = await onlineStorePublicationId(admin, shop);
-  const publish = await gql<{ publishablePublish: { userErrors: Array<{ message?: string }> } }>(
-    admin,
-    PUBLISH_MUTATION,
-    { id: productId, input: [{ publicationId }] },
+async function linkComponents(admin: KoshoyAdminGraphql, spec: BundleSpec, variantId: string) {
+  const relation = await gql<{
+    productVariantRelationshipBulkUpdate: {
+      userErrors: Array<{ message?: string }>;
+    };
+  }>(admin, RELATION_MUTATION, {
+    input: [
+      {
+        parentProductVariantId: variantId,
+        productVariantRelationshipsToCreate: spec.components.map((c) => ({
+          id: variantGid(c.variantId),
+          quantity: c.quantity,
+        })),
+      },
+    ],
+  });
+  assertNoUserErrors(
+    "productVariantRelationshipBulkUpdate",
+    relation.productVariantRelationshipBulkUpdate.userErrors,
   );
+}
+
+/** Idempotent: publishing an already published product is a no-op. */
+async function publishToOnlineStore(admin: KoshoyAdminGraphql, shop: string, productId: string) {
+  const publicationId = await onlineStorePublicationId(admin, shop);
+  const publish = await gql<{
+    publishablePublish: { userErrors: Array<{ message?: string }> };
+  }>(admin, PUBLISH_MUTATION, { id: productId, input: [{ publicationId }] });
   assertNoUserErrors("publishablePublish", publish.publishablePublish.userErrors);
 }
 
@@ -280,7 +301,13 @@ async function ensureBundle(admin: KoshoyAdminGraphql, shop: string, spec: Bundl
   const found = await gql<{
     productByIdentifier: {
       id: string;
-      variants: { nodes: Array<{ id: string; price: string; requiresComponents: boolean }> };
+      variants: {
+        nodes: Array<{
+          id: string;
+          price: string;
+          requiresComponents: boolean;
+        }>;
+      };
     } | null;
   }>(admin, FIND_QUERY, { handle });
 
@@ -290,7 +317,17 @@ async function ensureBundle(admin: KoshoyAdminGraphql, shop: string, spec: Bundl
     const priced = Math.round(Number(existingVariant.price) * 100) === spec.priceCents;
     if (!priced || !existingVariant.requiresComponents) {
       // A previous attempt stopped half way: finish it.
-      await completeBundle(admin, shop, spec, existing.id, existingVariant.id, existingVariant.requiresComponents);
+      await completeBundle(
+        admin,
+        shop,
+        spec,
+        existing.id,
+        existingVariant.id,
+        existingVariant.requiresComponents,
+      );
+    } else {
+      // The last step may be the one that failed.
+      await publishToOnlineStore(admin, shop, existing.id);
     }
     const id = variantGidToNumber(existingVariant.id);
     if (id === null) throw new Error("bad bundle variant id");
