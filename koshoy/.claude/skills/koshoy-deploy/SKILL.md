@@ -8,6 +8,8 @@ description: How Koshoy Studio (sugar-shopify/koshoy) reaches production — Coo
 ## Sunucu (Coolify) — push = deploy
 - Coolify uygulaması: `koshoy-studio` (proje `shopify`, ortam production, sunucu `application-server`), kaynak `sugartechnology/sugar-shopify`, klasör `/koshoy`, Dockerfile.
 - **Coolify, izlediği branch'e push gelince otomatik deploy eder. Ayrıca Coolify API'sinden ya da panelden deploy tetikleme.** Sadece commit + `git push`.
+- İstisna: otomatik deploy dış bir sebeple (ör. GitHub API zaman aşımı) `failed` olursa aynı commit'i bir kez `GET /api/v1/deploy?uuid=<app>` ile yeniden dene ve kullanıcıya söyle.
+- Fiyat kaynağı Shopify ürün adları (SKU yok): `Bakay WxHxD mm` gövde, `Acıbay` kapak, `Acıbay Çekmece` çekmece önü, `Sırgak` çekmece, `Tekçe` raf, `Tündük` taç, `Gardırop Askısı W`. Canlıda `KOSHOY_PRICE_MOCK=0`.
 - İzlenen branch şu an `feature/koshoy-backend` (PR merge olunca `master`'a çevrilecek).
 - Canlı adres: https://koshoy.sugartech.io — kontrol: `POST /apps/koshoy/studio/session` doğrudan çağrılınca 401 + `{"ok":false,"error":"unavailable",…}` beklenir (imza yok demek, sunucu ayakta).
 - Uçtan uca kontrol mağaza üzerinden: `POST https://www.koshoy.com/apps/koshoy/studio/session` → 200 + `enabled:true`.
