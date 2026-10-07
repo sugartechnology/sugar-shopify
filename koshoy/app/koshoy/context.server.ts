@@ -1,12 +1,12 @@
 /**
  * Builds the Koshoy request context from an App Proxy request
- * (/apps/koshoy/studio/* on the storefront → /apps/sugar/studio/* here).
+ * (/apps/koshoy/studio/* on the storefront → /apps/koshoy/studio/* here).
  * The only Koshoy module that touches Shopify auth, Prisma and shop config.
  */
 import prisma from "../db.server";
 import { authenticate } from "../shopify.server";
-import { getShopConfig } from "../services/shop-config.server";
-import { getShopApiKey, isSugarApiMockMode } from "../services/sugar-api.server";
+import { isLlmGatewayConfigured } from "../services/llm-gateway.server";
+import { getShopApiKey } from "../services/shop-credentials.server";
 import { getCabinetEngine } from "./engine";
 import type { KoshoyRequestContext } from "./handlers.server";
 import {
@@ -17,7 +17,6 @@ import {
 import { createBusyLock, createRateLimiter, KOSHOY_LIMITS } from "./rate-limit.server";
 import { createKoshoyStore, type KoshoyDb } from "./store.server";
 
-// Typed through KoshoyDb until `prisma generate` has picked up the Koshoy models.
 const store = createKoshoyStore(prisma as unknown as KoshoyDb);
 const limits = {
   turn: createRateLimiter(KOSHOY_LIMITS.turn),
@@ -80,17 +79,15 @@ export async function koshoyContextFromProxy(
     limits,
     busy,
     async chatConfig() {
-      if (envFlag("KOSHOY_CHAT_MOCK") || isSugarApiMockMode()) {
+      if (envFlag("KOSHOY_CHAT_MOCK") || !isLlmGatewayConfigured()) {
         return { apiKey: "", mock: true };
       }
-      // Local devenv only: the dev shop has no real Admin API access, so its
-      // shop config (where the Sugar API key lives) cannot be read.
+      // Local/dev override (never in production): skips the ShopCredential lookup.
       const devKey = (process.env.KOSHOY_DEV_SUGAR_API_KEY ?? "").trim();
       if (devKey && process.env.NODE_ENV !== "production") {
         return { apiKey: devKey, mock: false };
       }
-      const config = await getShopConfig(shopAdmin as Parameters<typeof getShopConfig>[0]);
-      const apiKey = getShopApiKey(config);
+      const apiKey = await getShopApiKey(shop);
       if (!apiKey) throw new Error("Shop API key is not configured");
       return { apiKey, mock: false };
     },

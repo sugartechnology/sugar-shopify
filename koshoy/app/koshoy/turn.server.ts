@@ -5,9 +5,9 @@
  */
 import { randomUUID } from "node:crypto";
 import {
-  streamTagserviceShoppingResponses,
-  type DecorAiStreamEvent,
-} from "../services/tagservice-shopping.server";
+  streamLlmGatewayResponses,
+  type LlmStreamEvent,
+} from "../services/llm-gateway.server";
 import {
   CABIN_COLOR_IDS,
   CABIN_COLOR_LABELS,
@@ -69,7 +69,7 @@ const BRIEF_FIELD_MAX = { room: 60, style: 60, notes: 160 } as const;
 export type KoshoyStreamFn = (
   apiKey: string,
   body: Record<string, unknown>,
-  onEvent: (event: DecorAiStreamEvent) => void,
+  onEvent: (event: LlmStreamEvent) => void,
   signal?: AbortSignal,
 ) => Promise<void>;
 
@@ -174,8 +174,8 @@ function throwIfStopped(stop: TurnStop) {
  */
 async function streamUntilStopped(
   stop: TurnStop,
-  run: (onEvent: (event: DecorAiStreamEvent) => void, signal: AbortSignal) => Promise<void>,
-  onEvent: (event: DecorAiStreamEvent) => void,
+  run: (onEvent: (event: LlmStreamEvent) => void, signal: AbortSignal) => Promise<void>,
+  onEvent: (event: LlmStreamEvent) => void,
 ) {
   throwIfStopped(stop);
   let live = true;
@@ -518,7 +518,7 @@ function publishText(ctx: TurnContext, raw: string) {
 
 async function runModelTurn(ctx: TurnContext, client: ClientInput) {
   const { session, deps } = ctx;
-  const stream = deps.stream ?? streamTagserviceShoppingResponses;
+  const stream = deps.stream ?? streamLlmGatewayResponses;
   const lastUserText = clientText(client);
   const first = startKoshoyHop(session, client);
   let message = first.message;

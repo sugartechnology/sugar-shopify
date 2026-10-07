@@ -1,20 +1,20 @@
 /**
  * Vendors the pure cabinet core (3d-room-designer src/core/cabinet) into
- * app/koshoy/cabinet-core so the Koshoy backend prices and validates with the
+ * app/koshoy/cabinet-core so Koshoy Studio prices and validates with the
  * exact rules the 3D view draws.
  *
  *   npm run sync:cabinet-core            copy (tests excluded)
  *   npm run sync:cabinet-core -- --check exit 1 when the copy is out of date
  *
- * Source: $CABINET_CORE_SRC, default ../3d-room-designer/src/core/cabinet
- * (relative to this repo's root; the 3D repo is a sibling checkout).
+ * Source: $CABINET_CORE_SRC, default ../../3d-room-designer/src/core/cabinet
+ * (relative to koshoy/; the 3D repo is a sibling of the sugar-shopify checkout).
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const SRC = resolve(ROOT, process.env.CABINET_CORE_SRC || "../3d-room-designer/src/core/cabinet");
+const SRC = resolve(ROOT, process.env.CABINET_CORE_SRC || "../../3d-room-designer/src/core/cabinet");
 const DEST = join(ROOT, "app/koshoy/cabinet-core");
 const HEADER =
   "// generated — do not edit, run npm run sync:cabinet-core\n" +

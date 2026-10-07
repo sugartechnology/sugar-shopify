@@ -1,0 +1,33 @@
+# Koshoy Studio — custom distribution (Koshoy store only).
+# https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "7a195e853600e41bb125b39256b3da51"
+name = "Koshoy Studio"
+application_url = "https://koshoy.sugartech.io"
+embedded = true
+# Only this folder; never the root app, connect/ or extensions.
+web_directories = ["."]
+extension_directories = []
+
+[access_scopes]
+scopes = "read_products,write_products"
+
+[auth]
+redirect_urls = [ "https://koshoy.sugartech.io/auth/callback" ]
+
+[app_proxy]
+# Storefront /apps/koshoy/* → https://koshoy.sugartech.io/apps/koshoy/* (routes apps.koshoy.studio.*)
+url = "https://koshoy.sugartech.io/apps/koshoy"
+subpath = "koshoy"
+prefix = "apps"
+
+[webhooks]
+api_version = "2027-01"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true

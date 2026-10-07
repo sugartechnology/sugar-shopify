@@ -3,6 +3,8 @@
 client_id = "fb637727ba79d899ffbefcf10aa09f69"
 application_url = "https://storefront.sugartech.io"
 embedded = true
+# Root app only; connect/ and koshoy/ are separate apps with their own config.
+web_directories = ["."]
 name = "Sugar Room Studio"
 
 [access_scopes]

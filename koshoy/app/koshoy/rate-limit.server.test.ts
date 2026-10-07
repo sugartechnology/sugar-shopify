@@ -7,7 +7,7 @@ const SHOP = "koshoy.myshopify.com";
 function request(forwardedFor?: string): Request {
   const headers: Record<string, string> = {};
   if (forwardedFor !== undefined) headers["X-Forwarded-For"] = forwardedFor;
-  return new Request("https://app.test/apps/sugar/studio/session", { method: "POST", headers });
+  return new Request("https://app.test/apps/koshoy/studio/session", { method: "POST", headers });
 }
 
 describe("koshoy rate limits", () => {

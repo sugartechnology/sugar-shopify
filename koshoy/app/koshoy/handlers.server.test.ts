@@ -76,7 +76,7 @@ function post(
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
   if (options.accept) headers.Accept = options.accept;
   if (options.ip) headers["X-Forwarded-For"] = `${options.ip}, 23.227.38.1`;
-  return new Request(`https://app.test/apps/sugar/studio/${path}`, {
+  return new Request(`https://app.test/apps/koshoy/studio/${path}`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
@@ -685,7 +685,7 @@ describe("koshoy studio handlers", () => {
     });
     const open = (forwardedFor: string) =>
       handleKoshoySession(
-        new Request("https://app.test/apps/sugar/studio/session", {
+        new Request("https://app.test/apps/koshoy/studio/session", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Forwarded-For": forwardedFor },
           body: "{}",

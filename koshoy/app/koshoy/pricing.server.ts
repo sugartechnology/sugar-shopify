@@ -3,7 +3,7 @@
  * price. Shopify is the only price authority; an unresolved SKU never gets a
  * guessed price, the display becomes [FİYAT] and the SKU is logged.
  */
-import { gidToNumericId } from "../services/resolve-shopify-products.server";
+import { gidToNumericId } from "../services/shopify-ids";
 import type { BomPart, CabinComposition, CabinetEngine } from "./engine";
 import { PRICE_PLACEHOLDER } from "./events";
 
