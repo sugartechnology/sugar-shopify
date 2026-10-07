@@ -20,6 +20,7 @@ export interface RequiredSku {
 }
 
 export interface ShopVariant {
+  variantId: string;
   productTitle: string;
   productStatus: string;
   variantTitle: string;
@@ -52,9 +53,23 @@ export function requiredTemplateSkus(engine: CabinetEngine): RequiredSku[] {
   return [...out.values()].sort((a, b) => a.sku.localeCompare(b.sku));
 }
 
+/** Shop product titles are the part keys; SKUs match too once the shop adds them. */
+export function partKeyOf(value: string): string {
+  return value.normalize("NFC").replace(/\s+/g, " ").trim().toLocaleLowerCase("tr-TR");
+}
+
+export function variantsByPartKey(variants: readonly ShopVariant[]): Map<string, ShopVariant> {
+  const out = new Map<string, ShopVariant>();
+  for (const variant of variants) {
+    const keys = [variant.productTitle, variant.sku].filter(Boolean).map(partKeyOf);
+    for (const key of keys) if (!out.has(key)) out.set(key, variant);
+  }
+  return out;
+}
+
 export function auditSkus(required: readonly RequiredSku[], variants: readonly ShopVariant[]): SkuAuditRow[] {
-  const bySku = new Map(variants.filter((v) => v.sku).map((v) => [v.sku.trim().toUpperCase(), v]));
-  return required.map((row) => ({ ...row, found: bySku.get(row.sku.toUpperCase()) ?? null }));
+  const byKey = variantsByPartKey(variants);
+  return required.map((row) => ({ ...row, found: byKey.get(partKeyOf(row.sku)) ?? null }));
 }
 
 const PRODUCTS_QUERY = `#graphql
@@ -64,7 +79,7 @@ const PRODUCTS_QUERY = `#graphql
       nodes {
         title
         status
-        variants(first: 100) { nodes { title sku price } }
+        variants(first: 100) { nodes { id title sku price } }
       }
     }
   }`;
@@ -76,22 +91,25 @@ export async function fetchShopVariants(admin: KoshoyAdminGraphql, maxPages = 10
   for (let page = 0; page < maxPages; page += 1) {
     const response = await admin.graphql(PRODUCTS_QUERY, { variables: { after } });
     const json = (await response.json()) as {
+      errors?: unknown;
       data?: {
         products?: {
           pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
           nodes?: Array<{
             title?: string;
             status?: string;
-            variants?: { nodes?: Array<{ title?: string; sku?: string | null; price?: unknown }> };
+            variants?: { nodes?: Array<{ id?: string; title?: string; sku?: string | null; price?: unknown }> };
           }>;
         };
       };
     };
     const products = json.data?.products;
-    if (!products) break;
+    // Never return a partial/empty catalog as if it were complete.
+    if (json.errors || !products) throw new Error("Shopify product read failed");
     for (const product of products.nodes ?? []) {
       for (const variant of product.variants?.nodes ?? []) {
         out.push({
+          variantId: String(variant.id ?? ""),
           productTitle: String(product.title ?? ""),
           productStatus: String(product.status ?? ""),
           variantTitle: String(variant.title ?? ""),

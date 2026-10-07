@@ -4,6 +4,7 @@
  * guessed price, the display becomes [FİYAT] and the SKU is logged.
  */
 import { gidToNumericId } from "../services/shopify-ids";
+import { fetchShopVariants, partKeyOf, variantsByPartKey, type ShopVariant } from "./sku-audit.server";
 import type { BomPart, CabinComposition, CabinetEngine } from "./engine";
 import { PRICE_PLACEHOLDER } from "./events";
 
@@ -42,8 +43,6 @@ export interface KoshoyPricer {
 }
 
 const POSITIVE_TTL_MS = 5 * 60 * 1000;
-const NEGATIVE_TTL_MS = 60 * 1000;
-const SKUS_PER_QUERY = 25;
 
 /** tr-TR money display, e.g. 1595814 → "15.958,14 TL". */
 export function formatTl(cents: number): string {
@@ -71,10 +70,10 @@ export function variantGidToNumber(gid: string): number | null {
 
 /** Spike numbers (MCP × 1.10); `*` matches any colour suffix. */
 export const KOSHOY_MOCK_PRICES: ReadonlyArray<{ pattern: string; price: string }> = [
-  { pattern: "GOVDE-960-2304-640-*", price: "6425.00" },
-  { pattern: "KAPAK-477-2237-*", price: "1069.43" },
-  { pattern: "RAF-960-640-*", price: "573.28" },
-  { pattern: "ASKI-960", price: "396.00" },
+  { pattern: "Bakay 960x2304x640 mm", price: "6425.00" },
+  { pattern: "Acıbay 477x2237x0 mm", price: "1069.43" },
+  { pattern: "Tekçe 960x0x640 mm", price: "573.28" },
+  { pattern: "Gardırop Askısı 960", price: "396.00" },
 ];
 
 export function isKoshoyPriceMock(): boolean {
@@ -118,70 +117,46 @@ export function createMockSkuResolver(
 
 /* ---------------- Shopify Admin resolver ---------------- */
 
-const VARIANTS_BY_SKU_QUERY = `#graphql
-  query KoshoyVariantsBySku($query: String!, $first: Int!) {
-    productVariants(first: $first, query: $query) {
-      nodes {
-        id
-        sku
-        price
-      }
-    }
-  }
-`;
-
-type CacheEntry = { value: SkuPrice | null; expiresAt: number };
-const sharedCache = new Map<string, CacheEntry>();
+/**
+ * Koshoy's parts are products named by type + size (no SKUs). The whole part
+ * catalog (~260 products) is read once per shop and kept for a few minutes;
+ * every BOM key is then matched by exact title (or SKU, if the shop adds one).
+ */
+type CatalogEntry = { byKey: Map<string, SkuPrice>; expiresAt: number };
+const sharedCatalogs = new Map<string, CatalogEntry>();
 
 export function createShopifySkuResolver(
   admin: KoshoyAdminGraphql,
   shop: string,
-  options: { cache?: Map<string, CacheEntry>; now?: () => number } = {},
+  options: {
+    cache?: Map<string, CatalogEntry>;
+    now?: () => number;
+    fetchVariants?: (admin: KoshoyAdminGraphql) => Promise<ShopVariant[]>;
+  } = {},
 ): SkuResolver {
-  const cache = options.cache ?? sharedCache;
+  const cache = options.cache ?? sharedCatalogs;
   const now = options.now ?? Date.now;
+  const fetchVariants = options.fetchVariants ?? fetchShopVariants;
 
-  return async (skus) => {
-    const out = new Map<string, SkuPrice>();
-    const missing: string[] = [];
-    for (const sku of skus) {
-      const hit = cache.get(`${shop}|${sku}`);
-      if (hit && hit.expiresAt > now()) {
-        if (hit.value) out.set(sku, hit.value);
-        continue;
-      }
-      missing.push(sku);
+  async function catalog(): Promise<Map<string, SkuPrice>> {
+    const hit = cache.get(shop);
+    if (hit && hit.expiresAt > now()) return hit.byKey;
+    const byKey = new Map<string, SkuPrice>();
+    for (const [key, variant] of variantsByPartKey(await fetchVariants(admin))) {
+      const variantId = variantGidToNumber(variant.variantId);
+      const priceCents = moneyToCents(variant.price);
+      if (variantId && priceCents !== null) byKey.set(key, { variantId, priceCents });
     }
+    cache.set(shop, { byKey, expiresAt: now() + POSITIVE_TTL_MS });
+    return byKey;
+  }
 
-    for (let offset = 0; offset < missing.length; offset += SKUS_PER_QUERY) {
-      const batch = missing.slice(offset, offset + SKUS_PER_QUERY);
-      const query = batch.map((sku) => `sku:"${sku.replace(/["\\]/g, "")}"`).join(" OR ");
-      const response = await admin.graphql(VARIANTS_BY_SKU_QUERY, {
-        variables: { query, first: Math.min(250, batch.length * 4) },
-      });
-      const json = (await response.json()) as {
-        data?: { productVariants?: { nodes?: Array<{ id?: string; sku?: string | null; price?: unknown }> } };
-        errors?: unknown;
-      };
-      if (json.errors || !json.data?.productVariants) {
-        throw new Error("Variant lookup failed");
-      }
-      const found = new Map<string, SkuPrice>();
-      for (const node of json.data.productVariants.nodes ?? []) {
-        const sku = String(node?.sku ?? "");
-        if (!batch.includes(sku) || found.has(sku)) continue;
-        const variantId = variantGidToNumber(String(node?.id ?? ""));
-        const priceCents = moneyToCents(node?.price);
-        if (variantId && priceCents !== null) found.set(sku, { variantId, priceCents });
-      }
-      for (const sku of batch) {
-        const value = found.get(sku) ?? null;
-        cache.set(`${shop}|${sku}`, {
-          value,
-          expiresAt: now() + (value ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS),
-        });
-        if (value) out.set(sku, value);
-      }
+  return async (keys) => {
+    const byKey = await catalog();
+    const out = new Map<string, SkuPrice>();
+    for (const key of keys) {
+      const value = byKey.get(partKeyOf(key));
+      if (value) out.set(key, value);
     }
     return out;
   };
@@ -189,7 +164,7 @@ export function createShopifySkuResolver(
 
 /**
  * Resolver for a shop: the spike price table when KOSHOY_PRICE_MOCK=1 (no
- * Shopify calls), otherwise Admin GraphQL productVariants by SKU.
+ * Shopify calls), otherwise the shop's part catalog matched by product title.
  */
 export function createKoshoySkuResolver(admin: KoshoyAdminGraphql, shop: string): SkuResolver {
   return isKoshoyPriceMock() ? createMockSkuResolver() : createShopifySkuResolver(admin, shop);

@@ -8,7 +8,8 @@ import {
   DESIGN_KINDS,
   getCabinetEngine,
   KOSHOY_MAX_FITTINGS_PER_UNIT,
-  KOSHOY_SKU_CONVENTION,
+  koshoyPartTitle,
+  type BomLine,
   type CabinComposition,
 } from "./engine";
 
@@ -59,38 +60,24 @@ describe("koshoy cabinet engine contract", () => {
     ]);
   });
 
-  it("maps BOM lines to the placeholder SKU convention", () => {
+  it("maps BOM lines to Koshoy's Shopify part titles", () => {
     assert.deepEqual(engine.toBom(GOLDEN).map((line) => engine.skuFor(line)), [
-      "GOVDE-960-2304-640-WOOD",
-      "KAPAK-477-2237-WOOD",
-      "RAF-960-640-WOOD",
-      "ASKI-960",
+      "Bakay 960x2304x640 mm",
+      "Acıbay 477x2237x0 mm",
+      "Tekçe 960x0x640 mm",
+      "Gardırop Askısı 960",
     ]);
-    assert.equal(
-      engine.skuFor({
-        part: "GOVDE",
-        widthMm: 480,
-        heightMm: 544,
-        depthMm: 480,
-        color: "ivory",
-        plinth: false,
-        qty: 1,
-      }),
-      "GOVDE-480-544-480-IVORY-BAZASIZ",
-    );
+    const title = (part: string, widthMm: number, heightMm: number, depthMm: number, extra = {}) =>
+      koshoyPartTitle({ part, widthMm, heightMm, depthMm, color: "ivory", qty: 1, ...extra } as BomLine);
+    assert.equal(title("CEKMECE_ON", 477, 157, 0), "Acıbay Çekmece 480x160x0 mm", "drawer fronts by nominal size");
+    assert.equal(title("CEKMECE", 960, 320, 480), "Sırgak 960x320x480 mm");
+    assert.equal(title("TAC", 960, 25, 640), "Tündük 960x25x640 mm");
+    assert.equal(title("GOVDE", 480, 544, 480, { plinth: false }), "Bakay 480x544x480 mm (bazasız)");
   });
 
-  it("keeps the SKU convention swappable in one place", () => {
-    const custom = createCabinetEngine({
-      ...KOSHOY_SKU_CONVENTION,
-      colorCodes: { wood: "MESE", ivory: "BEYAZ", blue: "MAVI" },
-    });
-    assert.deepEqual(custom.toBom(GOLDEN).map((line) => custom.skuFor(line)), [
-      "GOVDE-960-2304-640-MESE",
-      "KAPAK-477-2237-MESE",
-      "RAF-960-640-MESE",
-      "ASKI-960",
-    ]);
+  it("keeps the part key swappable in one place", () => {
+    const custom = createCabinetEngine((line) => `${line.part}-${line.widthMm}`);
+    assert.deepEqual(custom.toBom(GOLDEN).map((line) => custom.skuFor(line)), ["GOVDE-960", "KAPAK-477", "RAF-960", "ASKI-960"]);
   });
 
   it("mirrors the core vocabularies", () => {

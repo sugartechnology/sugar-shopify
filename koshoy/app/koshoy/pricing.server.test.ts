@@ -31,12 +31,26 @@ const GOLDEN: CabinComposition = {
   hasPlinth: true,
 };
 
-function fakeAdmin(nodes: Array<{ id: string; sku: string; price: string }>) {
+/** Shop part products: no SKUs, one default variant each, named by type + size. */
+function fakeAdmin(nodes: Array<{ id: string; title: string; price: string }>) {
   const calls: Array<Record<string, unknown> | undefined> = [];
   const admin: KoshoyAdminGraphql = {
     async graphql(_query, options) {
       calls.push(options?.variables);
-      return new Response(JSON.stringify({ data: { productVariants: { nodes } } }));
+      return new Response(
+        JSON.stringify({
+          data: {
+            products: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: nodes.map((node) => ({
+                title: node.title,
+                status: "ACTIVE",
+                variants: { nodes: [{ id: node.id, title: "Default Title", sku: "", price: node.price }] },
+              })),
+            },
+          },
+        }),
+      );
     },
   };
   return { admin, calls };
@@ -80,10 +94,10 @@ describe("koshoy pricing", () => {
     assert.deepEqual(
       quote.lines.map((line) => [line.sku, line.qty, line.unitCents]),
       [
-        ["GOVDE-960-2304-640-WOOD", 2, 642500],
-        ["KAPAK-477-2237-WOOD", 2, 106943],
-        ["RAF-960-640-WOOD", 1, 57328],
-        ["ASKI-960", 1, 39600],
+        ["Bakay 960x2304x640 mm", 2, 642500],
+        ["Acıbay 477x2237x0 mm", 2, 106943],
+        ["Tekçe 960x0x640 mm", 1, 57328],
+        ["Gardırop Askısı 960", 1, 39600],
       ],
     );
     assert.equal(calls.length, 0);
@@ -96,12 +110,12 @@ describe("koshoy pricing", () => {
   it("never guesses: an unresolved SKU makes the price [FİYAT]", async () => {
     const pricer = createKoshoyPricer(
       cabinetEngine,
-      createMockSkuResolver([{ pattern: "GOVDE-*", price: "10.00" }]),
+      createMockSkuResolver([{ pattern: "Bakay *", price: "10.00" }]),
     );
     const quote = await pricer.quote(GOLDEN);
     assert.equal(quote.display, "[FİYAT]");
     assert.equal(quote.totalCents, null);
-    assert.deepEqual(quote.unresolved.sort(), ["ASKI-960", "KAPAK-477-2237-WOOD", "RAF-960-640-WOOD"]);
+    assert.deepEqual(quote.unresolved.sort(), ["Acıbay 477x2237x0 mm", "Gardırop Askısı 960", "Tekçe 960x0x640 mm"]);
     assert.ok(
       errors.mock.calls.some(
         (call) => call.arguments[0] === "[koshoy] unresolved sku" && Array.isArray(call.arguments[1]),
@@ -116,7 +130,7 @@ describe("koshoy pricing", () => {
     const plan = cabinetEngine.planCabinet({ kind: "gardirop" });
     const quote = await createKoshoyPricer(cabinetEngine, createMockSkuResolver()).quote(plan.composition);
     assert.equal(quote.display, "[FİYAT]");
-    assert.ok(quote.unresolved.includes("KAPAK-477-1597-WOOD"));
+    assert.ok(quote.unresolved.includes("Acıbay 477x1597x0 mm"));
   });
 
   it("builds /cart/add.js lines grouped under the design id", async () => {
@@ -142,15 +156,15 @@ describe("koshoy pricing", () => {
     assert.equal(variantGidToNumber("gid://shopify/ProductVariant/abc"), null);
   });
 
-  it("resolves SKUs from Shopify with exact match and caches them", async () => {
+  it("resolves parts by exact Shopify product title and caches the catalog", async () => {
     let now = 1_000;
     const { admin, calls } = fakeAdmin([
-      { id: "gid://shopify/ProductVariant/11", sku: "GOVDE-960-2304-640-WOOD", price: "6425.00" },
-      { id: "gid://shopify/ProductVariant/12", sku: "KAPAK-477-2237-WOOD", price: "1069.43" },
-      { id: "gid://shopify/ProductVariant/13", sku: "RAF-960-640-WOOD", price: "573.28" },
-      { id: "gid://shopify/ProductVariant/14", sku: "ASKI-960", price: "396.00" },
-      // fuzzy search noise must be ignored
-      { id: "gid://shopify/ProductVariant/99", sku: "ASKI-9600", price: "1.00" },
+      { id: "gid://shopify/ProductVariant/11", title: "Bakay 960x2304x640 mm", price: "6425.00" },
+      { id: "gid://shopify/ProductVariant/12", title: "Acıbay 477x2237x0 mm", price: "1069.43" },
+      { id: "gid://shopify/ProductVariant/13", title: "Tekçe 960x0x640 mm", price: "573.28" },
+      { id: "gid://shopify/ProductVariant/14", title: "Gardırop Askısı 960", price: "396.00" },
+      // near-miss titles must be ignored
+      { id: "gid://shopify/ProductVariant/99", title: "Gardırop Askısı 9600", price: "1.00" },
     ]);
     const resolver = createShopifySkuResolver(admin, "koshoy.myshopify.com", {
       cache: new Map(),
@@ -163,7 +177,7 @@ describe("koshoy pricing", () => {
       first.lines.map((line) => line.variantId),
       [11, 12, 13, 14],
     );
-    assert.match(String(calls[0]?.query), /sku:"ASKI-960"/);
+    assert.equal(calls.length, 1, "whole part catalog read once");
 
     await pricer.quote(GOLDEN);
     assert.equal(calls.length, 1, "second quote is served from cache");

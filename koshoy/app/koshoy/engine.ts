@@ -126,8 +126,35 @@ export interface CabinetEngine {
   normalizeComposition(composition: CabinComposition): CabinComposition;
 }
 
+/**
+ * Shopify product title of one BOM part. Koshoy's shop has no SKUs: every
+ * catalog part is its own product named by type + nominal size, e.g.
+ * "Bakay 960x2304x640 mm" (body), "Acıbay 477x2237x0 mm" (door leaf).
+ * Drawer fronts are listed by nominal width/band; the BOM keeps the 3 mm gap.
+ */
+export function koshoyPartTitle(line: BomLine): string {
+  const mm = (w: number, h: number, d: number) => `${w}x${h}x${d} mm`;
+  switch (line.part) {
+    case "GOVDE":
+      // Only bodies with plinth exist in the shop; a plinthless one stays unresolved.
+      return `Bakay ${mm(line.widthMm, line.heightMm, line.depthMm)}${line.plinth === false ? " (bazasız)" : ""}`;
+    case "KAPAK":
+      return `Acıbay ${mm(line.widthMm, line.heightMm, 0)}`;
+    case "CEKMECE_ON":
+      return `Acıbay Çekmece ${mm(line.widthMm + 3, line.heightMm + 3, 0)}`;
+    case "CEKMECE":
+      return `Sırgak ${mm(line.widthMm, line.heightMm, line.depthMm)}`;
+    case "RAF":
+      return `Tekçe ${mm(line.widthMm, 0, line.depthMm)}`;
+    case "TAC":
+      return `Tündük ${mm(line.widthMm, 25, line.depthMm)}`;
+    case "ASKI":
+      return `Gardırop Askısı ${line.widthMm}`;
+  }
+}
+
 export function createCabinetEngine(
-  convention: SkuConvention = KOSHOY_SKU_CONVENTION,
+  partKey: (line: BomLine) => string = koshoyPartTitle,
 ): CabinetEngine {
   return {
     planCabinet,
@@ -139,7 +166,7 @@ export function createCabinetEngine(
       return result;
     },
     toBom,
-    skuFor: (line) => skuFor(line, convention),
+    skuFor: partKey,
     normalizeComposition,
   };
 }

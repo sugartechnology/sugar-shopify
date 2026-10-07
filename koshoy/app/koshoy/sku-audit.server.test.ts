@@ -15,7 +15,7 @@ test("requiredTemplateSkus covers every template part, unique and sorted", () =>
 test("auditSkus matches case-insensitively and marks missing ones", () => {
   const [first, second] = requiredTemplateSkus(getCabinetEngine());
   const audit = auditSkus([first, second], [
-    { productTitle: "Gövde", productStatus: "DRAFT", variantTitle: "x", sku: first.sku.toLowerCase(), price: "10.00" },
+    { variantId: "gid://shopify/ProductVariant/1", productTitle: "Gövde", productStatus: "DRAFT", variantTitle: "x", sku: first.sku.toLowerCase(), price: "10.00" },
   ]);
   assert.equal(audit[0].found?.productTitle, "Gövde");
   assert.equal(audit[1].found, null);
