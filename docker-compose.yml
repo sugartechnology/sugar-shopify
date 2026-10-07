@@ -14,9 +14,9 @@ services:
     ports:
       - "${APP_PORT:-3000}:3000"
     volumes:
-      - sqlite_data_local:/app/prisma
+      - sqlite_data_local:/app/data
     environment:
-      DATABASE_URL: file:/app/prisma/dev.sqlite
+      DATABASE_URL: file:/app/data/dev.sqlite
       HOST: 0.0.0.0
       PORT: 3000
 
