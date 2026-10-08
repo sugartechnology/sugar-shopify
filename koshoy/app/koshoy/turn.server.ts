@@ -257,9 +257,13 @@ function isMissingToolOutput(data: unknown): boolean {
 function clientText(input: ClientInput): string {
   if (input.type === "message") return input.text;
   if (input.type === "choice") return input.label || input.selected;
+  // The screen already shows the cart outcome; the model must not invent a
+  // cause or a fix (it used to suggest reloading the page).
   return input.ok
     ? "Müşteri tasarımı sepete ekledi."
-    : "Müşteri tasarımı sepete ekleyemedi.";
+    : "Müşteri tasarımı sepete ekleyemedi; ekran hatayı zaten gösterdi. Sebep tahmin etme, " +
+        "sayfayı yenilemek gibi bir çözüm önerme. Tek cümleyle tasarımın kayıtlı kaldığını ve " +
+        "birazdan tekrar deneyebileceğini söyle.";
 }
 
 export function completePendingTools(
