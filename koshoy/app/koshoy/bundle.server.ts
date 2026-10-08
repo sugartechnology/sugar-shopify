@@ -10,6 +10,8 @@
  *   changed design or price gets a new product, an identical one is reused.
  * - Status UNLISTED + Online Store publication: buyable by link/cart, hidden
  *   from search and collections.
+ * - Bundles older than BUNDLE_MAX_AGE_DAYS are deleted (cleanupStaleBundles),
+ *   at most every 6 h per shop, piggybacking on add-to-cart.
  */
 import { createHash } from "node:crypto";
 import { CABIN_COLORS, DESIGN_KIND_LABELS, normalizeCabinColor } from "./cabinet-core";
@@ -341,6 +343,81 @@ async function ensureBundle(admin: KoshoyAdminGraphql, shop: string, spec: Bundl
   return id;
 }
 
+/* ---------------- cleanup ---------------- */
+
+/** Bundles older than this are deleted; Shopify carts expire after 14 days. */
+export const BUNDLE_MAX_AGE_DAYS = 30;
+const CLEANUP_EVERY_MS = 6 * 60 * 60 * 1000;
+const CLEANUP_BATCH = 25;
+const lastCleanupByShop = new Map<string, number>();
+
+const STALE_QUERY = `#graphql
+  query KoshoyStaleBundles($query: String!) {
+    products(first: ${CLEANUP_BATCH}, query: $query) {
+      nodes { id handle vendor tags createdAt }
+    }
+  }`;
+
+const DELETE_MUTATION = `#graphql
+  mutation KoshoyBundleDelete($input: ProductDeleteInput!) {
+    productDelete(input: $input) {
+      deletedProductId
+      userErrors { field message }
+    }
+  }`;
+
+/** Only products this app made: our tag, our handle prefix, our vendor. */
+export function isOwnBundle(product: { handle?: string; vendor?: string; tags?: string[] }): boolean {
+  return (
+    String(product.handle ?? "").startsWith(`${BUNDLE_TAG}-`) &&
+    product.vendor === "Koshoy" &&
+    (product.tags ?? []).includes(BUNDLE_TAG)
+  );
+}
+
+/**
+ * Deletes cart bundles older than BUNDLE_MAX_AGE_DAYS. Placed orders keep
+ * their own line snapshot, so they are unaffected. Returns the delete count.
+ */
+export async function cleanupStaleBundles(
+  admin: KoshoyAdminGraphql,
+  now: Date = new Date(),
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - BUNDLE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
+  const data = await gql<{
+    products: { nodes: Array<{ id: string; handle: string; vendor: string; tags: string[]; createdAt: string }> };
+  }>(admin, STALE_QUERY, { query: `tag:${BUNDLE_TAG} AND created_at:<'${cutoff.toISOString()}'` });
+
+  let deleted = 0;
+  for (const product of data.products.nodes) {
+    // The search index can be loose; re-check ownership and age here.
+    if (!isOwnBundle(product) || !(new Date(product.createdAt) < cutoff)) continue;
+    const result = await gql<{ productDelete: { userErrors: Array<{ message?: string }> } }>(
+      admin,
+      DELETE_MUTATION,
+      { input: { id: product.id } },
+    );
+    if (result.productDelete.userErrors.length) {
+      console.warn("[koshoy] bundle delete refused", product.id, result.productDelete.userErrors);
+      continue;
+    }
+    deleted += 1;
+  }
+  return deleted;
+}
+
+/** At most once per CLEANUP_EVERY_MS per shop; never blocks or fails the caller. */
+function maybeCleanup(admin: KoshoyAdminGraphql, shop: string) {
+  const now = Date.now();
+  if (now - (lastCleanupByShop.get(shop) ?? 0) < CLEANUP_EVERY_MS) return;
+  lastCleanupByShop.set(shop, now);
+  cleanupStaleBundles(admin)
+    .then((count) => {
+      if (count) console.info(`[koshoy] deleted ${count} stale cart bundles`, shop);
+    })
+    .catch((error) => console.error("[koshoy] bundle cleanup failed", error));
+}
+
 export function createKoshoyBundler(admin: KoshoyAdminGraphql, shop: string): KoshoyBundler {
   return {
     ensure(spec) {
@@ -350,6 +427,8 @@ export function createKoshoyBundler(admin: KoshoyAdminGraphql, shop: string): Ko
       if (running) return running;
       const job = ensureBundle(admin, shop, spec).finally(() => inflight.delete(key));
       inflight.set(key, job);
+      // Housekeeping runs only after a successful build, off the request path.
+      job.then(() => maybeCleanup(admin, shop)).catch(() => {});
       return job;
     },
   };

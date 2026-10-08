@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { bundleHandle, bundleSpec, bundleTitle, createKoshoyBundler, type BundleSpec } from "./bundle.server";
+import {
+  bundleHandle,
+  bundleSpec,
+  bundleTitle,
+  cleanupStaleBundles,
+  createKoshoyBundler,
+  isOwnBundle,
+  type BundleSpec,
+} from "./bundle.server";
 import { cabinetEngine, type CabinComposition } from "./engine";
 import {
   createKoshoyPricer,
@@ -114,6 +122,10 @@ describe("bundler", () => {
     const admin: KoshoyAdminGraphql = {
       async graphql(query, options) {
         const op = /(?:query|mutation) (\w+)/.exec(query)?.[1] ?? "?";
+        // Background cleanup is covered by its own tests.
+        if (op === "KoshoyStaleBundles") {
+          return new Response(JSON.stringify({ data: { products: { nodes: [] } } }));
+        }
         ops.push(op);
         vars.push(options?.variables ?? {});
         const data: unknown = ({
@@ -172,5 +184,48 @@ describe("bundler", () => {
     const { admin, ops } = fakeAdmin(true);
     assert.equal(await createKoshoyBundler(admin, "b.myshopify.com").ensure(spec), 99);
     assert.deepEqual(ops, ["KoshoyBundleFind", "KoshoyPublications", "KoshoyBundlePublish"]);
+  });
+});
+
+describe("stale bundle cleanup", () => {
+  const now = new Date("2026-10-08T00:00:00Z");
+  const own = { handle: "koshoy-tasarim-0123456789abcdef", vendor: "Koshoy", tags: ["koshoy-tasarim"] };
+
+  it("only touches products this app made", () => {
+    assert.equal(isOwnBundle(own), true);
+    assert.equal(isOwnBundle({ ...own, handle: "bakay-960x2304x640-mm" }), false);
+    assert.equal(isOwnBundle({ ...own, vendor: "PnP" }), false);
+    assert.equal(isOwnBundle({ ...own, tags: [] }), false);
+  });
+
+  it("deletes own bundles older than 30 days, skips the rest", async () => {
+    const deleted: string[] = [];
+    let search = "";
+    const admin: KoshoyAdminGraphql = {
+      async graphql(query, options) {
+        const vars = (options?.variables ?? {}) as Record<string, unknown>;
+        if (query.includes("KoshoyStaleBundles")) {
+          search = String(vars.query);
+          return new Response(
+            JSON.stringify({
+              data: {
+                products: {
+                  nodes: [
+                    { id: "old", ...own, createdAt: "2026-08-01T00:00:00Z" },
+                    { id: "fresh", ...own, createdAt: "2026-10-01T00:00:00Z" },
+                    { id: "foreign", ...own, vendor: "PnP", createdAt: "2026-08-01T00:00:00Z" },
+                  ],
+                },
+              },
+            }),
+          );
+        }
+        deleted.push(String((vars.input as { id: string }).id));
+        return new Response(JSON.stringify({ data: { productDelete: { deletedProductId: "x", userErrors: [] } } }));
+      },
+    };
+    assert.equal(await cleanupStaleBundles(admin, now), 1);
+    assert.deepEqual(deleted, ["old"]);
+    assert.match(search, /^tag:koshoy-tasarim AND created_at:<'2026-09-08T00:00:00.000Z'$/);
   });
 });
