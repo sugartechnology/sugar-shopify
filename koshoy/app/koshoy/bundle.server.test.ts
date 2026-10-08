@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import {
   bundleHandle,
   bundleSpec,
@@ -85,7 +85,7 @@ describe("bundle names (store content guide §4.1)", () => {
 describe("bundle spec", () => {
   it("builds from the real quote: one component per part variant, Σ price", async () => {
     const quote = await createKoshoyPricer(cabinetEngine, createMockSkuResolver()).quote(GOLDEN);
-    const spec = bundleSpec("gardirop", GOLDEN, quote);
+    const spec = bundleSpec("gardirop", GOLDEN, quote, "d1");
     assert.ok(spec);
     assert.equal(spec.priceCents, quote.totalCents);
     assert.equal(spec.title, "Gardırop 192 cm, 2 Kapaklı – Kırık Beyaz");
@@ -96,17 +96,20 @@ describe("bundle spec", () => {
     // Same design + price → same handle; any change → a new bundle.
     assert.equal(bundleHandle(spec), bundleHandle({ ...spec, components: [...spec.components].reverse() }));
     assert.notEqual(bundleHandle(spec), bundleHandle({ ...spec, priceCents: spec.priceCents + 1 }));
+    // Never shared across designs (each carries its own customer picture).
+    assert.notEqual(bundleHandle(spec), bundleHandle({ ...spec, designId: "d2" }));
     assert.match(bundleHandle(spec), /^koshoy-tasarim-[0-9a-f]{16}$/);
   });
 
   it("refuses unresolved quotes", () => {
-    assert.equal(bundleSpec("gardirop", GOLDEN, { ...quoteOf({ GOVDE: 2 }), unresolved: ["x"] }), null);
-    assert.equal(bundleSpec("gardirop", GOLDEN, { ...quoteOf({ GOVDE: 2 }), totalCents: null }), null);
+    assert.equal(bundleSpec("gardirop", GOLDEN, { ...quoteOf({ GOVDE: 2 }), unresolved: ["x"] }, "d1"), null);
+    assert.equal(bundleSpec("gardirop", GOLDEN, { ...quoteOf({ GOVDE: 2 }), totalCents: null }, "d1"), null);
   });
 });
 
 describe("bundler", () => {
   const spec: BundleSpec = {
+    designId: "d1",
     title: "Gardırop 96 cm, 2 Kapaklı – Ahşap",
     productType: "Gardırop",
     components: [
@@ -149,6 +152,15 @@ describe("bundler", () => {
             publications: { nodes: [{ id: "gid://shopify/Publication/1", name: "Online Store" }] },
           },
           KoshoyBundlePublish: { publishablePublish: { userErrors: [] } },
+          KoshoyBundleUpload: {
+            stagedUploadsCreate: {
+              stagedTargets: [
+                { url: "https://upload.test/", resourceUrl: "https://upload.test/r1", parameters: [{ name: "key", value: "k" }] },
+              ],
+              userErrors: [],
+            },
+          },
+          KoshoyBundleMedia: { productUpdate: { userErrors: [] } },
         } as Record<string, unknown>)[op];
         return new Response(JSON.stringify({ data }));
       },
@@ -227,5 +239,71 @@ describe("stale bundle cleanup", () => {
     assert.equal(await cleanupStaleBundles(admin, now), 1);
     assert.deepEqual(deleted, ["old"]);
     assert.match(search, /^tag:koshoy-tasarim AND created_at:<'2026-09-08T00:00:00.000Z'$/);
+  });
+});
+
+describe("bundle picture", () => {
+  const spec: BundleSpec = {
+    designId: "d9",
+    title: "Komodin 48 cm, 2 Çekmeceli – Ahşap",
+    productType: "Komodin",
+    components: [{ variantId: 11, quantity: 1 }],
+    priceCents: 100000,
+  };
+
+  it("uploads the JPEG and attaches it to a new bundle; a failed upload never blocks the cart", async () => {
+    for (const uploadOk of [true, false]) {
+      const ops: string[] = [];
+      const vars: Record<string, unknown>[] = [];
+      const admin: KoshoyAdminGraphql = {
+        async graphql(query, options) {
+          const op = /(?:query|mutation) (\w+)/.exec(query)?.[1] ?? "?";
+          if (op === "KoshoyStaleBundles") return new Response(JSON.stringify({ data: { products: { nodes: [] } } }));
+          ops.push(op);
+          vars.push(options?.variables ?? {});
+          const data = ({
+            KoshoyBundleFind: { productByIdentifier: null },
+            KoshoyBundleCreate: {
+              productCreate: {
+                product: { id: "gid://shopify/Product/9", variants: { nodes: [{ id: "gid://shopify/ProductVariant/99" }] } },
+                userErrors: [],
+              },
+            },
+            KoshoyBundlePrice: { productVariantsBulkUpdate: { userErrors: [] } },
+            KoshoyBundleComponents: { productVariantRelationshipBulkUpdate: { userErrors: [] } },
+            KoshoyPublications: { publications: { nodes: [{ id: "gid://shopify/Publication/1", name: "Online Store" }] } },
+            KoshoyBundlePublish: { publishablePublish: { userErrors: [] } },
+            KoshoyBundleUpload: {
+              stagedUploadsCreate: {
+                stagedTargets: [{ url: "https://upload.test/", resourceUrl: "https://upload.test/r1", parameters: [] }],
+                userErrors: [],
+              },
+            },
+            KoshoyBundleMedia: { productUpdate: { userErrors: [] } },
+          } as Record<string, unknown>)[op];
+          return new Response(JSON.stringify({ data }));
+        },
+      };
+      const fetchMock = mock.method(globalThis, "fetch", async () => new Response(null, { status: uploadOk ? 204 : 500 }));
+      const warn = mock.method(console, "warn", () => {});
+      try {
+        const id = await createKoshoyBundler(admin, `pic-${uploadOk}.myshopify.com`).ensure(
+          { ...spec, designId: `d-${uploadOk}` },
+          new Uint8Array([0xff, 0xd8, 0xff, 0x00]),
+        );
+        assert.equal(id, 99);
+        assert.equal(fetchMock.mock.callCount(), 1);
+        if (uploadOk) {
+          assert.equal(ops.at(-1), "KoshoyBundleMedia");
+          const media = (vars.at(-1) as { media: Array<Record<string, string>> }).media[0];
+          assert.deepEqual(media, { originalSource: "https://upload.test/r1", mediaContentType: "IMAGE", alt: spec.title });
+        } else {
+          assert.ok(!ops.includes("KoshoyBundleMedia"));
+        }
+      } finally {
+        fetchMock.mock.restore();
+        warn.mock.restore();
+      }
+    }
   });
 });

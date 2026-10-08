@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseClientInput, parseDesignRef, parseEditOp } from "./input";
+import { parseClientInput, parseDesignImage, parseDesignRef, parseEditOp } from "./input";
 
 describe("koshoy client input", () => {
   it("accepts only the three ClientInput types", () => {
@@ -49,5 +49,17 @@ describe("koshoy client input", () => {
     assert.deepEqual(parseDesignRef({ designId: "Ab_9", version: 3 }), { designId: "Ab_9", version: 3 });
     assert.equal(parseDesignRef({ designId: "../x", version: 1 }), null);
     assert.equal(parseDesignRef({ designId: "a", version: 0 }), null);
+  });
+});
+
+describe("parseDesignImage", () => {
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString("base64");
+  it("accepts a small JPEG data URL only", () => {
+    assert.deepEqual([...(parseDesignImage({ image: `data:image/jpeg;base64,${jpeg}` }) ?? [])].slice(0, 3), [0xff, 0xd8, 0xff]);
+    assert.equal(parseDesignImage({ image: `data:image/png;base64,${jpeg}` }), null);
+    assert.equal(parseDesignImage({ image: `data:image/jpeg;base64,${Buffer.from("<svg/>").toString("base64")}` }), null);
+    assert.equal(parseDesignImage({ image: "data:image/jpeg;base64,!!!" }), null);
+    assert.equal(parseDesignImage({ image: `data:image/jpeg;base64,${"A".repeat(2_100_000)}` }), null);
+    assert.equal(parseDesignImage({}), null);
   });
 });

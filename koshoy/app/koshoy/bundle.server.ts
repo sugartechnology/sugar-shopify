@@ -6,8 +6,10 @@
  * - Name follows the store content guide §4.1:
  *   `[özellik] Tür Genişlik cm, Sayılı özellik – Renk`.
  * - Shopify never recomputes a bundle price; we write Σ part prices once.
- *   The handle hashes name + parts + price, so a bundle is immutable: a
- *   changed design or price gets a new product, an identical one is reused.
+ *   The handle hashes design id + name + parts + price, so a bundle is
+ *   immutable: a changed design or price gets a new product, a repeat
+ *   add-to-cart of the same design reuses it. Bundles are never shared
+ *   across designs, because the picture comes from the customer's browser.
  * - Status UNLISTED + Online Store publication: buyable by link/cart, hidden
  *   from search and collections.
  * - Bundles older than BUNDLE_MAX_AGE_DAYS are deleted (cleanupStaleBundles),
@@ -74,6 +76,8 @@ export interface BundleComponent {
 }
 
 export interface BundleSpec {
+  /** Bundles are per design: its picture comes from that customer's browser. */
+  designId: string;
   title: string;
   productType: string;
   components: BundleComponent[];
@@ -86,7 +90,7 @@ export function bundleHandle(spec: BundleSpec): string {
     .map((c) => `${c.variantId}x${c.quantity}`)
     .join(",");
   const hash = createHash("sha256")
-    .update(`${spec.title}|${parts}|${spec.priceCents}`)
+    .update(`${spec.designId}|${spec.title}|${parts}|${spec.priceCents}`)
     .digest("hex")
     .slice(0, 16);
   return `${BUNDLE_TAG}-${hash}`;
@@ -96,6 +100,7 @@ export function bundleSpec(
   kind: DesignKind,
   composition: CabinComposition,
   quote: KoshoyQuote,
+  designId: string,
 ): BundleSpec | null {
   if (quote.totalCents === null || quote.unresolved.length || !quote.lines.length) return null;
   const merged = new Map<number, number>();
@@ -106,6 +111,7 @@ export function bundleSpec(
   // Shopify: at most 30 components per bundle.
   if (merged.size > 30) return null;
   return {
+    designId,
     title: bundleTitle(kind, composition, quote),
     productType: BUNDLE_TYPES[kind] ?? "Dolap",
     components: [...merged].map(([variantId, quantity]) => ({
@@ -117,8 +123,11 @@ export function bundleSpec(
 }
 
 export interface KoshoyBundler {
-  /** Returns the numeric bundle variant id for /cart/add.js. */
-  ensure(spec: BundleSpec): Promise<number>;
+  /**
+   * Returns the numeric bundle variant id for /cart/add.js. `image` (JPEG of
+   * the 3D view) becomes the product picture when the product has none.
+   */
+  ensure(spec: BundleSpec, image?: Uint8Array | null): Promise<number>;
 }
 
 const variantGid = (id: number) => `gid://shopify/ProductVariant/${id}`;
@@ -147,6 +156,7 @@ const FIND_QUERY = `#graphql
   query KoshoyBundleFind($handle: String!) {
     productByIdentifier(identifier: { handle: $handle }) {
       id
+      mediaCount { count }
       variants(first: 1) { nodes { id price requiresComponents } }
     }
   }`;
@@ -185,6 +195,21 @@ const PUBLISH_MUTATION = `#graphql
     }
   }`;
 
+const STAGED_UPLOAD_MUTATION = `#graphql
+  mutation KoshoyBundleUpload($input: [StagedUploadInput!]!) {
+    stagedUploadsCreate(input: $input) {
+      stagedTargets { url resourceUrl parameters { name value } }
+      userErrors { field message }
+    }
+  }`;
+
+const MEDIA_MUTATION = `#graphql
+  mutation KoshoyBundleMedia($product: ProductUpdateInput!, $media: [CreateMediaInput!]) {
+    productUpdate(product: $product, media: $media) {
+      userErrors { field message }
+    }
+  }`;
+
 const onlineStoreByShop = new Map<string, string>();
 const inflight = new Map<string, Promise<number>>();
 
@@ -198,6 +223,55 @@ async function onlineStorePublicationId(admin: KoshoyAdminGraphql, shop: string)
   if (!found) throw new Error("Online Store publication not found");
   onlineStoreByShop.set(shop, found.id);
   return found.id;
+}
+
+/** Uploads the JPEG to Shopify's staged storage; returns its resource URL. */
+async function uploadImage(admin: KoshoyAdminGraphql, image: Uint8Array, handle: string): Promise<string> {
+  const data = await gql<{
+    stagedUploadsCreate: {
+      stagedTargets: Array<{ url: string; resourceUrl: string; parameters: Array<{ name: string; value: string }> }>;
+      userErrors: Array<{ message?: string }>;
+    };
+  }>(admin, STAGED_UPLOAD_MUTATION, {
+    input: [
+      {
+        resource: "IMAGE",
+        filename: `${handle}.jpg`,
+        mimeType: "image/jpeg",
+        httpMethod: "POST",
+        fileSize: String(image.length),
+      },
+    ],
+  });
+  assertNoUserErrors("stagedUploadsCreate", data.stagedUploadsCreate.userErrors);
+  const target = data.stagedUploadsCreate.stagedTargets[0];
+  if (!target) throw new Error("Shopify stagedUploadsCreate returned no target");
+  const form = new FormData();
+  for (const { name, value } of target.parameters) form.append(name, value);
+  form.append("file", new Blob([image.slice().buffer as ArrayBuffer], { type: "image/jpeg" }), `${handle}.jpg`);
+  const response = await fetch(target.url, { method: "POST", body: form });
+  if (!response.ok) throw new Error(`staged upload failed: ${response.status}`);
+  return target.resourceUrl;
+}
+
+/** Best effort: a missing picture never blocks the cart. */
+async function attachImage(
+  admin: KoshoyAdminGraphql,
+  productId: string,
+  spec: BundleSpec,
+  handle: string,
+  image: Uint8Array,
+) {
+  try {
+    const source = await uploadImage(admin, image, handle);
+    const data = await gql<{ productUpdate: { userErrors: Array<{ message?: string }> } }>(admin, MEDIA_MUTATION, {
+      product: { id: productId },
+      media: [{ originalSource: source, mediaContentType: "IMAGE", alt: spec.title }],
+    });
+    assertNoUserErrors("productUpdate(media)", data.productUpdate.userErrors);
+  } catch (error) {
+    console.warn("[koshoy] bundle image skipped", error);
+  }
 }
 
 async function createProduct(
@@ -298,11 +372,17 @@ async function publishToOnlineStore(admin: KoshoyAdminGraphql, shop: string, pro
   assertNoUserErrors("publishablePublish", publish.publishablePublish.userErrors);
 }
 
-async function ensureBundle(admin: KoshoyAdminGraphql, shop: string, spec: BundleSpec): Promise<number> {
+async function ensureBundle(
+  admin: KoshoyAdminGraphql,
+  shop: string,
+  spec: BundleSpec,
+  image: Uint8Array | null,
+): Promise<number> {
   const handle = bundleHandle(spec);
   const found = await gql<{
     productByIdentifier: {
       id: string;
+      mediaCount?: { count: number };
       variants: {
         nodes: Array<{
           id: string;
@@ -331,6 +411,7 @@ async function ensureBundle(admin: KoshoyAdminGraphql, shop: string, spec: Bundl
       // The last step may be the one that failed.
       await publishToOnlineStore(admin, shop, existing.id);
     }
+    if (image && !existing.mediaCount?.count) await attachImage(admin, existing.id, spec, handle, image);
     const id = variantGidToNumber(existingVariant.id);
     if (id === null) throw new Error("bad bundle variant id");
     return id;
@@ -338,6 +419,7 @@ async function ensureBundle(admin: KoshoyAdminGraphql, shop: string, spec: Bundl
 
   const created = await createProduct(admin, spec, handle);
   await completeBundle(admin, shop, spec, created.productId, created.variantId, false);
+  if (image) await attachImage(admin, created.productId, spec, handle, image);
   const id = variantGidToNumber(created.variantId);
   if (id === null) throw new Error("bad bundle variant id");
   return id;
@@ -420,12 +502,12 @@ function maybeCleanup(admin: KoshoyAdminGraphql, shop: string) {
 
 export function createKoshoyBundler(admin: KoshoyAdminGraphql, shop: string): KoshoyBundler {
   return {
-    ensure(spec) {
+    ensure(spec, image = null) {
       // One build per bundle at a time; a double click reuses the same promise.
       const key = `${shop}|${bundleHandle(spec)}`;
       const running = inflight.get(key);
       if (running) return running;
-      const job = ensureBundle(admin, shop, spec).finally(() => inflight.delete(key));
+      const job = ensureBundle(admin, shop, spec, image).finally(() => inflight.delete(key));
       inflight.set(key, job);
       // Housekeeping runs only after a successful build, off the request path.
       job.then(() => maybeCleanup(admin, shop)).catch(() => {});

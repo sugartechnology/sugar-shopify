@@ -15,7 +15,7 @@ import {
   type KoshoyErrorCode,
   type PublicEvent,
 } from "./events";
-import { parseClientInput, parseDesignRef, parseEditOp } from "./input";
+import { parseClientInput, parseDesignImage, parseDesignRef, parseEditOp } from "./input";
 import {
   hitAll,
   koshoyClientKey,
@@ -462,11 +462,11 @@ export async function handleKoshoyCart(
 
     // The parts are not sold on the storefront; the cart gets one bundle
     // product built from them (see bundle.server.ts).
-    const spec = bundleSpec(design.kind, design.composition, quote);
+    const spec = bundleSpec(design.kind, design.composition, quote, design.id);
     if (!spec) {
       return koshoyJson({ ok: false, error: "cart_failed", lines: [], display: quote.display });
     }
-    const variantId = await ctx.bundler.ensure(spec);
+    const variantId = await ctx.bundler.ensure(spec, parseDesignImage(body));
     return koshoyJson({
       ok: true,
       lines: [{ variantId, quantity: 1, properties: { _tasarim: design.id } }],

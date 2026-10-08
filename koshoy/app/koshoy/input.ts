@@ -136,3 +136,20 @@ export function parseDesignRef(body: unknown): { designId: string; version: numb
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(designId) || version === null) return null;
   return { designId, version };
 }
+
+/** Cart snapshot of the 3D view: JPEG data URL, at most ~1.5 MB decoded. */
+const MAX_IMAGE_BYTES = 1_500_000;
+const JPEG_PREFIX = "data:image/jpeg;base64,";
+
+export function parseDesignImage(body: unknown): Uint8Array | null {
+  const value = asRecord(body).image;
+  if (typeof value !== "string" || !value.startsWith(JPEG_PREFIX)) return null;
+  const base64 = value.slice(JPEG_PREFIX.length);
+  if (base64.length > Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+    return null;
+  }
+  const bytes = new Uint8Array(Buffer.from(base64, "base64"));
+  // JPEG magic number; anything else is dropped, never stored.
+  if (bytes.length < 3 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) return null;
+  return bytes.length <= MAX_IMAGE_BYTES ? bytes : null;
+}
