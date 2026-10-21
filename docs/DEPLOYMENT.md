@@ -153,7 +153,7 @@ Production host: **`https://storefront.sugartech.io`**
    | `SHOPIFY_API_SECRET` | Partners app secret |
    | `SHOPIFY_APP_URL` | `https://storefront.sugartech.io` |
    | `SCOPES` | `read_products,write_products` |
-   | `DATABASE_URL` | `file:/app/prisma/prod.sqlite` (Docker) |
+   | `DATABASE_URL` | `file:/app/data/prod.sqlite` (Docker) |
    | `HOST` | `0.0.0.0` |
    | `SUGAR_API_MOCK` | `false` (canlı AI için) |
 
