@@ -28,12 +28,22 @@ import { koshoyInstructions, koshoyModelContext } from "./instructions";
 import {
   checkReply,
   classifyScope,
+  roomNumbersIn,
+  type RoomNumbers,
   kindFromText,
   KOSHOY_SAFE_STOPPED_REPLY,
   numbersIn,
   pricesIn,
 } from "./rules";
-import { isKoshoyToolName, KOSHOY_TOOL_NAMES, KOSHOY_TOOLS } from "./tools";
+import { isKoshoyToolName, KOSHOY_ROOM_TOOL_NAMES, KOSHOY_TOOL_NAMES, koshoyTools } from "./tools";
+import type { KoshoyRoomDeps } from "./room.server";
+import {
+  addNewDesignToRoom,
+  roomHopContext,
+  runRoomTool,
+  settleRoomAfterEdit,
+  type RoomToolContext,
+} from "./room-tools.server";
 import {
   applyDesignEdit,
   createPlannedDesign,
@@ -81,6 +91,8 @@ export interface KoshoyTurnDeps extends KoshoyDesignDeps {
   /** Aborted when the storefront goes away (request closed / SSE cancelled). */
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Room photo feature (Sugar S3 + gateway configured): the room tools and blocks are on. */
+  room?: KoshoyRoomDeps;
 }
 
 export interface KoshoyToolCall {
@@ -96,6 +108,8 @@ interface TurnContext {
   allowed: Set<string>;
   /** Amounts the reply may quote with a currency: price texts from tools only. */
   prices: Set<string>;
+  /** With a ready room: room measurements by unit, quoted only as "yaklaşık" (rules.ts). */
+  roomNumbers: RoomNumbers | null;
   designIds: Set<string>;
   stop: TurnStop;
   textSent: boolean;
@@ -345,6 +359,8 @@ function rotateModelSession(session: KoshoySessionState) {
   session.modelSessionId = randomUUID();
   session.pendingAskUser = null;
   session.pendingTools = [];
+  // A new model conversation has not seen the room photo.
+  session.photoSentRoomId = null;
 }
 
 /* ---------------- tools ---------------- */
@@ -362,6 +378,10 @@ export async function executeKoshoyTool(
 ): Promise<{ payload: Record<string, unknown>; askedUser?: boolean }> {
   const { session, deps } = ctx;
   const args = call.arguments;
+  if (KOSHOY_ROOM_TOOL_NAMES.includes(call.name)) {
+    const room = roomToolContext(ctx);
+    return { payload: room ? await runRoomTool(room, call.name, args) : { ok: false, error: "unsupported_tool" } };
+  }
 
   if (call.name === "set_brief") {
     const level = oneOf(args.level, PLAN_LEVELS);
@@ -388,13 +408,13 @@ export async function executeKoshoyTool(
         (option) =>
           /^[A-Za-z0-9_-]{1,64}$/.test(option.id) &&
           option.label &&
-          !checkReply(option.label, ctx.allowed, ctx.prices).issues.length,
+          !checkReply(option.label, ctx.allowed, ctx.prices, ctx.roomNumbers ?? undefined).issues.length,
       )
       .slice(0, 4);
     if (options.length < 2) {
       return { payload: { ok: false, error: "need 2-4 options in product language, no numbers" } };
     }
-    const asked = checkReply(str(args.question), ctx.allowed, ctx.prices);
+    const asked = checkReply(str(args.question), ctx.allowed, ctx.prices, ctx.roomNumbers ?? undefined);
     const question = asked.text && !asked.issues.length ? asked.text : "Hangisini seçersin?";
     // Model-chosen ids stay here; the storefront only sees opt_1..opt_4.
     const pending: KoshoyPendingOption[] = options.map((option, index) => ({
@@ -428,8 +448,17 @@ export async function executeKoshoyTool(
     ctx.summary = [`Senin için ${design.label} hazırladım.`, ...plan.notes.map((note) => `${note}.`)].join(" ");
     const quote = await quoteAndPublish(ctx, design, true);
     ctx.publish(designsEvent(await deps.store.listDesigns(session.id), session.activeDesignId));
+    // With a ready room the new design walks in on its own when there is space.
+    const room = roomToolContext(ctx);
+    const roomNote = room ? await addNewDesignToRoom(room, design) : null;
     return {
-      payload: { ok: true, notes: plan.notes, price: quote.display, design: designForModel(design, true) },
+      payload: {
+        ok: true,
+        notes: plan.notes,
+        price: quote.display,
+        design: designForModel(design, true),
+        ...(roomNote ? { room: roomNote } : {}),
+      },
     };
   }
 
@@ -446,6 +475,8 @@ export async function executeKoshoyTool(
     }
     const switched = session.activeDesignId !== result.design.id;
     if (result.changed) ctx.summary = `${result.design.label} tasarımını güncelledim.`;
+    const room = roomToolContext(ctx);
+    if (room && result.changed) await settleRoomAfterEdit(room, design, result.design);
     session.activeDesignId = result.design.id;
     const quote = await quoteAndPublish(ctx, result.design, result.changed || switched);
     if (result.design.label !== design.label || switched) {
@@ -505,7 +536,17 @@ async function runTool(call: KoshoyToolCall, ctx: TurnContext) {
     numbersIn(result.payload, ctx.allowed);
     pricesIn(result.payload, ctx.prices);
   }
+  // Positions in the room come from measurements: quoted only as "yaklaşık".
+  if (KOSHOY_ROOM_TOOL_NAMES.includes(call.name) && ctx.roomNumbers) {
+    roomNumbersIn(result.payload, ctx.roomNumbers);
+  }
   return result;
+}
+
+/** The room tools' view of the turn; null while the room feature is off. */
+function roomToolContext(ctx: TurnContext): RoomToolContext | null {
+  const room = ctx.deps.room;
+  return room ? { session: ctx.session, store: ctx.deps.store, room, publish: ctx.publish } : null;
 }
 
 /* ---------------- text ---------------- */
@@ -515,7 +556,7 @@ function publishText(ctx: TurnContext, raw: string) {
   for (const id of ctx.designIds) text = text.split(id).join("");
   text = text.trim();
   if (!text) return;
-  const result = checkReply(text, ctx.allowed, ctx.prices);
+  const result = checkReply(text, ctx.allowed, ctx.prices, ctx.roomNumbers ?? undefined);
   if (result.issues.length) console.warn("[koshoy] reply guarded", result.issues);
   if (!result.text) return;
   ctx.publish({ type: "text", text: (ctx.textSent ? "\n\n" : "") + result.text });
@@ -541,13 +582,25 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
 
     const designs = await deps.store.listDesigns(session.id);
     for (const design of designs) ctx.designIds.add(design.id);
+    const roomContext = roomToolContext(ctx);
+    const hopRoom = roomContext ? await roomHopContext(roomContext, designs, Boolean(message)) : null;
     const instructionInput = {
       brief: session.brief,
       designs,
       activeDesignId: session.activeDesignId,
+      roomTools: Boolean(roomContext),
+      roomReady: hopRoom?.roomReady ?? false,
+      room: hopRoom?.room ?? null,
+      layout: hopRoom?.layout ?? null,
     };
     // Design facts only; the brief holds customer words, not system numbers.
     numbersIn(koshoyModelContext(instructionInput).designs, ctx.allowed);
+    // Room lengths, by unit, only with a ready room (v2.1-9); without one the old room rules hold.
+    if (hopRoom?.roomReady) {
+      ctx.roomNumbers ??= { cm: new Set<string>(), m: new Set<string>() };
+      roomNumbersIn(hopRoom.room, ctx.roomNumbers);
+      roomNumbersIn(hopRoom.layout, ctx.roomNumbers);
+    }
 
     const body: Record<string, unknown> = {
       sessionId: session.modelSessionId,
@@ -555,7 +608,7 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
       tag: KOSHOY_CHAT_TAG,
       jobId: session.id,
       instructions: koshoyInstructions(instructionInput),
-      tools: KOSHOY_TOOLS,
+      tools: koshoyTools(Boolean(roomContext)),
       thinkingLevel: "low",
     };
     const platform = process.env.KOSHOY_CHAT_PLATFORM?.trim();
@@ -564,6 +617,9 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
     if (model) body.model = model;
     if (message) body.message = message;
     else body.toolResults = toolResults;
+    // The room photo, once per room and model conversation, with a customer message.
+    const photo = message ? hopRoom?.photo ?? null : null;
+    if (photo) body.image = { contentBase64: photo.contentBase64, mimeType: photo.mimeType };
 
     let buffer = "";
     const calls: KoshoyToolCall[] = [];
@@ -600,6 +656,9 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
       ctx.publish(errorEvent("unavailable"));
       return;
     }
+    // Seen only once the model answered this hop without an error (a timeout
+    // or a closed page throws above and leaves it unseen).
+    if (photo) session.photoSentRoomId = photo.roomId;
 
     publishText(ctx, buffer);
 
@@ -798,6 +857,7 @@ export async function runKoshoyTurn(input: {
     deps: input.deps,
     allowed: new Set<string>(),
     prices: new Set<string>(),
+    roomNumbers: null,
     designIds: new Set<string>(),
     stop,
     textSent: false,

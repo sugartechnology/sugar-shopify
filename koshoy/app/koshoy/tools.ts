@@ -21,12 +21,24 @@ export const KOSHOY_TOOL_NAMES = [
   "edit_design",
   "quote",
   "switch_design",
+  "show_in_room",
+  "render_room",
+  "place_in_room",
+  "remove_from_room",
 ] as const;
 export type KoshoyToolName = (typeof KOSHOY_TOOL_NAMES)[number];
 
 export function isKoshoyToolName(name: string): name is KoshoyToolName {
   return (KOSHOY_TOOL_NAMES as readonly string[]).includes(name);
 }
+
+/** Offered only while the room photo feature is configured (Sugar S3 + gateway). */
+export const KOSHOY_ROOM_TOOL_NAMES: readonly string[] = [
+  "show_in_room",
+  "render_room",
+  "place_in_room",
+  "remove_from_room",
+];
 
 const EDIT_OP_SCHEMA = {
   type: "object",
@@ -152,4 +164,86 @@ export const KOSHOY_TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "show_in_room",
+    description:
+      "Show a design (defaults to the active one) inside the customer's room photo in the 3D view; a design not yet in the room is added first. If the result says there is no room photo, ask the customer to upload one.",
+    strict: false,
+    parameters: {
+      type: "object",
+      properties: {
+        designId: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "render_room",
+    description:
+      "Start a realistic picture of the customer's room with every design standing in it; it appears in the chat when ready. If the result says there is no room photo, ask the customer to upload one.",
+    strict: false,
+    parameters: {
+      type: "object",
+      properties: {
+        designId: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "place_in_room",
+    description:
+      "Put a design (defaults to the active one) in the room, or move it there; without a room photo it stands in front of the studio wall. The server finds the nearest free spot and never overlaps cabinets. Returns its stretch of the visible wall in cm from the wall's left end (approximate) and the room's layout; error unchanged means it did not move, so never say it was placed.",
+    strict: false,
+    parameters: {
+      type: "object",
+      properties: {
+        designId: { type: "string" },
+        at: {
+          type: "string",
+          enum: ["free", "left_of", "right_of", "photo_x", "wall_cm", "floor"],
+          description:
+            "free: a free spot, empty stretches of wall first; left_of / right_of: next to refDesignId; photo_x: at photoX in the photo (needs a room photo; on a room without a wall also photoY, the floor point seen there); wall_cm: wallCm from the visible wall's left end; floor: free on the floor (rooms without a wall), with rotateDeg",
+        },
+        refDesignId: { type: "string", description: "For left_of / right_of" },
+        photoX: { type: "number", description: "0 = left edge of the photo, 1 = right edge" },
+        photoY: {
+          type: "number",
+          description: "0 = top edge of the photo, 1 = bottom edge; with photo_x on a room without a wall: put it on the floor point seen at (photoX, photoY)",
+        },
+        wallCm: { type: "number", description: "cm from the visible wall's left end" },
+        align: {
+          type: "string",
+          enum: ["center", "left_edge", "right_edge"],
+          description: "Which part of the cabinet goes to photoX / wallCm (default center)",
+        },
+        rotateDeg: {
+          type: "number",
+          description: "Only for cabinets on the floor (no wall): turn around the vertical axis, -180..180, 0 = facing the camera",
+        },
+      },
+      required: ["at"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "remove_from_room",
+    description: "Take a design out of the room (the design itself stays in the conversation).",
+    strict: false,
+    parameters: {
+      type: "object",
+      properties: {
+        designId: { type: "string" },
+      },
+      required: ["designId"],
+      additionalProperties: false,
+    },
+  },
 ];
+
+/** The tool list sent to the model; without the room feature it is today's list. */
+export function koshoyTools(withRoom: boolean) {
+  return withRoom
+    ? KOSHOY_TOOLS
+    : KOSHOY_TOOLS.filter((tool) => !KOSHOY_ROOM_TOOL_NAMES.includes(tool.name));
+}

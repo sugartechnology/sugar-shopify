@@ -135,6 +135,61 @@ describe("koshoy public event whitelist", () => {
     );
   });
 
+  it("passes room events with the design id only", () => {
+    assert.deepEqual(
+      toPublicEvent({ type: "room_show", designId: "Ab3_x-9", roomId: "r1", photoUrl: "https://s3/x.jpg" }),
+      { type: "room_show", designId: "Ab3_x-9" },
+    );
+    assert.deepEqual(toPublicEvent({ type: "render_request", designId: "Ab3_x-9", pipeline: "x" }), {
+      type: "render_request",
+      designId: "Ab3_x-9",
+    });
+    assert.equal(toPublicEvent({ type: "room_show" }), null);
+    assert.equal(toPublicEvent({ type: "render_request", designId: "../../etc" }), null);
+  });
+
+  it("passes a layout with design ids and places only", () => {
+    const wall = { surface: "wall", alongM: -1.25 };
+    const floor = { surface: "floor", xM: 0.4, forwardM: 2.1, rotDeg: -30 };
+    assert.deepEqual(
+      toPublicEvent({
+        type: "layout",
+        version: 3,
+        roomId: "room-secret",
+        items: [
+          { designId: "a1", place: { ...wall, cameraHeightM: 1.4 }, label: "x" },
+          { designId: "b2", place: floor },
+          { designId: "c3", place: null },
+        ],
+      }),
+      { type: "layout", version: 3, items: [{ designId: "a1", place: wall }, { designId: "b2", place: floor }, { designId: "c3", place: null }] },
+    );
+    const bad = (place: unknown) => toPublicEvent({ type: "layout", version: 1, items: [{ designId: "a1", place }] });
+    assert.equal(bad({ surface: "wall", alongM: 51 }), null, "|m| ≤ 50");
+    assert.equal(bad({ surface: "floor", xM: 0, forwardM: 1, rotDeg: 181 }), null, "rotDeg −180..180");
+    assert.equal(bad({ surface: "ceiling" }), null);
+    const nine = Array.from({ length: 9 }, (_, i) => ({ designId: `d${i}`, place: null }));
+    assert.equal(toPublicEvent({ type: "layout", version: 1, items: nine }), null, "at most 8");
+  });
+
+  it("passes the layout target: wall with its ends, or floor", () => {
+    const layout = (target: unknown) => toPublicEvent({ type: "layout", version: 2, items: [], target });
+    assert.deepEqual(layout({ surface: "wall", wall: { fromM: -1.8, toM: 1.9 }, roomId: "x" }), {
+      type: "layout",
+      version: 2,
+      items: [],
+      target: { surface: "wall", wall: { fromM: -1.8, toM: 1.9 } },
+    });
+    assert.deepEqual(layout({ surface: "floor", wall: { fromM: 0, toM: 1 } }), {
+      type: "layout",
+      version: 2,
+      items: [],
+      target: { surface: "floor" },
+    });
+    assert.equal(layout({ surface: "wall", wall: { fromM: 2, toM: 1 } }), null);
+    assert.equal(layout({ surface: "ceiling" }), null);
+  });
+
   it("frames SSE events", () => {
     const [event] = publicEvents([{ type: "text", text: "Merhaba", model: "x" }]);
     assert.equal(sseFrame(event), 'event: text\ndata: {"type":"text","text":"Merhaba"}\n\n');

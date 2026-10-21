@@ -11,6 +11,7 @@ import {
   type CabinFitKind,
   type DesignKind,
 } from "./engine";
+import { MAX_LAYOUT_ITEMS } from "./room-layout";
 
 export const KOSHOY_ERROR_CODES = [
   "unavailable",
@@ -69,6 +70,29 @@ export interface ChoiceOption {
   label: string;
 }
 
+/** Where a design stands (CONTRACT v2 §6, room-layout LayoutPlace). Metres. */
+export type LayoutPlaceView =
+  | { surface: "wall"; alongM: number }
+  | { surface: "floor"; xM: number; forwardM: number; rotDeg: number };
+
+export interface LayoutItemView {
+  designId: string;
+  /** null = no free spot: the storefront shows it as a preview */
+  place: LayoutPlaceView | null;
+}
+
+/**
+ * Where the layout stands (CONTRACT v2.1-2): along a wall (the room's
+ * visible wall, or the studio's virtual wall) or free on the floor.
+ */
+export interface LayoutTargetView {
+  surface: "wall" | "floor";
+  wall?: { fromM: number; toM: number };
+}
+
+/** Designs that may stand in one layout (room or studio). */
+export const KOSHOY_MAX_LAYOUT_ITEMS = MAX_LAYOUT_ITEMS;
+
 export type PublicEvent =
   | { type: "status"; key: KoshoyStatusKey }
   | { type: "text"; text: string }
@@ -83,6 +107,11 @@ export type PublicEvent =
   | { type: "price"; designId: string; version: number; display: string }
   | { type: "designs"; items: DesignSummary[] }
   | { type: "choice"; question?: string; options: ChoiceOption[] }
+  /** show_in_room: the storefront puts that design into the room photo. */
+  | { type: "room_show"; designId: string }
+  /** render_room: the storefront captures the 3D view and calls POST /render. */
+  | { type: "render_request"; designId: string }
+  | { type: "layout"; version: number; items: LayoutItemView[]; target?: LayoutTargetView }
   | { type: "error"; code: KoshoyErrorCode }
   | { type: "done" };
 
@@ -201,6 +230,50 @@ export function toSceneView(raw: unknown): SceneView | null {
   return view;
 }
 
+/** Metres along a wall or across the floor: a room is never 50 m away. */
+function metres(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 50 ? value : null;
+}
+
+/** null for anything that is not one of the two place shapes. */
+export function toLayoutPlace(raw: unknown): LayoutPlaceView | null {
+  const row = asRecord(raw);
+  if (row?.surface === "wall") {
+    const alongM = metres(row.alongM);
+    return alongM === null ? null : { surface: "wall", alongM };
+  }
+  if (row?.surface === "floor") {
+    const xM = metres(row.xM);
+    const forwardM = metres(row.forwardM);
+    const rotDeg = row.rotDeg;
+    if (xM === null || forwardM === null) return null;
+    if (typeof rotDeg !== "number" || !Number.isFinite(rotDeg) || Math.abs(rotDeg) > 180) return null;
+    return { surface: "floor", xM, forwardM, rotDeg };
+  }
+  return null;
+}
+
+/** A layout item; a place that is set but malformed drops the item. */
+export function toLayoutItem(raw: unknown): LayoutItemView | null {
+  const row = asRecord(raw);
+  const designId = opaqueId(row?.designId);
+  if (!row || !designId) return null;
+  if (row.place === null) return { designId, place: null };
+  const place = toLayoutPlace(row.place);
+  return place ? { designId, place } : null;
+}
+
+export function toLayoutTarget(raw: unknown): LayoutTargetView | null {
+  const row = asRecord(raw);
+  if (row?.surface === "floor") return { surface: "floor" };
+  if (row?.surface !== "wall") return null;
+  const wall = asRecord(row.wall);
+  if (!wall) return { surface: "wall" };
+  const fromM = metres(wall.fromM);
+  const toM = metres(wall.toM);
+  return fromM !== null && toM !== null && toM > fromM ? { surface: "wall", wall: { fromM, toM } } : null;
+}
+
 export function toDesignSummary(raw: unknown): DesignSummary | null {
   const row = asRecord(raw);
   if (!row) return null;
@@ -272,6 +345,26 @@ export function toPublicEvent(raw: unknown): PublicEvent | null {
       return question
         ? { type: "choice", question, options }
         : { type: "choice", options };
+    }
+    case "layout": {
+      const v = typeof row.version === "number" && Number.isInteger(row.version) && row.version >= 0
+        ? row.version
+        : null;
+      if (v === null || !Array.isArray(row.items) || row.items.length > KOSHOY_MAX_LAYOUT_ITEMS) {
+        return null;
+      }
+      const items = row.items.map(toLayoutItem);
+      // The 3D view must never draw less than the layout holds.
+      if (items.some((item) => item === null)) return null;
+      const event: PublicEvent = { type: "layout", version: v, items: items as LayoutItemView[] };
+      if (row.target === undefined) return event;
+      const target = toLayoutTarget(row.target);
+      return target ? { ...event, target } : null;
+    }
+    case "room_show":
+    case "render_request": {
+      const designId = opaqueId(row.designId);
+      return designId ? { type: row.type, designId } : null;
     }
     case "error":
       return {
