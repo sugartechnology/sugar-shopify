@@ -57,6 +57,17 @@ describe("koshoy session store", () => {
     assert.equal(found.modelSessionId, session.modelSessionId);
   });
 
+  it("keeps the room set by room-status when an older copy of the session is saved", async () => {
+    const { store } = setup();
+    const { session, token } = await store.createSession(SHOP);
+    const loadedByTurn = await store.findSession(token, SHOP);
+    assert.ok(loadedByTurn);
+    assert.equal(loadedByTurn.roomId, null);
+    await store.setRoom(session.id, "room_1");
+    await store.saveSession(loadedByTurn);
+    assert.equal((await store.findSession(token, SHOP))?.roomId, "room_1");
+  });
+
   it("gives unused sessions a short life and used ones the full TTL", async () => {
     let now = 1_000_000;
     const memory = createMemoryKoshoyDb(() => now);
@@ -124,11 +135,13 @@ describe("koshoy session store", () => {
       id: "s",
       shop: SHOP,
       activeDesignId: null,
+      roomId: null,
       modelSessionId: "m",
       brief: { room: "", style: "", level: "" as const, color: "" as const, notes: "" },
       events: [],
       pendingAskUser: null,
       pendingTools: [],
+      photoSentRoomId: null,
     };
     appendTranscriptEvent(session, { type: "status", key: "thinking" });
     appendTranscriptEvent(session, { type: "text", text: "Hazırladım." });

@@ -11,12 +11,13 @@ bağımsız bir alt klasördür: kendi `package.json`, Prisma (SQLite) ve
 |---|---|
 | `sugar-shopify/koshoy` (bu klasör) | Backend: sohbet turu, tasarım düzenleme, fiyat, sepet paketi |
 | `pnp-shopify-project` | Frontend: Shopify teması, sohbet arayüzü, sepet sayfası |
-| `3d-room-designer` | 3D motor: `<koshoy-cabin-view>` ve dolap çekirdeği (`src/core/cabinet`) |
+| `3d-room-designer` | 3D motor: `<koshoy-cabin-view>`, dolap çekirdeği (`src/core/cabinet`) ve odada yerleşim çekirdeği (`src/core/room-layout`) |
 
 - Tema bu app'e yalnızca App Proxy ile gelir: vitrinde `/apps/koshoy/studio/*` →
   `https://koshoy.sugartech.io/apps/koshoy/studio/*`.
-- `app/koshoy/cabinet-core/` 3D repodaki `src/core/cabinet`'in kopyasıdır. Elle
-  düzenlenmez: `npm run sync:cabinet-core` (kontrol: `-- --check`).
+- `app/koshoy/cabinet-core/` ve `app/koshoy/room-layout/` 3D repodaki `src/core/cabinet`
+  ve `src/core/room-layout`'un kopyasıdır. Elle düzenlenmez: `npm run sync:cabinet-core`
+  ikisini de kopyalar (kontrol: `-- --check`).
 - Uç noktalar, olaylar ve hata kodları: `pnp-shopify-project/docs/koshoy-contract.md`.
   Yeni uç nokta ya da olay eklenince o belge de güncellenir.
 
@@ -26,10 +27,30 @@ bağımsız bir alt klasördür: kendi `package.json`, Prisma (SQLite) ve
 tema (sohbet) → /apps/koshoy/studio/turn → app/koshoy/turn.server.ts
   → LLM_GATEWAY_URL (tagservice /api/shopify/shopping/responses/stream, tag koshoy-chat)
   → server tool'ları: set_brief, ask_user, plan_cabinet, edit_design, quote, switch_design
+    (+ oda özelliği açıkken: show_in_room, render_room, place_in_room, remove_from_room)
   → beyaz liste olaylar (events.ts) → tema
 ```
 
 Doğrudan Claude/OpenAI API'si kullanılmaz; LLM her zaman şirketin gateway'inden geçer.
+
+## Oda fotoğrafı ve yerleşim
+
+Sugar S3 (`KOSHOY_S3_*`) ayarlı değilse bu özellik kapalıdır: uçlar 503 döner, oda
+tool'ları modele sunulmaz, sohbet bugünkü gibi çalışır.
+
+- Uçlar: `/room`, `/room-status`, `/room-file`, `/render`, `/render-status`,
+  `/render-file`, `/layout` (`room-handlers.server.ts`). Analiz ve render tag-service
+  üzerinden (`services/tag-service.server.ts`), dosyalar Sugar S3'te, silinmez.
+- Oda hazır olunca EXIF yoksa açı yeniden tahmin edilir (`room-fov.ts`), sonra ölçüler
+  çıkarılır (`room-measure.server.ts`). Ölçüler tarayıcıya gitmez; yalnız görünen duvarın
+  uçları `RoomView.wall` olarak gider.
+- Yerleşim (`KoshoyLayout`, oturum başına bir satır) backend'in elindedir: her yazma bir op
+  (`add` / `move` / `remove`), `layout-solver.ts` kurallarıyla, iyimser sürümle kaydedilir
+  (`layout.server.ts`). Hazır oda varken yeni tasarım boş yer varsa odaya kendiliğinden girer.
+- LLM her turda oda ve yerleşim bilgisini alır, fotoğrafı oda başına bir kez görür. Oda
+  ölçüleri cevapta yalnız "yaklaşık" ile geçebilir (`checkReply`'ın `approximate` kümesi).
+- Sınırlar `rate-limit.server.ts`'te: kişi (IP) başına dakikada 1 analiz, 2 render;
+  oturum başına dakikada 120 durum/dosya okuması ve 120 yerleşim yazması.
 
 ## Değişmez kurallar
 

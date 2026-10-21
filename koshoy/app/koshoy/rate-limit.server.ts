@@ -31,6 +31,14 @@ export const KOSHOY_LIMITS = {
   shop: { limit: 600, windowMs: 60_000 },
   /** whole-shop budget for new sessions (DB growth); session spam cannot use up turns */
   shopSession: { limit: 600, windowMs: 60_000 },
+  /** room photo analyses per visitor (shop + client address), across their sessions */
+  room: { limit: 1, windowMs: 60_000 },
+  /** renders per visitor, counted apart from analyses */
+  render: { limit: 2, windowMs: 60_000 },
+  /** room/render status polls and file reads per session (each poll asks upstream) */
+  roomRead: { limit: 120, windowMs: 60_000 },
+  /** layout writes (drags, add, remove) per session */
+  layout: { limit: 120, windowMs: 60_000 },
 } as const;
 
 /**

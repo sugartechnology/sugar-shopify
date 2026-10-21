@@ -2,6 +2,8 @@
  * Shape validation for everything the storefront (or the model) sends.
  * Value rules (grid sizes, door height…) belong to the engine.
  */
+import { toLayoutPlace } from "./events";
+import type { LayoutOp } from "./layout-solver";
 import {
   CABIN_COLOR_IDS,
   CABIN_FIT_KINDS,
@@ -137,12 +139,16 @@ export function parseDesignRef(body: unknown): { designId: string; version: numb
   return { designId, version };
 }
 
-/** Cart snapshot of the 3D view: JPEG data URL, at most ~1.5 MB decoded. */
+/** Browser images (cart snapshot, room photo, render inputs): JPEG data URL, at most ~1.5 MB decoded. */
 const MAX_IMAGE_BYTES = 1_500_000;
 const JPEG_PREFIX = "data:image/jpeg;base64,";
 
+/** Cart snapshot of the 3D view ({image}). */
 export function parseDesignImage(body: unknown): Uint8Array | null {
-  const value = asRecord(body).image;
+  return parseJpegDataUrl(asRecord(body).image);
+}
+
+export function parseJpegDataUrl(value: unknown): Uint8Array | null {
   if (typeof value !== "string" || !value.startsWith(JPEG_PREFIX)) return null;
   const base64 = value.slice(JPEG_PREFIX.length);
   if (base64.length > Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
@@ -152,4 +158,69 @@ export function parseDesignImage(body: unknown): Uint8Array | null {
   // JPEG magic number; anything else is dropped, never stored.
   if (bytes.length < 3 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) return null;
   return bytes.length <= MAX_IMAGE_BYTES ? bytes : null;
+}
+
+const OPAQUE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+export function parseOpaqueId(value: unknown): string | null {
+  const id = typeof value === "string" ? value.trim() : "";
+  return OPAQUE_ID.test(id) ? id : null;
+}
+
+/** Horizontal field of view across the photo width, as the analysis accepts it. */
+const FOV_MIN = 20;
+const FOV_MAX = 150;
+
+export interface RoomPhotoRequest {
+  photo: Uint8Array;
+  fovDegrees?: number;
+  /** The customer ticked the storage consent box; only `consent: true` counts. */
+  consent: boolean;
+}
+
+/** POST /room {image, fovDegrees?, consent?}. */
+export function parseRoomPhoto(body: unknown): RoomPhotoRequest | null {
+  const row = asRecord(body);
+  const photo = parseJpegDataUrl(row.image);
+  if (!photo) return null;
+  const consent = row.consent === true;
+  if (row.fovDegrees === undefined || row.fovDegrees === null) return { photo, consent };
+  const fov = row.fovDegrees;
+  if (typeof fov !== "number" || !Number.isFinite(fov) || fov < FOV_MIN || fov > FOV_MAX) return null;
+  return { photo, fovDegrees: fov, consent };
+}
+
+/** POST /layout {op, designId, place?}: move needs a place, remove takes none. */
+export function parseLayoutOp(body: unknown): LayoutOp | null {
+  const row = asRecord(body);
+  const designId = parseOpaqueId(row.designId);
+  if (!designId) return null;
+  const place = row.place === undefined || row.place === null ? null : toLayoutPlace(row.place);
+  if (row.place !== undefined && row.place !== null && !place) return null;
+  if (row.op === "remove") return { op: "remove", designId };
+  if (row.op === "move") return place ? { op: "move", designId, place } : null;
+  if (row.op === "add") return place ? { op: "add", designId, place } : { op: "add", designId };
+  return null;
+}
+
+export interface RenderRequest {
+  roomId: string;
+  /** Used only when the room layout is empty (CONTRACT v2: the layout decides what is drawn). */
+  designId?: string;
+  /** photo + cabinet, same camera */
+  composite: Uint8Array;
+  /** cabinet alone on flat grey */
+  cabinet: Uint8Array;
+}
+
+/** POST /render {roomId, composite, cabinet, designId?}. */
+export function parseRenderRequest(body: unknown): RenderRequest | null {
+  const row = asRecord(body);
+  const roomId = parseOpaqueId(row.roomId);
+  const composite = parseJpegDataUrl(row.composite);
+  const cabinet = parseJpegDataUrl(row.cabinet);
+  if (!roomId || !composite || !cabinet) return null;
+  if (row.designId === undefined || row.designId === null) return { roomId, composite, cabinet };
+  const designId = parseOpaqueId(row.designId);
+  return designId ? { roomId, designId, composite, cabinet } : null;
 }

@@ -31,6 +31,14 @@ import {
   readKoshoyToken,
 } from "./token.server";
 import { runKoshoyTurn, type KoshoyStreamFn } from "./turn.server";
+import { roomView, type KoshoyRoomDeps, type RoomView } from "./room.server";
+import {
+  currentLayout,
+  layoutEvent,
+  layoutScenes,
+  layoutView,
+  settleAfterResize,
+} from "./layout.server";
 import {
   applyDesignEdit,
   designSummaries,
@@ -56,6 +64,14 @@ export interface KoshoyRequestContext extends KoshoyDesignDeps {
     shop: KoshoyRateLimiter;
     /** new sessions, keyed by shop */
     shopSession: KoshoyRateLimiter;
+    /** room photo analyses, keyed by koshoyClientKey */
+    room: KoshoyRateLimiter;
+    /** renders, keyed by koshoyClientKey */
+    render: KoshoyRateLimiter;
+    /** room/render status and file reads, keyed by session id */
+    roomRead: KoshoyRateLimiter;
+    /** layout writes, keyed by session id */
+    layout: KoshoyRateLimiter;
   };
   busy: KoshoyBusyLock;
   /** Loaded lazily (shop metafields) only when a turn actually runs. */
@@ -63,6 +79,8 @@ export interface KoshoyRequestContext extends KoshoyDesignDeps {
   stream?: KoshoyStreamFn;
   /** Builds the cart bundle; without it the cart gets the part variants. */
   bundler?: KoshoyBundler;
+  /** Room photo and render (room-handlers.server.ts); unset when Sugar S3 or the gateway is not configured. */
+  room?: KoshoyRoomDeps;
 }
 
 export const KOSHOY_WELCOME_CARDS = [
@@ -155,7 +173,7 @@ export function koshoyTurnError(
   return turnErrorResponse(code, wantsJson(request), status);
 }
 
-async function readJson(request: Request): Promise<Record<string, unknown>> {
+export async function readJson(request: Request): Promise<Record<string, unknown>> {
   if (request.method === "GET" || request.method === "HEAD") return {};
   return asRecord(await request.json().catch(() => null));
 }
@@ -167,7 +185,7 @@ function presentedToken(request: Request, body: Record<string, unknown>): string
   return readKoshoyToken(request) || fromBody;
 }
 
-async function loadSession(
+export async function loadSession(
   request: Request,
   ctx: KoshoyRequestContext,
   body: Record<string, unknown>,
@@ -195,6 +213,19 @@ function summaries(designs: readonly KoshoyDesign[], activeId: string | null): D
   return designSummaries(designs, activeId)
     .map(toDesignSummary)
     .filter((item): item is DesignSummary => item !== null);
+}
+
+/** The session's latest ready room (tema rebuilds room mode after a reload). */
+async function sessionRoom(
+  ctx: KoshoyRequestContext,
+  session: KoshoySessionState,
+): Promise<RoomView | null> {
+  if (!ctx.room || !session.roomId) return null;
+  const row = await ctx.room.db.koshoyRoom.findFirst({
+    where: { id: session.roomId, sessionId: session.id },
+  });
+  const view = row ? roomView(row) : null;
+  return view?.status === "ready" ? view : null;
 }
 
 /* ---------------- POST /session ---------------- */
@@ -241,6 +272,15 @@ export async function handleKoshoySession(
       const quote = await ctx.pricer.quote(active.composition);
       events.push(sceneEvent(active), priceEvent(active, quote));
     }
+    const room = await sessionRoom(ctx, session);
+    // The designs standing in the room (or the studio), each with its scene.
+    // With a ready room the layout comes even when empty (CONTRACT v2.1-1).
+    const current = ctx.room ? await currentLayout(ctx.room, session, designs) : null;
+    const layout = current && (current.layout.items.length || current.target.roomId !== null) ? current : null;
+    if (layout) {
+      const others = designs.filter((design) => design.id !== active?.id);
+      events.push(...layoutScenes(layout.layout, others));
+    }
 
     return koshoyJson(
       {
@@ -250,6 +290,8 @@ export async function handleKoshoySession(
         designs: summaries(designs, active?.id ?? null),
         events: publicEvents(events),
         welcome: { cards: KOSHOY_WELCOME_CARDS },
+        ...(room ? { room } : {}),
+        ...(layout ? { layout: layoutView(layout.layout, designs, layout.target) } : {}),
       },
       200,
       { "Set-Cookie": koshoySessionCookie(token) },
@@ -311,6 +353,7 @@ export async function handleKoshoyTurn(
           mock: chat.mock,
           stream: ctx.stream,
           signal: gone.signal,
+          room: ctx.room,
         },
         emit,
       })
@@ -411,6 +454,12 @@ export async function handleKoshoyEdit(
 
     const quote = await ctx.pricer.quote(result.design.composition);
     const events: unknown[] = [sceneEvent(result.design), priceEvent(result.design, quote)];
+    if (result.changed && ctx.room) {
+      // A wider (or narrower) cabinet pushes its neighbours in the room as little as possible.
+      const designs = await ctx.store.listDesigns(session.id);
+      const settled = await settleAfterResize(ctx.room, session, designs, design, result.design);
+      if (settled) events.push(layoutEvent(settled.layout, settled.target));
+    }
     if (result.changed) {
       const text: PublicEvent = {
         type: "text",

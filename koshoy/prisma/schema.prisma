@@ -43,10 +43,13 @@ model KoshoySession {
   /// JSON: model session id, brief, transcript, pending tool calls
   state          String
   activeDesignId String?
+  /// Latest analysed room photo (KoshoyRoom.id); written only by room-status.
+  roomId         String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   expiresAt      DateTime
   designs        KoshoyDesign[]
+  layout         KoshoyLayout?
 
   @@index([shop])
   @@index([expiresAt])
@@ -66,4 +69,80 @@ model KoshoyDesign {
   updatedAt   DateTime      @updatedAt
 
   @@index([sessionId])
+}
+
+/// A customer's room photo and its analysis. The photo sits in Sugar S3,
+/// masks and depth where the analysis wrote them. Files are never deleted,
+/// so rows have no cascade: they outlive the session like the files do.
+model KoshoyRoom {
+  id          String    @id
+  sessionId   String
+  shop        String
+  /// processing | ready | failed
+  status      String
+  /// analysis_failed | expired
+  error       String?
+  /// Analysis job id upstream
+  jobId       String?
+  /// Sugar S3 key of the photo
+  photoKey    String
+  /// When the customer ticked the storage consent box (POST /room consent: true)
+  consentAt   DateTime?
+  width       Int?
+  height      Int?
+  /// JSON: RoomView camera
+  camera      String?
+  /// JSON: RoomView planes
+  planes      String?
+  /// JSON: {min, max} metres
+  depthScale  String?
+  /// JSON: {depth, floor?, wall?, ceiling?, furniture?} links from the analysis
+  fileUrls    String?
+  /// Where the scale (field of view) came from: exif | user | hand_height | phone_26mm
+  /// (the last two replace the 45° no-EXIF default, room-fov.ts); picks the measurement band
+  scaleSource String?
+  /// JSON: RoomMeasures (room-measure.server.ts), after the field-of-view correction
+  measures    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([sessionId])
+}
+
+/// One photoreal render of a design in a room. Inputs and result in Sugar S3.
+model KoshoyRender {
+  id           String   @id
+  sessionId    String
+  shop         String
+  roomId       String
+  /// JSON: ids of the designs drawn, left to right
+  designIds    String
+  /// processing | ready | failed
+  status       String
+  /// render_failed
+  error        String?
+  jobId        String?
+  compositeKey String
+  cabinetKey   String
+  resultKey    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([sessionId])
+}
+
+/// The session's room layout: which designs stand where (CONTRACT v2 §6).
+/// Its own row, not KoshoySession.state: a turn saves the whole session at
+/// its end and would undo drags made meanwhile.
+model KoshoyLayout {
+  sessionId String        @id
+  /// Deleted with its session (expired sessions are pruned).
+  session   KoshoySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// KoshoyRoom the places belong to; null = studio virtual wall
+  roomId    String?
+  /// Bumped on every write (optimistic updates)
+  version   Int
+  /// JSON: [{designId, place}] (room-layout LayoutItem), at most 8
+  items     String
+  updatedAt DateTime      @updatedAt
 }

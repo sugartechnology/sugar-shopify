@@ -32,6 +32,7 @@ export interface KoshoySessionRow {
   tokenHash: string;
   state: string;
   activeDesignId: string | null;
+  roomId: string | null;
   createdAt: Date;
   updatedAt: Date;
   expiresAt: Date;
@@ -59,7 +60,7 @@ export interface KoshoyDb {
     findUnique(args: { where: { tokenHash: string } }): Promise<KoshoySessionRow | null>;
     update(args: {
       where: { id: string };
-      data: Partial<Pick<KoshoySessionRow, "state" | "activeDesignId" | "expiresAt">>;
+      data: Partial<Pick<KoshoySessionRow, "state" | "activeDesignId" | "expiresAt" | "roomId">>;
     }): Promise<KoshoySessionRow>;
     deleteMany(args: { where: { expiresAt: { lt: Date } } }): Promise<{ count: number }>;
   };
@@ -118,6 +119,8 @@ export interface KoshoySessionState {
   id: string;
   shop: string;
   activeDesignId: string | null;
+  /** Latest analysed room (room-status sets it); read-only for turns. */
+  roomId: string | null;
   /** Model conversation id; rotated when a hop left unmatched tool calls. */
   modelSessionId: string;
   brief: KoshoyBrief;
@@ -126,6 +129,8 @@ export interface KoshoySessionState {
   pendingAskUser: { id: string; question: string; options: KoshoyPendingOption[] } | null;
   /** Tool payloads of the hop that ended with ask_user (every call id). */
   pendingTools: KoshoyPendingTool[];
+  /** Room whose photo the model conversation has already seen (sent once per room). */
+  photoSentRoomId: string | null;
 }
 
 export interface KoshoyDesign {
@@ -140,6 +145,12 @@ export interface KoshoyStore {
   createSession(shop: string): Promise<{ session: KoshoySessionState; token: string }>;
   findSession(token: string, shop: string): Promise<KoshoySessionState | null>;
   saveSession(session: KoshoySessionState): Promise<void>;
+  /**
+   * Records the session's latest analysed room. Separate from saveSession,
+   * which writes every other field: a turn that loaded the session earlier
+   * must not undo it.
+   */
+  setRoom(sessionId: string, roomId: string): Promise<void>;
   listDesigns(sessionId: string): Promise<KoshoyDesign[]>;
   getDesign(sessionId: string, designId: string): Promise<KoshoyDesign | null>;
   createDesign(
@@ -174,7 +185,7 @@ export function appendTranscriptEvent(session: KoshoySessionState, event: Public
 
 type PersistedState = Pick<
   KoshoySessionState,
-  "modelSessionId" | "brief" | "events" | "pendingAskUser" | "pendingTools"
+  "modelSessionId" | "brief" | "events" | "pendingAskUser" | "pendingTools" | "photoSentRoomId"
 >;
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -208,6 +219,7 @@ function parseState(raw: string): PersistedState {
     pendingTools: Array.isArray(row.pendingTools)
       ? (row.pendingTools as KoshoyPendingTool[])
       : [],
+    photoSentRoomId: typeof row.photoSentRoomId === "string" ? row.photoSentRoomId : null,
   };
 }
 
@@ -218,6 +230,7 @@ function serializeState(session: KoshoySessionState): string {
     events: session.events.slice(-MAX_TRANSCRIPT_EVENTS),
     pendingAskUser: session.pendingAskUser,
     pendingTools: session.pendingTools,
+    photoSentRoomId: session.photoSentRoomId,
   };
   return JSON.stringify(state);
 }
@@ -265,11 +278,13 @@ export function createKoshoyStore(
         id: randomUUID(),
         shop,
         activeDesignId: null,
+        roomId: null,
         modelSessionId: randomUUID(),
         brief: { ...EMPTY_KOSHOY_BRIEF },
         events: [],
         pendingAskUser: null,
         pendingTools: [],
+        photoSentRoomId: null,
       };
       await db.koshoySession.create({
         data: {
@@ -295,6 +310,7 @@ export function createKoshoyStore(
         id: row.id,
         shop: row.shop,
         activeDesignId: row.activeDesignId,
+        roomId: row.roomId ?? null,
         ...parseState(row.state),
       };
     },
@@ -308,6 +324,10 @@ export function createKoshoyStore(
           expiresAt: new Date(now() + ttlMs),
         },
       });
+    },
+
+    async setRoom(sessionId, roomId) {
+      await db.koshoySession.update({ where: { id: sessionId }, data: { roomId } });
     },
 
     async listDesigns(sessionId) {

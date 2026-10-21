@@ -2,6 +2,9 @@
  * In-memory KoshoyDb for tests. Behaves like the Prisma delegates the store
  * uses (unique tokenHash, cascade delete, conditional updateMany).
  */
+import type { KoshoyLayoutRow } from "./layout.server";
+import { measureRoom } from "./room-measure.server";
+import type { KoshoyRenderRow, KoshoyRoomDb, KoshoyRoomRow, RoomPlanes } from "./room.server";
 import type {
   KoshoyDb,
   KoshoyDesignRow,
@@ -21,7 +24,7 @@ export function createMemoryKoshoyDb(now: () => number = Date.now) {
         for (const row of sessions.values()) {
           if (row.tokenHash === data.tokenHash) throw new Error("unique tokenHash");
         }
-        const row: KoshoySessionRow = { ...data, createdAt: stamp(), updatedAt: stamp() };
+        const row: KoshoySessionRow = { ...data, roomId: null, createdAt: stamp(), updatedAt: stamp() };
         sessions.set(row.id, row);
         return { ...row };
       },
@@ -80,4 +83,95 @@ export function createMemoryKoshoyDb(now: () => number = Date.now) {
   };
 
   return { db, sessions, designs };
+}
+
+/**
+ * In-memory KoshoyRoom / KoshoyRender tables (create, findFirst by id +
+ * session, update) and KoshoyLayout (unique sessionId, conditional updateMany).
+ */
+export function createMemoryRoomDb(now: () => number = Date.now) {
+  function table<Row extends { id: string; sessionId: string; createdAt: Date; updatedAt: Date }>() {
+    const rows = new Map<string, Row>();
+    return {
+      rows,
+      async create({ data }: { data: Omit<Row, "createdAt" | "updatedAt"> }) {
+        const row = { ...data, createdAt: new Date(now()), updatedAt: new Date(now()) } as Row;
+        rows.set(row.id, row);
+        return { ...row };
+      },
+      async findFirst({ where }: { where: { id: string; sessionId: string } }) {
+        const row = rows.get(where.id);
+        return row && row.sessionId === where.sessionId ? { ...row } : null;
+      },
+      async update({ where, data }: { where: { id: string }; data: Partial<Row> }) {
+        const row = rows.get(where.id);
+        if (!row) throw new Error("record not found");
+        Object.assign(row, data, { updatedAt: new Date(now()) });
+        return { ...row };
+      },
+    };
+  }
+
+  const layouts = new Map<string, KoshoyLayoutRow>();
+  const koshoyLayout: KoshoyRoomDb["koshoyLayout"] = {
+    async findUnique({ where }) {
+      const row = layouts.get(where.sessionId);
+      return row ? { ...row } : null;
+    },
+    async create({ data }) {
+      if (layouts.has(data.sessionId)) throw new Error("unique sessionId");
+      const row = { ...data, updatedAt: new Date(now()) };
+      layouts.set(row.sessionId, row);
+      return { ...row };
+    },
+    async updateMany({ where, data }) {
+      const row = layouts.get(where.sessionId);
+      if (!row || row.version !== where.version) return { count: 0 };
+      Object.assign(row, data, { updatedAt: new Date(now()) });
+      return { count: 1 };
+    },
+  };
+
+  const koshoyRoom = table<KoshoyRoomRow>();
+  const koshoyRender = table<KoshoyRenderRow>();
+  const db: KoshoyRoomDb = { koshoyRoom, koshoyRender, koshoyLayout };
+  return { db, rooms: koshoyRoom.rows, renders: koshoyRender.rows, layouts };
+}
+
+/**
+ * A ready room for tests: 1600×1200 photo, camera 1.3 m above the floor,
+ * a wall 3.1 m straight ahead (so the visible wall is about ±1.84 m), and
+ * measurements made the same way refreshRoom makes them (no mask files).
+ */
+export function sampleReadyRoom(id: string, sessionId: string, shop = "koshoy.myshopify.com"): KoshoyRoomRow {
+  const camera = { fovXDegrees: 60, fovYDegrees: 47.9, aspect: 1.3333, fx: 1385.6, fy: 1385.6, cx: 800, cy: 600 };
+  const planes: RoomPlanes = {
+    floor: { normal: [0, -1, 0], equation: [0, -1, 0, 1.3] },
+    wall: { normal: [0, 0, -1], equation: [0, 0, -1, 3.1] },
+  };
+  const depthScale = { min: 0.8, max: 6.4 };
+  const measures = measureRoom(
+    { width: 1600, height: 1200, camera, planes, depthScale },
+    { depth: null, furniture: null, ceiling: null },
+  );
+  return {
+    id,
+    sessionId,
+    shop,
+    status: "ready",
+    error: null,
+    jobId: "job",
+    photoKey: `koshoy-studio/rooms/${id}/photo.jpg`,
+    consentAt: null,
+    width: 1600,
+    height: 1200,
+    camera: JSON.stringify(camera),
+    planes: JSON.stringify(planes),
+    depthScale: JSON.stringify(depthScale),
+    fileUrls: JSON.stringify({ depth: "https://x/depth.png" }),
+    scaleSource: "exif",
+    measures: JSON.stringify(measures),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 }

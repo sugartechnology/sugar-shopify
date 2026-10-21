@@ -7,6 +7,8 @@ import prisma from "../db.server";
 import { authenticate } from "../shopify.server";
 import { isLlmGatewayConfigured } from "../services/llm-gateway.server";
 import { getShopApiKey } from "../services/shop-credentials.server";
+import { createKoshoyS3 } from "../services/s3.server";
+import { createTagService, downloadResultFile } from "../services/tag-service.server";
 import { getCabinetEngine } from "./engine";
 import { createKoshoyBundler } from "./bundle.server";
 import type { KoshoyRequestContext } from "./handlers.server";
@@ -17,6 +19,7 @@ import {
   type KoshoyAdminGraphql,
 } from "./pricing.server";
 import { createBusyLock, createRateLimiter, KOSHOY_LIMITS } from "./rate-limit.server";
+import type { KoshoyRoomDb, KoshoyRoomDeps } from "./room.server";
 import { createKoshoyStore, type KoshoyDb } from "./store.server";
 
 const store = createKoshoyStore(prisma as unknown as KoshoyDb);
@@ -28,8 +31,13 @@ const limits = {
   client: createRateLimiter(KOSHOY_LIMITS.client),
   shop: createRateLimiter(KOSHOY_LIMITS.shop),
   shopSession: createRateLimiter(KOSHOY_LIMITS.shopSession),
+  room: createRateLimiter(KOSHOY_LIMITS.room),
+  render: createRateLimiter(KOSHOY_LIMITS.render),
+  roomRead: createRateLimiter(KOSHOY_LIMITS.roomRead),
+  layout: createRateLimiter(KOSHOY_LIMITS.layout),
 };
 const busy = createBusyLock();
+const files = createKoshoyS3();
 
 function envFlag(name: string): boolean {
   const value = (process.env[name] ?? "").trim().toLowerCase();
@@ -48,6 +56,29 @@ export function isKoshoyEnabledForShop(shop: string): boolean {
     .filter(Boolean);
   if (list.length) return list.includes(shop.toLowerCase());
   return process.env.NODE_ENV !== "production";
+}
+
+/**
+ * Gateway key of the shop. KOSHOY_DEV_SUGAR_API_KEY is a local/dev override
+ * (never in production) that skips the ShopCredential lookup.
+ */
+async function shopApiKey(shop: string): Promise<string> {
+  const devKey = (process.env.KOSHOY_DEV_SUGAR_API_KEY ?? "").trim();
+  if (devKey && process.env.NODE_ENV !== "production") return devKey;
+  const apiKey = await getShopApiKey(shop);
+  if (!apiKey) throw new Error("Shop API key is not configured");
+  return apiKey;
+}
+
+/** Room photo + render services; unset until Sugar S3 and the gateway are configured. */
+function roomDeps(shop: string): KoshoyRoomDeps | undefined {
+  if (!files || !isLlmGatewayConfigured()) return undefined;
+  return {
+    db: prisma as unknown as KoshoyRoomDb,
+    files,
+    tagService: async () => createTagService(await shopApiKey(shop)),
+    download: (url) => downloadResultFile(url),
+  };
 }
 
 export async function koshoyContextFromProxy(
@@ -82,18 +113,12 @@ export async function koshoyContextFromProxy(
     bundler: isKoshoyPriceMock() ? undefined : createKoshoyBundler(shopAdmin, shop),
     limits,
     busy,
+    room: roomDeps(shop),
     async chatConfig() {
       if (envFlag("KOSHOY_CHAT_MOCK") || !isLlmGatewayConfigured()) {
         return { apiKey: "", mock: true };
       }
-      // Local/dev override (never in production): skips the ShopCredential lookup.
-      const devKey = (process.env.KOSHOY_DEV_SUGAR_API_KEY ?? "").trim();
-      if (devKey && process.env.NODE_ENV !== "production") {
-        return { apiKey: devKey, mock: false };
-      }
-      const apiKey = await getShopApiKey(shop);
-      if (!apiKey) throw new Error("Shop API key is not configured");
-      return { apiKey, mock: false };
+      return { apiKey: await shopApiKey(shop), mock: false };
     },
   };
 }
