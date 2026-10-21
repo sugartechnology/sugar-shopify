@@ -4,7 +4,8 @@ import { KOSHOY_MAX_DESIGNS } from "./design-ops.server";
 import { cabinetEngine } from "./engine";
 import type { PublicEvent } from "./events";
 import type { ClientInput } from "./input";
-import { createMemoryKoshoyDb } from "./memory-db";
+import { createMemoryKoshoyDb, createMemoryRoomDb, sampleReadyRoom } from "./memory-db";
+import type { KoshoyRoomDeps } from "./room.server";
 import { createKoshoyPricer, createMockSkuResolver } from "./pricing.server";
 import { KOSHOY_RULES, KOSHOY_SAFE_STOPPED_REPLY, KOSHOY_SAFE_TOPIC_REPLY } from "./rules";
 import { createKoshoyStore, type KoshoySessionState } from "./store.server";
@@ -38,7 +39,13 @@ async function turn(
   ctx: Awaited<ReturnType<typeof setup>>,
   session: KoshoySessionState,
   client: ClientInput,
-  options: { stream?: KoshoyStreamFn; mock?: boolean; signal?: AbortSignal; timeoutMs?: number } = {},
+  options: {
+    stream?: KoshoyStreamFn;
+    mock?: boolean;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    room?: KoshoyRoomDeps;
+  } = {},
 ) {
   const events: PublicEvent[] = [];
   await runKoshoyTurn({
@@ -53,6 +60,7 @@ async function turn(
       stream: options.stream,
       signal: options.signal,
       timeoutMs: options.timeoutMs,
+      room: options.room,
     },
     emit: (event) => events.push(event),
   });
@@ -132,6 +140,7 @@ describe("koshoy turn loop", () => {
     assert.deepEqual(
       (first.tools as Array<{ name: string }>).map((tool) => tool.name),
       ["set_brief", "ask_user", "plan_cabinet", "edit_design", "quote", "switch_design"],
+      "room tools only when the room feature is on",
     );
     assert.equal(second.message, undefined);
     const results = second.toolResults as Array<{ id: string; name: string; payload: Record<string, unknown> }>;
@@ -586,5 +595,86 @@ describe("koshoy turn loop", () => {
       [1, 2],
       "only the accepted change publishes a new scene",
     );
+  });
+
+  it("shows and renders in the room only once a room photo is ready", async () => {
+    const ctx = await setup();
+    const design = await ctx.store.createDesign(ctx.session.id, {
+      kind: "gardirop",
+      label: "Gardırop 192 cm",
+      composition: cabinetEngine.planCabinet({ kind: "gardirop" }).composition,
+    });
+    ctx.session.activeDesignId = design.id;
+    await ctx.store.saveSession(ctx.session);
+    const rooms = createMemoryRoomDb();
+    const room: KoshoyRoomDeps = {
+      db: rooms.db,
+      files: { put: async (name) => name, get: async () => null, signedUrl: async (key) => key },
+      tagService: async () => {
+        throw new Error("no upstream in this test");
+      },
+      download: async () => null,
+    };
+    rooms.rooms.set("room_1", sampleReadyRoom("room_1", ctx.session.id));
+
+    const noRoom = scriptedStream([
+      [{ event: "tool_call", data: { callId: "call_show", name: "show_in_room", arguments: {} } }],
+      [{ event: "text", data: { text: "Önce odanın fotoğrafını yükler misin?" } }],
+    ]);
+    const before = await turn(
+      ctx,
+      ctx.session,
+      { type: "message", text: "Odamda göster" },
+      { stream: noRoom.stream, room },
+    );
+    assert.deepEqual(
+      (noRoom.bodies[0].tools as Array<{ name: string }>).map((tool) => tool.name).slice(-4),
+      ["show_in_room", "render_room", "place_in_room", "remove_from_room"],
+    );
+    assert.ok(!before.some((event) => event.type === "room_show"));
+    const [noRoomResult] = noRoom.bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>;
+    assert.equal(noRoomResult.payload.ok, false);
+    assert.equal(noRoomResult.payload.error, "no_room");
+    assert.match(String(noRoomResult.payload.hint), /fotoğraf/);
+
+    await ctx.store.setRoom(ctx.session.id, "room_1");
+    const session = await ctx.store.findSession(ctx.token, SHOP);
+    assert.ok(session);
+    assert.equal(session.roomId, "room_1");
+    const ready = scriptedStream([
+      [
+        { event: "tool_call", data: { callId: "call_show", name: "show_in_room", arguments: {} } },
+        { event: "tool_call", data: { callId: "call_render", name: "render_room", arguments: { designId: design.id } } },
+      ],
+      [{ event: "text", data: { text: "Dolabı odana yerleştirdim." } }],
+    ]);
+    const events = await turn(
+      ctx,
+      session,
+      { type: "message", text: "Odamda göster ve görsel hazırla" },
+      { stream: ready.stream, room },
+    );
+    assert.deepEqual(
+      events.filter((event) => event.type === "room_show" || event.type === "render_request"),
+      [
+        { type: "room_show", designId: design.id },
+        { type: "render_request", designId: design.id },
+      ],
+    );
+    assertNoLeak(events);
+    assert.ok(!JSON.stringify(events).includes("room_1"), "room ids stay out of chat events");
+    const saved = await ctx.store.findSession(ctx.token, SHOP);
+    assert.ok(saved?.events.every((event) => event.type === "text" || event.type === "choice"));
+    assert.equal(saved?.roomId, "room_1", "a turn's save keeps the room");
+
+    // Feature off (no Sugar S3): a stray call is refused and shows nothing.
+    const off = scriptedStream([
+      [{ event: "tool_call", data: { callId: "call_show", name: "show_in_room", arguments: {} } }],
+      [{ event: "text", data: { text: "Tamam." } }],
+    ]);
+    const offEvents = await turn(ctx, session, { type: "message", text: "Odamda göster" }, { stream: off.stream });
+    assert.ok(!offEvents.some((event) => event.type === "room_show"));
+    const [offResult] = off.bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>;
+    assert.deepEqual(offResult.payload, { ok: false, error: "unsupported_tool" });
   });
 });

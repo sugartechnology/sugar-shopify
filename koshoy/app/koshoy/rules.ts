@@ -4,6 +4,7 @@
  */
 import { DESIGN_KIND_LABELS, DESIGN_KINDS, type DesignKind } from "./engine";
 import { PRICE_PLACEHOLDER } from "./events";
+import { TIGHT_FIT_SENTENCE } from "./room-measure.server";
 
 export interface KoshoyRule {
   id: string;
@@ -13,6 +14,14 @@ export interface KoshoyRule {
   guard?: RegExp[];
 }
 
+/** "m²" arrives as "m2" after NFKC normalisation. */
+const SQUARE_METRES = /metrekare|m²|(?<![\p{L}\p{N}])m2(?![\p{L}\p{N}])/iu;
+
+/**
+ * Rules without a ready room (the room feature off, no photo yet, or a
+ * photo without a usable floor): exactly the rules from before the room
+ * photo. With a ready room KOSHOY_ROOM_RULES replaces the two room rules.
+ */
 export const KOSHOY_RULES: readonly KoshoyRule[] = [
   {
     id: "no_room_dimensions",
@@ -20,8 +29,7 @@ export const KOSHOY_RULES: readonly KoshoyRule[] = [
     guard: [
       /oda(?:n[ıi]n|m[ıi]n|s[ıi]n[ıi]n)?\s+(?:ölçü|boyut|genişli|uzunlu|eni\b|boyu\b)/iu,
       /duvar(?:[ıi]n)?\s+(?:ölçü|boyut|genişli|uzunlu)/iu,
-      // "m²" arrives as "m2" after NFKC normalisation
-      /metrekare|m²|(?<![\p{L}\p{N}])m2(?![\p{L}\p{N}])/iu,
+      SQUARE_METRES,
     ],
   },
   {
@@ -76,6 +84,34 @@ export const KOSHOY_RULES: readonly KoshoyRule[] = [
     text: "Fotoğraf yalnızca bağlam olarak kullanılır; fotoğraftan ölçü çıkarmazsın.",
   },
 ];
+
+/** The two room rules with a ready room (CONTRACT v2 §6 decision 5, v2.1-9). */
+const READY_ROOM_RULES: Record<string, KoshoyRule> = {
+  no_room_dimensions: {
+    // checkReply lets a room size through only with "yaklaşık", a number from
+    // the room measurements and its unit (see RoomNumbers).
+    id: "room_dimensions",
+    text:
+      "Oda ölçüsünü yalnız sistemin verdiği oda bilgisinden söylersin: her zaman \"yaklaşık\" diyerek, 10 cm'ye yuvarlanmış hâliyle ve oda bilgisindeki birimle. " +
+      `Oda bilgisinde bir tasarım için "sınırda" yazıyorsa "${TIGHT_FIT_SENTENCE}" dersin. Metrekare hiç söylemezsin.`,
+    guard: [SQUARE_METRES],
+  },
+  photo_context_only: {
+    id: "room_photo",
+    text:
+      "Müşterinin oda fotoğrafını görebilirsin; pencere, kapı ve eşyaların yerini anlamak için kullanırsın. " +
+      "Ölçüyü fotoğraftan kendin tahmin etmezsin; ölçü yalnız sistemin oda bilgisinden gelir.",
+  },
+};
+
+export const KOSHOY_ROOM_RULES: readonly KoshoyRule[] = KOSHOY_RULES.map(
+  (rule) => READY_ROOM_RULES[rule.id] ?? rule,
+);
+
+/** The rules in force: with a ready room the room sizes may be told, approximately. */
+export function koshoyRules(roomReady: boolean): readonly KoshoyRule[] {
+  return roomReady ? KOSHOY_ROOM_RULES : KOSHOY_RULES;
+}
 
 export const KOSHOY_SCOPE = {
   inScope: DESIGN_KINDS.map((kind) => ({ kind, label: DESIGN_KIND_LABELS[kind] })),
@@ -160,6 +196,13 @@ const WORD_VALUES: Record<string, number> = {
 };
 /** Zero-width and other format characters used to split forbidden words. */
 const FORMAT_CHARS = /\p{Cf}/gu;
+/** Words that make a room number an approximation ("yaklaşık 3,4 m"). */
+const APPROXIMATE_WORDS = /yaklaşık|civar|aşağı\s+yukarı/u;
+/** Sentences about the size of the room, a wall or the ceiling (any suffix: "duvarının genişliği"). */
+const ROOM_SIZE_WORDS =
+  /(?<![\p{L}])(?:oda|duvar|tavan)\p{L}*\s+(?:ölçü|boyut|genişli|uzunlu|yüksekli|eni\b|boyu\b)/iu;
+const CM_AFTER = /^\s*(?:cm|santim\p{L}*|santimetre\p{L}*)(?![\p{L}])/iu;
+const M_AFTER = /^\s*(?:m|metre\p{L}*)(?![\p{L}])/iu;
 /** Plain counts ("2 çekmece") are not facts the model can invent dangerously. */
 const SMALL_COUNT_MAX = 10;
 
@@ -280,6 +323,32 @@ export function numbersIn(value: unknown, out: Set<string> = new Set()): Set<str
 }
 
 /**
+ * Room measurements a reply may quote with a ready room, by unit: values
+ * under keys ending in "Cm" and "M" of the room and layout blocks (and the
+ * room tools' results). Counts, percentages and design sizes never are.
+ */
+export interface RoomNumbers {
+  cm: Set<string>;
+  m: Set<string>;
+}
+
+export function roomNumbersIn(value: unknown, out: RoomNumbers): RoomNumbers {
+  if (Array.isArray(value)) {
+    for (const item of value) roomNumbersIn(item, out);
+  } else if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof item === "number" && Number.isFinite(item)) {
+        if (key.endsWith("Cm")) out.cm.add(canonical(item));
+        else if (key.endsWith("M")) out.m.add(canonical(item));
+      } else {
+        roomNumbersIn(item, out);
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Collects the prices a reply may quote: only amounts written with a
  * currency in tool text (the price displays, "15.958,14 TL"). Typed numbers
  * (sizes, counts, indexes) are never prices.
@@ -336,9 +405,9 @@ function splitSentences(text: string): string[] {
   return out;
 }
 
-function ruleHit(sentence: string): GuardIssue | null {
+function ruleHit(sentence: string, rules: readonly KoshoyRule[]): GuardIssue | null {
   const lower = sentence.toLocaleLowerCase("tr-TR");
-  for (const rule of KOSHOY_RULES) {
+  for (const rule of rules) {
     for (const pattern of rule.guard ?? []) {
       if (pattern.test(sentence) || pattern.test(lower)) {
         return rule.id === "product_language" ? "leak" : "topic";
@@ -431,33 +500,46 @@ function amountTokens(sentence: string): AmountToken[] {
  *
  * allowedPrices: canonical values from pricesIn(). When omitted they are
  * read from the currency amounts inside allowedNumbers.
+ * room: given only with a ready room (RoomNumbers). Then a room number
+ * passes only in a sentence that says "yaklaşık" (or "civarı", "aşağı
+ * yukarı") and with its own unit, and a sentence about the size of the
+ * room, a wall or the ceiling that gives a measurement must use one, or it
+ * is replaced like a forbidden topic. Without it the rules from before the
+ * room photo apply unchanged (CONTRACT v2.1-9).
  */
 export function checkReply(
   text: string,
   allowedNumbers: Iterable<unknown>,
   allowedPrices?: ReadonlySet<string>,
+  room?: RoomNumbers,
 ): CheckReplyResult {
   const facts = [...allowedNumbers];
   const allowed = new Set<string>();
   for (const item of facts) numbersIn(item, allowed);
   const prices = allowedPrices ?? pricesIn(facts);
   const issues = new Set<GuardIssue>();
+  const rules = koshoyRules(Boolean(room));
   let safeUsed = false;
   const kept: string[] = [];
   const source = asciiDigits(text.normalize("NFKC").replace(FORMAT_CHARS, ""));
+  const replaceWithSafe = (sentence: string, issue: GuardIssue) => {
+    issues.add(issue);
+    if (safeUsed) return;
+    kept.push(KOSHOY_SAFE_TOPIC_REPLY + (trailingSpace(sentence) || " "));
+    safeUsed = true;
+  };
 
   for (const sentence of splitSentences(source)) {
-    const hit = ruleHit(sentence);
+    const hit = ruleHit(sentence, rules);
     if (hit) {
-      issues.add(hit);
-      if (!safeUsed) {
-        kept.push(KOSHOY_SAFE_TOPIC_REPLY + (trailingSpace(sentence) || " "));
-        safeUsed = true;
-      }
+      replaceWithSafe(sentence, hit);
       continue;
     }
 
     const priceTalk = PRICE_WORDS.test(sentence.toLocaleLowerCase("tr-TR"));
+    const approximateTalk = APPROXIMATE_WORDS.test(sentence.toLocaleLowerCase("tr-TR"));
+    let measured = false;
+    let roomNumberUsed = false;
     let drop = false;
     let rebuilt = "";
     let cursor = 0;
@@ -479,6 +561,12 @@ export function checkReply(
         replace = !quoted;
       } else {
         consumed = token.end;
+        const unit = CM_AFTER.test(after) ? "cm" : M_AFTER.test(after) ? "m" : null;
+        if (unit) measured = true;
+        if (room && unit && approximateTalk && token.value !== null && room[unit].has(token.value)) {
+          roomNumberUsed = true;
+          continue;
+        }
         if (token.value !== null && allowed.has(token.value)) continue;
         if (token.small && !UNIT_AFTER.test(after) && !PERCENT_BEFORE.test(before)) continue;
         issues.add("number");
@@ -497,6 +585,11 @@ export function checkReply(
       cursor = end;
     }
     if (drop) continue;
+    // A room size with a ready room: "yaklaşık" + a room measurement + its unit.
+    if (room && measured && !roomNumberUsed && ROOM_SIZE_WORDS.test(sentence)) {
+      replaceWithSafe(sentence, "topic");
+      continue;
+    }
     kept.push(rebuilt + sentence.slice(cursor));
   }
 
