@@ -839,6 +839,27 @@ describe("koshoy turn loop", () => {
       | { items: Array<{ designId: string; active: boolean }> }
       | undefined;
     assert.equal(tabs?.items.find((item) => item.active)?.designId, wardrobe.id);
+
+    // Most turns end with a question: the next request arrives as its answer and carries the open tab too.
+    ctx.session.activeDesignId = nightstand.id;
+    const asked = scriptedStream([
+      [
+        { event: "text", data: { text: "Çekmeceler iyi mi?" } },
+        {
+          event: "tool_call",
+          data: { callId: "call_ask", name: "ask_user", arguments: JSON.stringify({ question: "Çekmeceler iyi mi?", options: [{ id: "ok", label: "İyi" }, { id: "no", label: "Değiştir" }] }) },
+        },
+      ],
+      [edit({ op: { ...blue, color: "ivory" } })],
+      [{ event: "text", data: { text: "Komodini krem yaptım." } }],
+    ]);
+    await turn(ctx, ctx.session, { type: "message", text: "komodine bakalım" }, { stream: asked.stream });
+    ctx.session.activeDesignId = wardrobe.id; // tab clicked while the question waits
+    await turn(ctx, ctx.session, { type: "message", text: "rengini krem yap" }, { stream: asked.stream });
+    const [answer] = asked.bodies[1].toolResults as Array<{ name: string; payload: Record<string, unknown> }>;
+    assert.equal(answer.name, "ask_user");
+    assert.equal(answer.payload.openDesign, "Gardırop 192 cm");
+    assert.equal(answer.payload.label, "rengini krem yap");
   });
 
   it("opens the doors in the view only through show_doors, never on a design without doors", async () => {
