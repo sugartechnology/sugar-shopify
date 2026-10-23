@@ -43,7 +43,7 @@ describe("koshoy session store", () => {
     session.brief.color = "ivory";
     session.pendingAskUser = { id: "call_1", question: "Renk?", options: [{ id: "opt_1", label: "A", value: "a" }] };
     session.pendingTools = [{ id: "call_1", name: "ask_user", payload: { question: "Renk?" } }];
-    appendTranscriptEvent(session, { type: "text", text: "Merhaba" });
+    appendTranscriptEvent(session, { type: "text", text: "Merhaba" }, 1_000);
     advance(50_000);
     await store.saveSession(session);
     advance(50_000);
@@ -53,7 +53,7 @@ describe("koshoy session store", () => {
     assert.equal(found.brief.color, "ivory");
     assert.equal(found.pendingAskUser?.id, "call_1");
     assert.equal(found.pendingTools[0]?.id, "call_1");
-    assert.deepEqual(found.events, [{ type: "text", text: "Merhaba" }]);
+    assert.deepEqual(found.events, [{ type: "text", text: "Merhaba", at: 1_000 }], "the time is kept");
     assert.equal(found.modelSessionId, session.modelSessionId);
   });
 
@@ -143,14 +143,14 @@ describe("koshoy session store", () => {
       pendingTools: [],
       photoSentRoomId: null,
     };
-    appendTranscriptEvent(session, { type: "status", key: "thinking" });
-    appendTranscriptEvent(session, { type: "text", text: "Hazırladım." });
-    appendTranscriptEvent(session, { type: "text", text: "Fiyatı [FİYAT]." });
-    appendTranscriptEvent(session, { type: "done" });
-    appendTranscriptEvent(session, { type: "choice", options: [{ id: "a", label: "A" }] });
+    appendTranscriptEvent(session, { type: "status", key: "thinking" }, 1);
+    appendTranscriptEvent(session, { type: "text", text: "Hazırladım." }, 2);
+    appendTranscriptEvent(session, { type: "text", text: "Fiyatı [FİYAT]." }, 3);
+    appendTranscriptEvent(session, { type: "done" }, 4);
+    appendTranscriptEvent(session, { type: "choice", options: [{ id: "a", label: "A" }] }, 5);
     assert.deepEqual(session.events, [
-      { type: "text", text: "Hazırladım.\n\nFiyatı [FİYAT]." },
-      { type: "choice", options: [{ id: "a", label: "A" }] },
+      { type: "text", text: "Hazırladım.\n\nFiyatı [FİYAT].", at: 2 },
+      { type: "choice", options: [{ id: "a", label: "A" }], at: 5 },
     ]);
   });
 });

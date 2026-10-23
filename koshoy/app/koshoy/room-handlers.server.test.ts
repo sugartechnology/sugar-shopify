@@ -673,6 +673,41 @@ describe("koshoy room photo and render endpoints", () => {
     assert.ok(!LEAKS.test(resumed.text), resumed.text);
   });
 
+  it("brings the room photo and finished pictures back at their place in the thread", async () => {
+    const t = setup();
+    const token = await openSession(t.ctx);
+    const room = await readyRoom(t, token);
+    const design = await designFor(t, token);
+    const ready = (await startRenderFor(t, token, room.id, design.id)).body.render as { id: string };
+    const failed = (await startRenderFor(t, token, room.id, design.id, "203.0.113.9")).body.render as { id: string };
+    Object.assign(t.memory.rooms.get(room.id)!, { createdAt: new Date(2_000) });
+    Object.assign(t.memory.renders.get(ready.id)!, { status: "ready", updatedAt: new Date(4_000) });
+    Object.assign(t.memory.renders.get(failed.id)!, { status: "failed", updatedAt: new Date(5_000) });
+    const session = await t.ctx.store.findSession(token, SHOP);
+    assert.ok(session);
+    session.events = [
+      { type: "text", text: "Eski metin" },
+      { type: "text", text: "Fotoğrafı ekler misin?", at: 1_000 },
+      { type: "text", text: "Görseli hazırlıyorum.", at: 3_000 },
+      { type: "text", text: "Nasıl buldun?", at: 6_000 },
+    ];
+    await t.ctx.store.saveSession(session);
+
+    const resumed = await json(await handleKoshoySession(post("session", {}, token), t.ctx));
+    const thread = (resumed.body.events as Array<Record<string, unknown>>).filter((event) =>
+      ["text", "photo", "render"].includes(String(event.type)),
+    );
+    assert.deepEqual(thread, [
+      { type: "text", text: "Eski metin" },
+      { type: "text", text: "Fotoğrafı ekler misin?" },
+      { type: "photo", roomId: room.id },
+      { type: "text", text: "Görseli hazırlıyorum." },
+      { type: "render", renderId: ready.id },
+      { type: "text", text: "Nasıl buldun?" },
+    ], "times stay on the server; a failed picture is not shown");
+    assert.ok(!LEAKS.test(resumed.text), resumed.text);
+  });
+
   it("renders every design standing in the room, left to right", async () => {
     const t = setup({ renderLimit: 100 });
     const token = await openSession(t.ctx);

@@ -87,7 +87,8 @@ export function createMemoryKoshoyDb(now: () => number = Date.now) {
 
 /**
  * In-memory KoshoyRoom / KoshoyRender tables (create, findFirst by id +
- * session, update) and KoshoyLayout (unique sessionId, conditional updateMany).
+ * session, findMany by session, update) and KoshoyLayout (unique sessionId,
+ * conditional updateMany).
  */
 export function createMemoryRoomDb(now: () => number = Date.now) {
   function table<Row extends { id: string; sessionId: string; createdAt: Date; updatedAt: Date }>() {
@@ -102,6 +103,9 @@ export function createMemoryRoomDb(now: () => number = Date.now) {
       async findFirst({ where }: { where: { id: string; sessionId: string } }) {
         const row = rows.get(where.id);
         return row && row.sessionId === where.sessionId ? { ...row } : null;
+      },
+      async findMany({ where }: { where: { sessionId: string } }) {
+        return [...rows.values()].filter((row) => row.sessionId === where.sessionId).map((row) => ({ ...row }));
       },
       async update({ where, data }: { where: { id: string }; data: Partial<Row> }) {
         const row = rows.get(where.id);
