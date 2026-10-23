@@ -63,6 +63,15 @@ describe("bundle names (store content guide §4.1)", () => {
     );
   });
 
+  it("cupboards without a guide name use its nearest product type", () => {
+    assert.equal(
+      bundleTitle("kiler", twoUnits, quoteOf({ GOVDE: 2, KAPAK: 2, RAF: 8 })),
+      "Boy Dolabı 192 cm, 2 Kapaklı – Kırık Beyaz",
+    );
+    assert.equal(bundleTitle("ayakkabilik", oneUnit, quoteOf({ GOVDE: 1, KAPAK: 1, RAF: 2 })), "Ayakkabılık 48 cm, 1 Kapaklı – Mavi");
+    assert.equal(bundleTitle("cok_amacli_dolap", oneUnit, quoteOf({ GOVDE: 1, KAPAK: 1 })), "Dolap 48 cm, 1 Kapaklı – Mavi");
+  });
+
   it("no doors: drawer count, open shelves", () => {
     assert.equal(
       bundleTitle("sifonyer", oneUnit, quoteOf({ GOVDE: 1, CEKMECE_ON: 1, RAF: 2 })),

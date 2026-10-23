@@ -28,6 +28,10 @@ const NAME_MAX = 70;
 const BUNDLE_TYPES: Record<DesignKind, string> = {
   ...DESIGN_KIND_LABELS,
   tv_unitesi: "TV Ünitesi",
+  // Not on the guide's list by name: its nearest type.
+  kiler: "Boy Dolabı",
+  banyo_dolabi: "Boy Dolabı",
+  cok_amacli_dolap: "Dolap",
 };
 
 /** Kinds whose name already implies drawers: no "Çekmeceli" prefix. */

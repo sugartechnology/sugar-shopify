@@ -41,7 +41,20 @@ export const KOSHOY_ROOM_SETS: readonly KoshoyRoomSet[] = [
   {
     id: "antre",
     label: "Antre",
-    items: [{ kind: "vestiyer", count: 1 }],
+    items: [
+      { kind: "vestiyer", count: 1 },
+      { kind: "ayakkabilik", count: 1 },
+    ],
+  },
+  {
+    id: "mutfak",
+    label: "Mutfak",
+    items: [{ kind: "kiler", count: 1 }],
+  },
+  {
+    id: "banyo",
+    label: "Banyo",
+    items: [{ kind: "banyo_dolabi", count: 1 }],
   },
   {
     id: "cocuk_odasi",
