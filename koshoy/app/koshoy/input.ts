@@ -131,6 +131,14 @@ export function parseEditOp(raw: unknown): EditOp | null {
   }
 }
 
+/** `{designId}` of /select: the design to switch to, any version. */
+export function parseDesignId(body: unknown): string | null {
+  const designId = asRecord(body).designId;
+  if (typeof designId !== "string") return null;
+  const trimmed = designId.trim();
+  return /^[A-Za-z0-9_-]{1,64}$/.test(trimmed) ? trimmed : null;
+}
+
 export function parseDesignRef(body: unknown): { designId: string; version: number } | null {
   const row = asRecord(body);
   const designId = typeof row.designId === "string" ? row.designId.trim() : "";

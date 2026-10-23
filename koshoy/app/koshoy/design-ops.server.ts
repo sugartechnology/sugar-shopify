@@ -8,6 +8,7 @@ import {
   CABIN_WIDTHS_MM,
   DESIGN_KIND_LABELS,
   DOOR_MIN_HEIGHT_MM,
+  unitWidthsForKind,
   type BomPart,
   type CabinComposition,
   type CabinFitKind,
@@ -71,6 +72,8 @@ const EDIT_REJECT_HINTS: Record<EditRejectReason | "stale", string> = {
   no_door: "Bu gövdede kapak yok.",
   total_width_exceeded: `Toplam genişlik en fazla ${cmText(CABIN_TOTAL_WIDTH_MAX_MM)} cm olabilir.`,
   total_width_too_small: `Toplam genişlik en az ${cmText(CABIN_WIDTHS_MM[0])} cm olabilir.`,
+  width_not_allowed:
+    "Bu üründe bir gövde bu genişlikte olamaz; daha geniş bir ürün için toplam genişlik artırılır, gövdeler bölünür.",
   no_change: "Tasarım zaten böyle; bir şey değişmedi.",
   stale: "Tasarım bu sırada panelden değişti; güncel hâline göre tekrar dene.",
 };
@@ -125,6 +128,7 @@ export function sceneEvent(design: KoshoyDesign): PublicEvent | null {
     kind: design.kind,
     label: design.label,
     view: design.composition,
+    unitWidthsMm: unitWidthsForKind(design.kind),
   });
 }
 
@@ -229,7 +233,7 @@ export async function applyDesignEdit(
   design: KoshoyDesign,
   op: EditOp,
 ): Promise<DesignEditResult> {
-  const result = deps.engine.applyEditOp(design.composition, op);
+  const result = deps.engine.applyEditOp(design.composition, op, design.kind);
   if (!result.ok) {
     if (result.reason === "no_change") return { ok: true, design, changed: false, warnings: [] };
     return { ok: false, reason: result.reason };

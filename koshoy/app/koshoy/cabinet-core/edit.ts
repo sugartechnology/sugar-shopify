@@ -36,6 +36,7 @@ import {
   nearestHeight,
   nearestWidth,
 } from "./grid";
+import { splitUnitsForKind, unitWidthsForKind, type DesignKind } from "./templates";
 import type {
   CabinColorId,
   CabinComposition,
@@ -71,7 +72,7 @@ export type EditRejectReason =
   | "invalid_value"
   /** Not enough interior height left for the fitting. */
   | "no_room"
-  /** Door would be shorter than 320 mm. */
+  /** Door zone would be under 320 mm (leaf under 317 mm). */
   | "door_too_short"
   /** Door height has no catalog KAPAK (H − drawers is not a catalog height). */
   | "door_size_unavailable"
@@ -82,6 +83,8 @@ export type EditRejectReason =
   | "total_width_exceeded"
   /** Total width under the smallest unit (320 mm). */
   | "total_width_too_small"
+  /** The furniture kind does not allow this unit width (`DESIGN_KIND_RULES`). */
+  | "width_not_allowed"
   /** Op is valid but changes nothing. */
   | "no_change"
   /** Input is malformed or off-catalog, so no edit can produce a valid result. */
@@ -101,10 +104,12 @@ const FIT_KINDS: readonly CabinFitKind[] = ["drawer160", "drawer320", "shelf", "
  * plus explicit rule checks so invalid ops are rejected instead of silently
  * ignored. The op may come straight from untrusted JSON. The input is never
  * mutated; an accepted result is normalized and passes `compositionIssues`.
+ * With `kind`, width ops also follow that kind's rules (`DESIGN_KIND_RULES`).
  */
 export function applyEditOp(
   composition: CabinComposition,
   op: EditOp,
+  kind?: DesignKind,
 ): EditResult {
   if (!op || typeof op !== "object") return { ok: false, reason: "invalid_op" };
   if (!composition || !Array.isArray(composition.units)) {
@@ -116,7 +121,7 @@ export function applyEditOp(
     return { ok: false, reason: "invalid_composition" };
   }
   const base = normalizeComposition(composition);
-  const next = applyOp(base, op);
+  const next = applyOp(base, op, kind);
   if (typeof next === "string") return { ok: false, reason: next };
   const normalized = normalizeComposition(next);
   if (normalized.units.some((unit) => unit.hasDoor && !hasCatalogDoor(unit, normalized))) {
@@ -217,7 +222,7 @@ function unitIssues(unit: CabinUnit, composition: CabinComposition): string[] {
     issues.push("fittings do not fit the interior");
   }
   if (unit.hasDoor && !canHaveDoor(size, fittings)) {
-    issues.push(`door shorter than ${DOOR_MIN_HEIGHT_MM} mm`);
+    issues.push(`door zone under ${DOOR_MIN_HEIGHT_MM} mm`);
   } else if (unit.hasDoor && !hasCatalogDoor(unit, composition)) {
     issues.push(`door height ${doorClearHeightMm(size, fittings)} is not a catalog KAPAK`);
   }
@@ -227,6 +232,7 @@ function unitIssues(unit: CabinUnit, composition: CabinComposition): string[] {
 function applyOp(
   c: CabinComposition,
   op: EditOp,
+  kind: DesignKind | undefined,
 ): CabinComposition | EditRejectReason {
   switch (op.action) {
     case "add_fitting":
@@ -234,11 +240,11 @@ function applyOp(
     case "remove_fitting":
       return removeFittingOp(c, op.unit, op.index);
     case "set_unit_width":
-      return unitWidthOp(c, op.unit, op.widthMm);
+      return unitWidthOp(c, op.unit, op.widthMm, kind);
     case "set_unit_height":
       return unitHeightOp(c, op.unit, op.heightMm);
     case "set_total_width":
-      return totalWidthOp(c, op.widthMm);
+      return totalWidthOp(c, op.widthMm, kind);
     case "set_depth":
       return depthOp(c, op.depthMm);
     case "set_door":
@@ -270,8 +276,8 @@ function addFittingOp(
  * exists. Here the drawer goes on top of the bottom bank instead (index =
  * bank length): drawers stay a prefix ("Çekmeceler yalnız altta") and the
  * default gardırop / vestiyer units can still get one. Everything above the
- * bank has to keep fitting and the door has to stay ≥ 320 mm; the catalog
- * KAPAK height is checked by `applyEditOp`.
+ * bank has to keep fitting and the door zone has to stay ≥ 320 mm; the
+ * catalog KAPAK height is checked by `applyEditOp`.
  */
 function addDrawerOp(
   c: CabinComposition,
@@ -306,11 +312,13 @@ function unitWidthOp(
   c: CabinComposition,
   index: unknown,
   value: unknown,
+  kind: DesignKind | undefined,
 ): CabinComposition | EditRejectReason {
   const unit = unitAt(c, index);
   if (!unit) return "invalid_unit";
   if (!isPositive(value)) return "invalid_value";
   const widthMm = nearestWidth(value);
+  if (kind && !unitWidthsForKind(kind).includes(widthMm)) return "width_not_allowed";
   if (totalWidthMm(c.units) - unit.widthMm + widthMm > CABIN_TOTAL_WIDTH_MAX_MM) {
     return "total_width_exceeded";
   }
@@ -331,11 +339,14 @@ function unitHeightOp(
 function totalWidthOp(
   c: CabinComposition,
   value: unknown,
+  kind: DesignKind | undefined,
 ): CabinComposition | EditRejectReason {
   if (!isPositive(value)) return "invalid_value";
   if (value > CABIN_TOTAL_WIDTH_MAX_MM) return "total_width_exceeded";
   if (value < CABIN_WIDTHS_MM[0]) return "total_width_too_small";
-  return syncCompositionToWidth(c, value);
+  const synced = syncCompositionToWidth(c, value);
+  // Units grow through the whole catalog; a unit the kind does not allow is split.
+  return kind ? splitUnitsForKind(synced, kind) : synced;
 }
 
 function depthOp(

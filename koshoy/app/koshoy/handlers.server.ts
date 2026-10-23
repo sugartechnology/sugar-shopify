@@ -15,7 +15,13 @@ import {
   type KoshoyErrorCode,
   type PublicEvent,
 } from "./events";
-import { parseClientInput, parseDesignImage, parseDesignRef, parseEditOp } from "./input";
+import {
+  parseClientInput,
+  parseDesignId,
+  parseDesignImage,
+  parseDesignRef,
+  parseEditOp,
+} from "./input";
 import {
   hitAll,
   koshoyClientKey,
@@ -42,6 +48,7 @@ import {
 import {
   applyDesignEdit,
   designSummaries,
+  designsEvent,
   editSummaryText,
   priceEvent,
   sceneEvent,
@@ -473,6 +480,56 @@ export async function handleKoshoyEdit(
     return koshoyJson({ ok: true, events: publicEvents(events) });
   } catch (error) {
     console.error("[koshoy] edit failed", error);
+    return koshoyErrorResponse("unavailable");
+  } finally {
+    if (locked) ctx.busy.release(locked);
+  }
+}
+
+/* ---------------- POST /select ---------------- */
+
+/**
+ * A design tab: makes that design the active one (the assistant then works
+ * on it too) and returns its scene and price, so the storefront can show a
+ * design it never received in this page.
+ */
+export async function handleKoshoySelect(
+  request: Request,
+  ctx: KoshoyRequestContext,
+): Promise<Response> {
+  let locked = "";
+  try {
+    if (!ctx.enabled) return koshoyErrorResponse("unavailable");
+    const body = await readJson(request);
+    const found = await loadSession(request, ctx, body);
+    if (!found) return koshoyErrorResponse("session_expired");
+    const designId = parseDesignId(body);
+    if (!designId) return koshoyErrorResponse("invalid_input");
+    if (!ctx.limits.edit.hit(found.id)) return koshoyErrorResponse("rate_limited");
+    // A running turn saves the whole session when it ends and would undo the switch.
+    if (!ctx.busy.acquire(found.id)) return koshoyErrorResponse("rate_limited");
+    locked = found.id;
+    const session = await lockedSession(request, ctx, body, found.id);
+    if (!session) return koshoyErrorResponse("session_expired");
+
+    const design = await ctx.store.getDesign(session.id, designId);
+    if (!design) return koshoyErrorResponse("invalid_input");
+    if (session.activeDesignId !== design.id) {
+      session.activeDesignId = design.id;
+      await ctx.store.saveSession(session);
+    }
+    const quote = await ctx.pricer.quote(design.composition);
+    const designs = await ctx.store.listDesigns(session.id);
+    return koshoyJson({
+      ok: true,
+      events: publicEvents([
+        designsEvent(designs, design.id),
+        sceneEvent(design),
+        priceEvent(design, quote),
+      ]),
+    });
+  } catch (error) {
+    console.error("[koshoy] select failed", error);
     return koshoyErrorResponse("unavailable");
   } finally {
     if (locked) ctx.busy.release(locked);

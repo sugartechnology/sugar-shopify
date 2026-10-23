@@ -139,7 +139,7 @@ describe("koshoy turn loop", () => {
     assert.ok(String(first.instructions).includes(KOSHOY_RULES[0].text));
     assert.deepEqual(
       (first.tools as Array<{ name: string }>).map((tool) => tool.name),
-      ["set_brief", "ask_user", "plan_cabinet", "edit_design", "quote", "switch_design"],
+      ["set_brief", "ask_user", "plan_cabinet", "edit_design", "quote", "switch_design", "show_doors"],
       "room tools only when the room feature is on",
     );
     assert.equal(second.message, undefined);
@@ -676,5 +676,32 @@ describe("koshoy turn loop", () => {
     assert.ok(!offEvents.some((event) => event.type === "room_show"));
     const [offResult] = off.bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>;
     assert.deepEqual(offResult.payload, { ok: false, error: "unsupported_tool" });
+  });
+
+  it("opens the doors in the view only through show_doors, never on a design without doors", async () => {
+    const ctx = await setup();
+    const call = (open: boolean) => ({
+      event: "tool_call",
+      data: { callId: "call_doors", name: "show_doors", arguments: JSON.stringify({ open }) },
+    });
+    const plan = (kind: string) => ({
+      event: "tool_call",
+      data: { callId: "call_plan", name: "plan_cabinet", arguments: JSON.stringify({ kind }) },
+    });
+
+    const wardrobe = scriptedStream([[plan("gardirop")], [call(true)], [{ event: "text", data: { text: "Açtım." } }]]);
+    const opened = await turn(ctx, ctx.session, { type: "message", text: "gardırop, kapaklar açık" }, { stream: wardrobe.stream });
+    const doors = opened.filter((event) => event.type === "doors");
+    assert.deepEqual(doors, [{ type: "doors", open: true }]);
+    const versions = opened.filter((event) => event.type === "scene").map((event) => event.type === "scene" && event.version);
+    assert.deepEqual(versions, [1], "opening doors publishes no new design version");
+    assertNoLeak(opened);
+
+    const komodin = scriptedStream([[plan("komodin")], [call(true)], [{ event: "text", data: { text: "Kapağı yok." } }]]);
+    const refused = await turn(ctx, ctx.session, { type: "message", text: "komodin, kapak açık" }, { stream: komodin.stream });
+    assert.equal(refused.some((event) => event.type === "doors"), false);
+    const results = komodin.bodies[2].toolResults as Array<{ name: string; payload: Record<string, unknown> }>;
+    assert.equal(results[0].payload.ok, false);
+    assert.equal(typeof results[0].payload.hint, "string");
   });
 });
