@@ -48,7 +48,8 @@ type StudioErrorCode =
   | "rate_limited"
   | "session_expired"
   | "invalid_input"
-  | "not_found";
+  | "not_found"
+  | "link_expired";
 
 const STATUS_BY_CODE: Record<StudioErrorCode, number> = {
   unavailable: 503,
@@ -56,6 +57,8 @@ const STATUS_BY_CODE: Record<StudioErrorCode, number> = {
   session_expired: 401,
   invalid_input: 400,
   not_found: 404,
+  /** QR phone link used, expired or unknown (phone-handlers.server.ts) */
+  link_expired: 410,
 };
 
 export function koshoyStudioError(

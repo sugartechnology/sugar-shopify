@@ -50,6 +50,7 @@ model KoshoySession {
   expiresAt      DateTime
   designs        KoshoyDesign[]
   layout         KoshoyLayout?
+  phoneLinks     KoshoyPhoneLink[]
 
   @@index([shop])
   @@index([expiresAt])
@@ -145,4 +146,24 @@ model KoshoyLayout {
   /// JSON: [{designId, place}] (room-layout LayoutItem), at most 8
   items     String
   updatedAt DateTime      @updatedAt
+}
+
+/// QR link from the desktop studio to a phone: the phone sends one room photo
+/// into this session (phone-link.server.ts). Only the sha256 of the link token
+/// is stored; the token itself is in the QR only.
+model KoshoyPhoneLink {
+  id        String        @id
+  sessionId String
+  session   KoshoySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  shop      String
+  tokenHash String        @unique
+  expiresAt DateTime
+  /// Set when the phone starts sending; the link takes no other photo.
+  usedAt    DateTime?
+  /// KoshoyRoom the phone's photo became
+  roomId    String?
+  createdAt DateTime      @default(now())
+
+  @@index([sessionId])
+  @@index([expiresAt])
 }

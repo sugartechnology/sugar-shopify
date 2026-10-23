@@ -322,7 +322,8 @@ export function imageType(bytes: Uint8Array): "image/jpeg" | "image/png" | "imag
  */
 export async function startRoom(
   deps: KoshoyRoomDeps,
-  session: KoshoySessionState,
+  /** Only the id and shop: the phone link (phone-link.server.ts) starts rooms without loading the session. */
+  session: Pick<KoshoySessionState, "id" | "shop">,
   input: RoomPhotoRequest,
 ): Promise<KoshoyRoomRow> {
   const tagService = await deps.tagService();

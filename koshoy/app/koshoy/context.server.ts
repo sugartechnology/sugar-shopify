@@ -18,6 +18,7 @@ import {
   isKoshoyPriceMock,
   type KoshoyAdminGraphql,
 } from "./pricing.server";
+import type { KoshoyPhoneDeps, KoshoyPhoneLinkDb } from "./phone-link.server";
 import { createBusyLock, createRateLimiter, KOSHOY_LIMITS } from "./rate-limit.server";
 import type { KoshoyRoomDb, KoshoyRoomDeps } from "./room.server";
 import { createKoshoyStore, type KoshoyDb } from "./store.server";
@@ -35,6 +36,10 @@ const limits = {
   render: createRateLimiter(KOSHOY_LIMITS.render),
   roomRead: createRateLimiter(KOSHOY_LIMITS.roomRead),
   layout: createRateLimiter(KOSHOY_LIMITS.layout),
+};
+const phoneLimits: KoshoyPhoneDeps["limits"] = {
+  create: createRateLimiter(KOSHOY_LIMITS.phoneLink),
+  check: createRateLimiter(KOSHOY_LIMITS.phoneCheck),
 };
 const busy = createBusyLock();
 const files = createKoshoyS3();
@@ -81,6 +86,34 @@ function roomDeps(shop: string): KoshoyRoomDeps | undefined {
   };
 }
 
+const STOREFRONT_CACHE_MS = 60 * 60 * 1000;
+const storefronts = new Map<string, { origin: string; expiresAt: number }>();
+
+/**
+ * The shop's primary domain (e.g. https://koshoy.com) for the QR link, so the
+ * phone shows the store's own address. Falls back to the myshopify domain,
+ * which redirects there.
+ */
+async function storefrontOrigin(admin: KoshoyAdminGraphql, shop: string): Promise<string> {
+  // Local/dev override (never in production): the devenv storefront, e.g. http://localhost:8080.
+  const devUrl = (process.env.KOSHOY_DEV_STOREFRONT_URL ?? "").trim().replace(/\/+$/, "");
+  if (devUrl && process.env.NODE_ENV !== "production") return devUrl;
+  const hit = storefronts.get(shop);
+  if (hit && hit.expiresAt > Date.now()) return hit.origin;
+  try {
+    const response = await admin.graphql(`{ shop { primaryDomain { url } } }`);
+    const body = (await response.json()) as { data?: { shop?: { primaryDomain?: { url?: unknown } } } };
+    const url = body.data?.shop?.primaryDomain?.url;
+    if (typeof url === "string" && /^https:\/\/[a-z0-9.-]+$/i.test(url)) {
+      storefronts.set(shop, { origin: url, expiresAt: Date.now() + STOREFRONT_CACHE_MS });
+      return url;
+    }
+  } catch (error) {
+    console.error("[koshoy] primary domain lookup failed", error);
+  }
+  return `https://${shop}`;
+}
+
 export async function koshoyContextFromProxy(
   request: Request,
 ): Promise<KoshoyRequestContext | null> {
@@ -114,6 +147,11 @@ export async function koshoyContextFromProxy(
     limits,
     busy,
     room: roomDeps(shop),
+    phone: {
+      db: prisma as unknown as KoshoyPhoneLinkDb,
+      storefrontOrigin: () => storefrontOrigin(shopAdmin, shop),
+      limits: phoneLimits,
+    },
     async chatConfig() {
       if (envFlag("KOSHOY_CHAT_MOCK") || !isLlmGatewayConfigured()) {
         return { apiKey: "", mock: true };
