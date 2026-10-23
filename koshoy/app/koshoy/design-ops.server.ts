@@ -20,8 +20,8 @@ import {
   type PlanInput,
   type PlanResult,
 } from "./engine";
-import { toPublicEvent, type DesignSummary, type PublicEvent } from "./events";
-import type { KoshoyPricer, KoshoyQuote } from "./pricing.server";
+import { PRICE_PLACEHOLDER, toPublicEvent, type DesignSummary, type PublicEvent } from "./events";
+import { formatTl, type KoshoyPricer, type KoshoyQuote } from "./pricing.server";
 import type {
   KoshoyDesign,
   KoshoySessionState,
@@ -198,6 +198,23 @@ export async function resolveDesign(
 ): Promise<KoshoyDesign | null> {
   const id = designId || session.activeDesignId;
   return id ? deps.store.getDesign(session.id, id) : null;
+}
+
+/**
+ * The set's total for the storefront: every design of the session priced
+ * from the shop and added up. null with fewer than two designs; [FİYAT]
+ * while one of them has no price.
+ */
+export async function setTotalEvent(
+  deps: KoshoyDesignDeps,
+  sessionId: string,
+): Promise<{ type: "total"; count: number; display: string } | null> {
+  const designs = await deps.store.listDesigns(sessionId);
+  if (designs.length < 2) return null;
+  const quotes = await Promise.all(designs.map((design) => deps.pricer.quote(design.composition)));
+  const priced = quotes.every((quote) => quote.totalCents !== null);
+  const cents = quotes.reduce((sum, quote) => sum + (quote.totalCents ?? 0), 0);
+  return { type: "total", count: designs.length, display: priced ? formatTl(cents) : PRICE_PLACEHOLDER };
 }
 
 /** null when the session already holds KOSHOY_MAX_DESIGNS designs. */
