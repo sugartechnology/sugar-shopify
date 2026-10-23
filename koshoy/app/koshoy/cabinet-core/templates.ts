@@ -22,7 +22,11 @@ export type DesignKind =
   | "sifonyer"
   | "tv_unitesi"
   | "kitaplik"
-  | "vestiyer";
+  | "vestiyer"
+  | "kiler"
+  | "ayakkabilik"
+  | "banyo_dolabi"
+  | "cok_amacli_dolap";
 
 export type DesignLevel = "ekonomik" | "dengeli" | "premium";
 
@@ -33,6 +37,10 @@ export const DESIGN_KINDS: readonly DesignKind[] = [
   "tv_unitesi",
   "kitaplik",
   "vestiyer",
+  "kiler",
+  "ayakkabilik",
+  "banyo_dolabi",
+  "cok_amacli_dolap",
 ];
 
 export const DESIGN_LEVELS: readonly DesignLevel[] = ["ekonomik", "dengeli", "premium"];
@@ -46,6 +54,10 @@ export const DESIGN_KIND_LABELS: Record<DesignKind, string> = {
   tv_unitesi: "TV ünitesi",
   kitaplik: "Kitaplık",
   vestiyer: "Vestiyer",
+  kiler: "Kiler dolabı",
+  ayakkabilik: "Ayakkabılık",
+  banyo_dolabi: "Banyo dolabı",
+  cok_amacli_dolap: "Çok amaçlı dolap",
 };
 
 /**
@@ -66,6 +78,12 @@ export const DESIGN_KIND_RULES: Record<DesignKind, DesignKindRules> = {
   // wider bookcase is split into more units.
   kitaplik: { unitWidthsMm: [320, 480, 640] },
   vestiyer: {},
+  // Shelved cupboards behind doors: 48 cm units (96 = 48 + 48), one door
+  // each. Sample sizes (23 Oct); the product team corrects them.
+  kiler: { unitWidthsMm: [320, 480] },
+  ayakkabilik: { unitWidthsMm: [320, 480] },
+  banyo_dolabi: { unitWidthsMm: [320, 480] },
+  cok_amacli_dolap: { unitWidthsMm: [320, 480] },
 };
 
 export function unitWidthsForKind(kind: DesignKind): readonly number[] {
@@ -222,6 +240,53 @@ const CABIN_TEMPLATES: Record<DesignKind, CabinTemplate> = {
       ekonomik: { units: [{ fittings: ["hanger"], hasDoor: true }] },
       dengeli: { units: [{ fittings: ["hanger", "shelf"], hasDoor: true }] },
       premium: { units: [{ fittings: ["drawer320", "hanger", "shelf"], hasDoor: true }] },
+    },
+  },
+  // The four below are sample templates (23 Oct): shelves behind doors.
+  kiler: {
+    widthMm: 960,
+    heightMm: 2304,
+    depthMm: 480,
+    hasPlinth: true,
+    levels: {
+      ekonomik: { units: [{ fittings: ["shelf", "shelf", "shelf"], hasDoor: true }] },
+      dengeli: { units: [{ fittings: ["shelf", "shelf", "shelf", "shelf"], hasDoor: true }] },
+      premium: {
+        units: [{ fittings: ["drawer320", "shelf", "shelf", "shelf", "shelf"], hasDoor: true }],
+      },
+    },
+  },
+  ayakkabilik: {
+    widthMm: 960,
+    heightMm: 1024,
+    depthMm: 320,
+    hasPlinth: true,
+    levels: {
+      ekonomik: { units: [{ fittings: ["shelf"], hasDoor: true }] },
+      dengeli: { units: [{ fittings: ["shelf", "shelf"], hasDoor: true }] },
+      premium: { units: [{ fittings: ["drawer160", "shelf"], hasDoor: true }] },
+    },
+  },
+  banyo_dolabi: {
+    widthMm: 480,
+    heightMm: 1984,
+    depthMm: 320,
+    hasPlinth: true,
+    levels: {
+      ekonomik: { units: [{ fittings: ["shelf", "shelf", "shelf"], hasDoor: true }] },
+      dengeli: { units: [{ fittings: ["shelf", "shelf", "shelf", "shelf"], hasDoor: true }] },
+      premium: { units: [{ fittings: ["drawer320", "shelf", "shelf", "shelf"], hasDoor: true }] },
+    },
+  },
+  cok_amacli_dolap: {
+    widthMm: 960,
+    heightMm: 1984,
+    depthMm: 480,
+    hasPlinth: true,
+    levels: {
+      ekonomik: { units: [{ fittings: ["shelf", "shelf"], hasDoor: true }] },
+      dengeli: { units: [{ fittings: ["shelf", "shelf", "shelf"], hasDoor: true }] },
+      premium: { units: [{ fittings: ["drawer320", "shelf", "shelf", "shelf"], hasDoor: true }] },
     },
   },
 };

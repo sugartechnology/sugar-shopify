@@ -267,7 +267,10 @@ describe("koshoy scope", () => {
     assert.equal(classifyScope("Yatak odama beyaz bir dolap"), "in");
     assert.equal(classifyScope("Bir de koltuk istiyorum"), "out");
     assert.equal(classifyScope("Yatağımın yanına ne olur?"), "out");
-    assert.equal(classifyScope("Mutfak dolabı lazım"), "out");
+    assert.equal(classifyScope("Mutfak dolabı lazım"), "in", "only the worktop cabinets are out");
+    assert.equal(classifyScope("Mutfağa kiler dolabı istiyorum"), "in");
+    assert.equal(classifyScope("Tezgahlı mutfak alt dolabı"), "out");
+    assert.equal(classifyScope("Mutfak alt dolabı yapar mısınız"), "out");
     assert.equal(classifyScope("Koltuğun yanına komodin"), "in");
     assert.equal(classifyScope("Merhaba"), "unknown");
     assert.equal(classifyScope("Bunu senin tarafından görmek isterim"), "unknown");
@@ -277,6 +280,9 @@ describe("koshoy scope", () => {
     assert.equal(kindFromText("2 metre gardırop"), "gardirop");
     assert.equal(kindFromText("Salon için TV ünitesi"), "tv_unitesi");
     assert.equal(kindFromText("Şifonyer olsun"), "sifonyer");
+    assert.equal(kindFromText("Mutfağa kiler dolabı"), "kiler");
+    assert.equal(kindFromText("Girişe ayakkabılık"), "ayakkabilik");
+    assert.equal(kindFromText("Banyo dolabı lazım"), "banyo_dolabi");
     assert.equal(kindFromText("Merhaba"), null);
   });
 });
