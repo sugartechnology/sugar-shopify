@@ -5,6 +5,7 @@ import { cabinetEngine } from "./engine";
 import {
   applyLayoutOp,
   designSizes,
+  fitStudioTarget,
   gapAround,
   layoutTarget,
   settleItems,
@@ -118,6 +119,31 @@ describe("koshoy room layout", () => {
     }
     // b grew 0.3 m into each neighbour: b stays, a and c step aside by 0.3 m.
     assert.ok(Math.abs(centers[0] + 1.3) < 1e-9 && centers[1] === 0 && Math.abs(centers[2] - 1.8) < 1e-9, centers.join(","));
+  });
+
+  it("grows the studio wall for a set wider than 8 m, never a room wall (ClickUp z8qu5d6gef)", () => {
+    const long = new Map<string, DesignSize>([
+      ["wardrobe", metre(9.92, 0.64)],
+      ["nightstand", metre(0.48, 0.54)],
+    ]);
+    // The wardrobe was just widened to 9.92 m: on the 8 m studio wall it loses its place.
+    const standing: LayoutItemView[] = [
+      { designId: "wardrobe", place: { surface: "wall", alongM: 0 } },
+      { designId: "nightstand", place: { surface: "wall", alongM: 3 } },
+    ];
+    const dropped = settleItems(standing, STUDIO_TARGET, long);
+    assert.equal(dropped.find((item) => item.designId === "wardrobe")?.place, null);
+
+    const grown = fitStudioTarget(STUDIO_TARGET, long);
+    assert.ok(grown.surface === "wall" && grown.bounds.toM - grown.bounds.fromM >= 10.4);
+    const settled = settleItems(standing, grown, long);
+    assert.ok(settled.every((item) => item.place !== null), "every design stands in the row");
+    assert.deepEqual(targetView(grown), { surface: "wall", wall: { fromM: -5.7, toM: 5.7 } });
+
+    // Up to 8 m nothing changes; a real room wall never grows.
+    assert.equal(fitStudioTarget(STUDIO_TARGET, sizes), STUDIO_TARGET);
+    const roomTarget = { ...STUDIO_TARGET, roomId: "room1" } as LayoutTarget;
+    assert.equal(fitStudioTarget(roomTarget, long), roomTarget);
   });
 
   it("moves a studio layout into the room, the last one out when it does not fit", () => {

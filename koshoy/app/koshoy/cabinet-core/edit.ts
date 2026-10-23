@@ -30,7 +30,7 @@ import {
 import {
   CABIN_DEPTHS_MM,
   CABIN_HEIGHTS_MM,
-  CABIN_TOTAL_WIDTH_MAX_MM,
+  CABIN_TOTAL_WIDTH_SAFETY_MM,
   CABIN_WIDTHS_MM,
   nearestDepth,
   nearestHeight,
@@ -79,7 +79,7 @@ export type EditRejectReason =
   | "fitting_not_found"
   /** Door color on a unit (or design) without a door. */
   | "no_door"
-  /** Total width would pass 5000 mm. */
+  /** Total width would pass the 20 m safety bound (not a product limit). */
   | "total_width_exceeded"
   /** Total width under the smallest unit (320 mm). */
   | "total_width_too_small"
@@ -158,8 +158,8 @@ export function compositionIssues(composition: CabinComposition): string[] {
     issues.push(`depth ${composition.depthMm} is not a catalog depth`);
   }
   const total = totalWidthMm(units);
-  if (total > CABIN_TOTAL_WIDTH_MAX_MM) {
-    issues.push(`total width ${total} exceeds ${CABIN_TOTAL_WIDTH_MAX_MM}`);
+  if (total > CABIN_TOTAL_WIDTH_SAFETY_MM) {
+    issues.push(`total width ${total} exceeds ${CABIN_TOTAL_WIDTH_SAFETY_MM}`);
   }
   if (composition.color !== undefined && !isCabinColorId(composition.color)) {
     issues.push("invalid composition color");
@@ -319,7 +319,7 @@ function unitWidthOp(
   if (!isPositive(value)) return "invalid_value";
   const widthMm = nearestWidth(value);
   if (kind && !unitWidthsForKind(kind).includes(widthMm)) return "width_not_allowed";
-  if (totalWidthMm(c.units) - unit.widthMm + widthMm > CABIN_TOTAL_WIDTH_MAX_MM) {
+  if (totalWidthMm(c.units) - unit.widthMm + widthMm > CABIN_TOTAL_WIDTH_SAFETY_MM) {
     return "total_width_exceeded";
   }
   return { ...c, units: setUnitWidth(c.units, unit.id, widthMm) };
@@ -342,7 +342,7 @@ function totalWidthOp(
   kind: DesignKind | undefined,
 ): CabinComposition | EditRejectReason {
   if (!isPositive(value)) return "invalid_value";
-  if (value > CABIN_TOTAL_WIDTH_MAX_MM) return "total_width_exceeded";
+  if (value > CABIN_TOTAL_WIDTH_SAFETY_MM) return "total_width_exceeded";
   if (value < CABIN_WIDTHS_MM[0]) return "total_width_too_small";
   const synced = syncCompositionToWidth(c, value);
   // Units grow through the whole catalog; a unit the kind does not allow is split.

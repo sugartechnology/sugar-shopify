@@ -104,8 +104,12 @@ describe("koshoy cabinet engine contract", () => {
       engine.applyEditOp(plan.composition, { action: "add_fitting", unit: 9, kind: "shelf" }),
       { ok: false, reason: "invalid_unit" },
     );
+    // No product limit on the total width (PnP-3D V19: 6 × 960 = 5760 mm); 20 m is only a safety bound.
+    const v19 = engine.applyEditOp(plan.composition, { action: "set_total_width", widthMm: 5760 });
+    assert.ok(v19.ok);
+    assert.deepEqual(v19.ok && v19.composition.units.map((unit) => unit.widthMm), [960, 960, 960, 960, 960, 960]);
     assert.deepEqual(
-      engine.applyEditOp(plan.composition, { action: "set_total_width", widthMm: 6000 }),
+      engine.applyEditOp(plan.composition, { action: "set_total_width", widthMm: 30000 }),
       { ok: false, reason: "total_width_exceeded" },
     );
     const tv = engine.planCabinet({ kind: "tv_unitesi" });

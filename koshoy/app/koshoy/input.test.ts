@@ -39,6 +39,11 @@ describe("koshoy client input", () => {
       color: "blue",
     });
     assert.equal(parseEditOp({ action: "set_color", target: "unit", color: "blue" }), null);
+    // No product width limit: long totals reach the core, which owns the safety bound.
+    assert.deepEqual(parseEditOp({ action: "set_total_width", widthMm: 12000 }), {
+      action: "set_total_width",
+      widthMm: 12000,
+    });
     assert.equal(parseEditOp({ action: "add_fitting", unit: -1, kind: "shelf" }), null);
     assert.equal(parseEditOp({ action: "add_fitting", unit: 0, kind: "sofa" }), null);
     assert.equal(parseEditOp({ action: "set_door", unit: 0, hasDoor: "yes" }), null);

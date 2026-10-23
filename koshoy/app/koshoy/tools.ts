@@ -7,7 +7,6 @@ import {
   CABIN_DEPTHS_MM,
   CABIN_FIT_KINDS,
   CABIN_HEIGHTS_MM,
-  CABIN_TOTAL_WIDTH_MAX_MM,
   CABIN_WIDTHS_MM,
   DESIGN_KINDS,
   EDIT_ACTIONS,
@@ -54,7 +53,7 @@ const EDIT_OP_SCHEMA = {
     index: { type: "integer", description: "0-based fitting index inside the cabinet, bottom to top" },
     widthMm: {
       type: "integer",
-      description: `Cabinet width ${CABIN_WIDTHS_MM.join("/")}, or total width up to ${CABIN_TOTAL_WIDTH_MAX_MM}`,
+      description: `Cabinet width ${CABIN_WIDTHS_MM.join("/")}, or the total width (any length)`,
     },
     heightMm: { type: "integer", description: `Cabinet height ${CABIN_HEIGHTS_MM.join("/")}` },
     depthMm: { type: "integer", description: CABIN_DEPTHS_MM.join(", ") },

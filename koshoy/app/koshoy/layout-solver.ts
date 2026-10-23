@@ -81,6 +81,24 @@ export const STUDIO_TARGET: LayoutTarget = {
   free: [],
 };
 
+/** Room left at each end when the studio wall has to grow. */
+const STUDIO_SPARE_M = 0.5;
+/** The storefront drops places past 50 m; the grown studio wall stays well inside. */
+const STUDIO_MAX_HALF_M = 25;
+
+/**
+ * The studio's virtual wall is 8 m. A set wider than that (there is no
+ * product limit on width, ClickUp z8qu5d6gef) grows it so every design still
+ * stands in the row. A room's wall is real and never grows.
+ */
+export function fitStudioTarget(target: LayoutTarget, sizes: ReadonlyMap<string, DesignSize>): LayoutTarget {
+  if (target.surface !== "wall" || target.roomId !== null) return target;
+  const totalM = [...sizes.values()].reduce((sum, size) => sum + size.widthM, 0);
+  if (totalM <= target.bounds.toM - target.bounds.fromM) return target;
+  const half = Math.min(totalM / 2 + STUDIO_SPARE_M, STUDIO_MAX_HALF_M);
+  return { ...target, bounds: { fromM: -half, toM: half } };
+}
+
 /** What the storefront (and the 3D studio view) is told about the target. */
 export function targetView(target: LayoutTarget): LayoutTargetView {
   return target.surface === "wall"

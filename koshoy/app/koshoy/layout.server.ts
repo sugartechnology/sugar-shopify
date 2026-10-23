@@ -23,6 +23,7 @@ import {
   designDepthM,
   designSizes,
   designWidthM,
+  fitStudioTarget,
   layoutTarget,
   placedLeftToRight,
   settleItems,
@@ -234,17 +235,18 @@ export async function changeLayout(
 
 /* ---------------- the session's layout ---------------- */
 
-/** The session's ready room (if any) and where its layout stands. */
+/** The session's ready room (if any) and where its layout stands; the studio wall grows to fit `designs`. */
 export async function sessionTarget(
   deps: KoshoyRoomDeps,
   session: { id: string; roomId: string | null },
+  designs: readonly KoshoyDesign[],
 ): Promise<{ target: LayoutTarget; room: KoshoyRoomRow | null }> {
   const row = session.roomId
     ? await deps.db.koshoyRoom.findFirst({ where: { id: session.roomId, sessionId: session.id } })
     : null;
   const room = row?.status === "ready" ? row : null;
   const free = room ? parseMeasures(room.measures)?.free ?? [] : [];
-  return { target: layoutTarget(room ? roomView(room) : null, free), room };
+  return { target: fitStudioTarget(layoutTarget(room ? roomView(room) : null, free), designSizes(designs)), room };
 }
 
 /**
@@ -256,7 +258,7 @@ export async function currentLayout(
   session: { id: string; roomId: string | null },
   designs: readonly KoshoyDesign[],
 ): Promise<{ layout: LayoutState; target: LayoutTarget; room: KoshoyRoomRow | null }> {
-  const { target, room } = await sessionTarget(deps, session);
+  const { target, room } = await sessionTarget(deps, session, designs);
   let layout = await readLayout(deps.db, session.id);
   if (layout.items.length && layout.roomId !== target.roomId) {
     layout = (await changeLayout(deps.db, session.id, target, designSizes(designs))).layout;
