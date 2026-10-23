@@ -115,7 +115,9 @@ export function koshoyRules(roomReady: boolean): readonly KoshoyRule[] {
 
 export const KOSHOY_SCOPE = {
   inScope: DESIGN_KINDS.map((kind) => ({ kind, label: DESIGN_KIND_LABELS[kind] })),
-  outOfScope: ["koltuk", "kanepe", "yatak", "sandalye", "mutfak dolabı"],
+  // Only the negatives (Fatih, 23 Oct): every panel-built cupboard is in scope
+  // except the kitchen base cabinets a worktop sits on; seating and beds are not cupboards.
+  outOfScope: ["tezgahlı mutfak alt dolabı", "koltuk", "kanepe", "berjer", "yatak", "sandalye"],
 } as const;
 
 export const KOSHOY_SAFE_TOPIC_REPLY =
@@ -128,10 +130,11 @@ export const KOSHOY_SAFE_STOPPED_REPLY =
 /* ---------------- scope pre-check ---------------- */
 
 const IN_SCOPE_WORDS =
-  /gard[ıi]?rop|dola[pb]|komodin|[sş]ifonyer|(?<![\p{L}])tv(?![\p{L}])|televizyon|kitapl[ıi]k|vestiyer|portmanto|ayakkab[ıi]l[ıi]k|(?<![\p{L}])raf/iu;
-const OUT_OF_SCOPE_PHRASES = /mutfak\s+(?:dola[pb]|tezgah)/iu;
+  /gard[ıi]?rop|dola[pb]|komodin|[sş]ifonyer|(?<![\p{L}])tv(?![\p{L}])|televizyon|kitapl[ıi]k|vestiyer|portmanto|ayakkab[ıi]l[ıi]k|kiler|(?<![\p{L}])raf/iu;
+/** Kitchen base cabinets under a worktop: the one cupboard Koshoy does not make. */
+const OUT_OF_SCOPE_PHRASES = /tezgah|eviye|evye|mutfak\s+alt\s+dola[pb]|alt\s+mutfak\s+dola[pb]/iu;
 const OUT_OF_SCOPE_WORDS =
-  /koltu[kğ]|kanepe|berjer|sandalye|yata[kğ](?!\s*oda)|mutfa[kğ]/iu;
+  /koltu[kğ]|kanepe|berjer|sandalye|yata[kğ](?!\s*oda)/iu;
 
 /** "out" only when a clearly unsupported product is asked and nothing in scope is. */
 export function classifyScope(text: string): "in" | "out" | "unknown" {
@@ -149,6 +152,9 @@ export function kindFromText(text: string): DesignKind | null {
   if (/(?<![\p{L}])tv(?![\p{L}])|televizyon/u.test(value)) return "tv_unitesi";
   if (/kitapl[ıi]k/u.test(value)) return "kitaplik";
   if (/vestiyer|portmanto/u.test(value)) return "vestiyer";
+  if (/kiler/u.test(value)) return "kiler";
+  if (/ayakkab[ıi]l[ıi]k/u.test(value)) return "ayakkabilik";
+  if (/banyo/u.test(value) && /dola[pb]/u.test(value)) return "banyo_dolabi";
   if (/gard[ıi]?rop|dola[pb]/u.test(value)) return "gardirop";
   return null;
 }
