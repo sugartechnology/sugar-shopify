@@ -108,6 +108,8 @@ export type PublicEvent =
       unitWidthsMm?: number[];
     }
   | { type: "price"; designId: string; version: number; display: string }
+  /** The whole set: sum of every design's price (2+ designs); [FİYAT] while one is not priced. */
+  | { type: "total"; count: number; display: string }
   | { type: "designs"; items: DesignSummary[] }
   | { type: "choice"; question?: string; options: ChoiceOption[] }
   /** show_in_room: the storefront puts that design into the room photo. */
@@ -384,6 +386,12 @@ export function toPublicEvent(raw: unknown): PublicEvent | null {
     }
     case "doors":
       return typeof row.open === "boolean" ? { type: "doors", open: row.open } : null;
+    case "total": {
+      const count = typeof row.count === "number" && Number.isInteger(row.count) ? row.count : 0;
+      return count >= 2 && count <= MAX_DESIGNS && isValidPriceDisplay(row.display)
+        ? { type: "total", count, display: row.display }
+        : null;
+    }
     case "photo": {
       const roomId = opaqueId(row.roomId);
       return roomId ? { type: "photo", roomId } : null;

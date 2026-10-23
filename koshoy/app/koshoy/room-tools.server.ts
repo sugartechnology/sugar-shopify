@@ -254,6 +254,27 @@ export async function addNewDesignToRoom(ctx: RoomToolContext, design: KoshoyDes
   return result.outcome === "layout_full" ? HINTS.layout_full : HINTS.no_space;
 }
 
+/**
+ * A planned room set stands together: each design goes into the layout, in
+ * the room when one is ready, in front of the studio wall otherwise. Returns
+ * a note for the model when some of them found no place.
+ */
+export async function addSetToLayout(ctx: RoomToolContext, added: readonly KoshoyDesign[]): Promise<string | null> {
+  const designs = await ctx.store.listDesigns(ctx.session.id);
+  const { target, room } = await currentLayout(ctx.room, ctx.session, designs);
+  if (roomProblem(room, target) === "no_floor") return HINTS.no_floor;
+  const sizes = designSizes(designs);
+  let last: Awaited<ReturnType<typeof changeLayout>> | null = null;
+  let missed = 0;
+  for (const design of added) {
+    last = await changeLayout(ctx.room.db, ctx.session.id, target, sizes, { op: "add", designId: design.id });
+    if (last.outcome !== "placed" && last.outcome !== "moved_nearby") missed += 1;
+  }
+  if (last) ctx.publish(layoutEvent(last.layout, target));
+  if (!missed) return null;
+  return last?.outcome === "layout_full" ? HINTS.layout_full : HINTS.no_space;
+}
+
 /** After an edit changed a design's size: its neighbours in the room move as little as possible. */
 export async function settleRoomAfterEdit(ctx: RoomToolContext, before: KoshoyDesign, after: KoshoyDesign) {
   const designs = await ctx.store.listDesigns(ctx.session.id);

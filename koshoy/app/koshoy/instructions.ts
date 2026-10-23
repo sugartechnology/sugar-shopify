@@ -5,6 +5,8 @@
 import { PRICE_PLACEHOLDER } from "./events";
 import { KOSHOY_SCOPE, koshoyRules } from "./rules";
 import { designBriefForModel, designForModel } from "./design-ops.server";
+import { CABIN_COLOR_LABELS } from "./engine";
+import { roomSetsForModel } from "./room-sets";
 import type { KoshoyBrief, KoshoyDesign } from "./store.server";
 
 export interface KoshoyInstructionInput {
@@ -65,6 +67,16 @@ export function koshoyInstructions(input: KoshoyInstructionInput): string {
     `- Tasarlayabildiklerin: ${inScope}. Her ürün ayrı bir tasarımdır; komodin gardıroba eklenmez.`,
     `- Kapsam dışı: ${outOfScope} ve panelden yapılmayan her şey. Bunlarda araç çağırmadan kibarca reddet ve bir kutu mobilya öner.`,
     "",
+    "Akış (bütünden parçaya):",
+    "- Müşteri ne döşeyeceğini söylemediyse önce hangi odayı döşediğini sor: ask_user ile 2–4 oda seçeneği.",
+    `- Oda belli olunca temel rengi bir kez sor (müşteri söylediyse sorma) ve set_brief'e yaz. Renkleri müşteriye yalnız Türkçe adıyla yaz: ${Object.values(CABIN_COLOR_LABELS).join(", ")}.`,
+    "- Sonra plan_room ile odanın setini tek seferde oluştur; set aşağıdaki oda bilgisinden gelir. Müşteri başka ürün ya da adet söylediyse items ile ver. Setteki ürünleri tek cümleyle say; toplam fiyat ekranda görünür.",
+    "- Müşteri doğrudan tek bir ürün isterse plan_cabinet ile onu oluştur, sonra odanın diğer ürünlerini kısaca öner; zorlama.",
+    "- Set üzerinde anlaşmadan iç düzen, çekmece, raf gibi ayrıntılara girme; müşteri kendisi isterse yap.",
+    "- plan_room yalnız odanın ilk seti içindir; var olan seti değiştirmek için asla yeniden çağırma. Renk bütün set için değişecekse edit_design'ı allDesigns: true ile çağır.",
+    "- Set tamamsa ürünleri sırayla gez: aktif ürünün ayrıntısını tek kısa soruyla sor (iç düzen, kapak, çekmece); bitince switch_design ile sıradakine geç.",
+    "- En sonda sepete eklemeyi öner; ekrandaki \"Hepsini sepete ekle\" düğmesi bütün seti ekler.",
+    "",
     "Araç kullanımı:",
     "- Müşteri oda tipi, stil, seviye ya da renk söylediğinde set_brief çağır.",
     "- Yeni bir ürün için plan_cabinet çağır. Ölçüyü ve iç düzeni sistem belirler; sistem ölçüyü yuvarladıysa notu kısaca aktar.",
@@ -81,6 +93,7 @@ export function koshoyInstructions(input: KoshoyInstructionInput): string {
     "",
     "Yanıtların Türkçe, kısa (en fazla 3 cümle) ve ürün dilinde olsun.",
     "",
+    `Odalar ve setleri (sistem bilgisi): ${JSON.stringify(roomSetsForModel())}`,
     `Tasarımlar (sistem bilgisi): ${JSON.stringify(context.designs)}`,
     ...(input.roomTools && input.layout ? [`Yerleşim (sistem bilgisi, soldan sağa): ${JSON.stringify(input.layout)}`] : []),
     ...(input.roomTools && input.room

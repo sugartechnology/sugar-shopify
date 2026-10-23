@@ -37,8 +37,10 @@ import {
 } from "./rules";
 import { isKoshoyToolName, KOSHOY_ROOM_TOOL_NAMES, KOSHOY_TOOL_NAMES, koshoyTools } from "./tools";
 import type { KoshoyRoomDeps } from "./room.server";
+import { KOSHOY_ROOM_SET_IDS, roomSet, setKinds, type KoshoyRoomSetItem } from "./room-sets";
 import {
   addNewDesignToRoom,
+  addSetToLayout,
   roomHopContext,
   runRoomTool,
   settleRoomAfterEdit,
@@ -47,6 +49,7 @@ import {
 import {
   applyDesignEdit,
   createPlannedDesign,
+  designBriefForModel,
   designForModel,
   designsEvent,
   DESIGN_LIMIT_HINT,
@@ -56,6 +59,7 @@ import {
   quoteParts,
   resolveDesign,
   sceneEvent,
+  setTotalEvent,
   type KoshoyDesignDeps,
 } from "./design-ops.server";
 import {
@@ -365,6 +369,9 @@ function rotateModelSession(session: KoshoySessionState) {
 
 /* ---------------- tools ---------------- */
 
+const SET_EXISTS_HINT =
+  "Bu sohbette tasarımlar zaten var. Rengi bütün sette değiştirmek için edit_design'ı allDesigns: true ile çağır; yeni ürün eklemek için plan_room'a items ver ya da plan_cabinet kullan.";
+
 async function quoteAndPublish(ctx: TurnContext, design: KoshoyDesign, withScene: boolean) {
   const quote = await ctx.deps.pricer.quote(design.composition);
   if (withScene) ctx.publish(sceneEvent(design));
@@ -462,6 +469,82 @@ export async function executeKoshoyTool(
     };
   }
 
+  if (call.name === "plan_room") {
+    const set = roomSet(oneOf(args.room, KOSHOY_ROOM_SET_IDS) ?? "");
+    if (!set) return { payload: { ok: false, error: "unsupported_room" } };
+    const asked: KoshoyRoomSetItem[] = (Array.isArray(args.items) ? args.items : []).flatMap((raw) => {
+      const row = asRecord(raw);
+      const kind = oneOf(row.kind, DESIGN_KINDS);
+      const count = Number.isInteger(row.count) ? Math.min(Math.max(Number(row.count), 1), 4) : 1;
+      return kind ? [{ kind, count }] : [];
+    });
+    // The set is planned once; later the model changes it or adds named products.
+    if (!asked.length && (await deps.store.listDesigns(session.id)).length) {
+      return { payload: { ok: false, error: "set_exists", hint: SET_EXISTS_HINT } };
+    }
+    const color = oneOf(args.color, CABIN_COLOR_IDS) ?? (session.brief.color || undefined);
+    const level = oneOf(args.level, PLAN_LEVELS) ?? (session.brief.level || undefined);
+    session.brief = { ...session.brief, room: session.brief.room || set.label, color: color ?? session.brief.color };
+    ctx.publish({ type: "status", key: "placing" });
+    const planned: KoshoyDesign[] = [];
+    const notes: string[] = [];
+    for (const kind of setKinds(asked.length ? asked : set.items)) {
+      const created = await createPlannedDesign(deps, session, { kind, level, color });
+      if (!created) {
+        notes.push(DESIGN_LIMIT_HINT);
+        break;
+      }
+      planned.push(created.design);
+      ctx.designIds.add(created.design.id);
+      notes.push(...created.plan.notes);
+    }
+    if (!planned.length) return { payload: { ok: false, error: "design_limit", hint: DESIGN_LIMIT_HINT } };
+    // The first product of the set is the one the details start with.
+    session.activeDesignId = planned[0].id;
+    const priced = [];
+    for (const design of planned) {
+      const quote = await quoteAndPublish(ctx, design, true);
+      priced.push({ ...designBriefForModel(design), price: quote.display });
+    }
+    ctx.publish(designsEvent(await deps.store.listDesigns(session.id), session.activeDesignId));
+    const room = roomToolContext(ctx);
+    const placeNote = room ? await addSetToLayout(room, planned) : null;
+    if (placeNote) notes.push(placeNote);
+    ctx.summary = `${set.label} için ${planned.map((design) => design.label).join(", ")} hazırladım.`;
+    return {
+      payload: {
+        ok: true,
+        room: set.label,
+        designs: priced,
+        ...(notes.length ? { notes } : {}),
+        design: designForModel(planned[0], true),
+      },
+    };
+  }
+
+  if (call.name === "edit_design" && args.allDesigns === true) {
+    const op = parseEditOp(args.op);
+    if (!op || op.action !== "set_color") return { payload: { ok: false, error: "invalid_op" } };
+    ctx.publish({ type: "status", key: "placing" });
+    const room = roomToolContext(ctx);
+    let changed = 0;
+    // The active design goes last, so the storefront keeps showing it.
+    const designs = await deps.store.listDesigns(session.id);
+    const ordered = [
+      ...designs.filter((design) => design.id !== session.activeDesignId),
+      ...designs.filter((design) => design.id === session.activeDesignId),
+    ];
+    for (const design of ordered) {
+      const result = await applyDesignEdit(deps, session.id, design, op);
+      if (!result.ok || !result.changed) continue;
+      changed += 1;
+      if (room) await settleRoomAfterEdit(room, design, result.design);
+      await quoteAndPublish(ctx, result.design, true);
+    }
+    if (changed) ctx.summary = "Bütün tasarımların rengini güncelledim.";
+    return { payload: { ok: true, changed } };
+  }
+
   if (call.name === "edit_design") {
     const design = await resolveDesign(deps, session, str(args.designId));
     if (!design) return { payload: { ok: false, error: "design_not_found" } };
@@ -537,7 +620,7 @@ export async function executeKoshoyTool(
 }
 
 /** Tools whose payloads are server facts; their numbers may appear in replies. */
-const FACT_TOOLS = new Set(["plan_cabinet", "edit_design", "quote", "switch_design"]);
+const FACT_TOOLS = new Set(["plan_cabinet", "plan_room", "edit_design", "quote", "switch_design"]);
 
 async function runTool(call: KoshoyToolCall, ctx: TurnContext) {
   const result = isKoshoyToolName(call.name)
@@ -910,6 +993,13 @@ export async function runKoshoyTurn(input: {
     await input.deps.store.saveSession(session);
   } catch (error) {
     console.error("[koshoy] session save failed", error);
+  }
+  // The set's total under the price (2+ designs); a pricing failure only skips it.
+  try {
+    const total = await setTotalEvent(input.deps, session.id);
+    if (total) ctx.publish(total);
+  } catch (error) {
+    console.error("[koshoy] set total failed", error);
   }
   ctx.publish({ type: "done" });
 }
