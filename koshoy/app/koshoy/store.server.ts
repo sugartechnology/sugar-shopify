@@ -115,6 +115,9 @@ export interface KoshoyPendingOption extends ChoiceOption {
   value: string;
 }
 
+/** A transcript event with the time it was written (ms); rows from before had none. */
+export type KoshoyTranscriptEvent = PublicEvent & { at?: number };
+
 export interface KoshoySessionState {
   id: string;
   shop: string;
@@ -125,7 +128,7 @@ export interface KoshoySessionState {
   modelSessionId: string;
   brief: KoshoyBrief;
   /** Hydration transcript: assistant text and choice events only. */
-  events: PublicEvent[];
+  events: KoshoyTranscriptEvent[];
   pendingAskUser: { id: string; question: string; options: KoshoyPendingOption[] } | null;
   /** Tool payloads of the hop that ended with ask_user (every call id). */
   pendingTools: KoshoyPendingTool[];
@@ -169,7 +172,11 @@ export interface KoshoyStore {
  * Keeps the hydration transcript: assistant text (consecutive pieces merged,
  * like the storefront bubble) and choices. Everything else is live-only.
  */
-export function appendTranscriptEvent(session: KoshoySessionState, event: PublicEvent) {
+export function appendTranscriptEvent(
+  session: KoshoySessionState,
+  event: PublicEvent,
+  now: number = Date.now(),
+) {
   if (event.type !== "text" && event.type !== "choice") return;
   const last = session.events[session.events.length - 1];
   if (event.type === "text" && last?.type === "text") {
@@ -177,7 +184,7 @@ export function appendTranscriptEvent(session: KoshoySessionState, event: Public
     last.text += glue + event.text;
     return;
   }
-  session.events.push(event.type === "text" ? { ...event } : event);
+  session.events.push({ ...event, at: now });
   if (session.events.length > MAX_TRANSCRIPT_EVENTS) {
     session.events.splice(0, session.events.length - MAX_TRANSCRIPT_EVENTS);
   }
@@ -194,6 +201,17 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function transcriptEvents(raw: readonly unknown[]): KoshoyTranscriptEvent[] {
+  const out: KoshoyTranscriptEvent[] = [];
+  for (const item of raw) {
+    const [event] = publicEvents([item]);
+    if (!event) continue;
+    const at = asRecord(item).at;
+    out.push(typeof at === "number" && Number.isFinite(at) ? { ...event, at } : event);
+  }
+  return out;
+}
+
 function parseState(raw: string): PersistedState {
   let row: Record<string, unknown> = {};
   try {
@@ -207,7 +225,7 @@ function parseState(raw: string): PersistedState {
       ? row.modelSessionId
       : randomUUID(),
     brief: { ...EMPTY_KOSHOY_BRIEF, ...(asRecord(row.brief) as Partial<KoshoyBrief>) },
-    events: publicEvents(Array.isArray(row.events) ? row.events : []),
+    events: transcriptEvents(Array.isArray(row.events) ? row.events : []),
     pendingAskUser:
       typeof pending.id === "string" && Array.isArray(pending.options)
         ? {

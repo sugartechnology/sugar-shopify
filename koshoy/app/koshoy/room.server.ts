@@ -77,11 +77,13 @@ export interface KoshoyRoomDb extends KoshoyLayoutDb {
   koshoyRoom: {
     create(args: { data: NewRow<KoshoyRoomRow> }): Promise<KoshoyRoomRow>;
     findFirst(args: { where: { id: string; sessionId: string } }): Promise<KoshoyRoomRow | null>;
+    findMany(args: { where: { sessionId: string } }): Promise<KoshoyRoomRow[]>;
     update(args: { where: { id: string }; data: Partial<NewRow<KoshoyRoomRow>> }): Promise<KoshoyRoomRow>;
   };
   koshoyRender: {
     create(args: { data: NewRow<KoshoyRenderRow> }): Promise<KoshoyRenderRow>;
     findFirst(args: { where: { id: string; sessionId: string } }): Promise<KoshoyRenderRow | null>;
+    findMany(args: { where: { sessionId: string } }): Promise<KoshoyRenderRow[]>;
     update(args: { where: { id: string }; data: Partial<NewRow<KoshoyRenderRow>> }): Promise<KoshoyRenderRow>;
   };
 }

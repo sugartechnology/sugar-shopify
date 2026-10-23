@@ -117,6 +117,10 @@ export type PublicEvent =
   | { type: "layout"; version: number; items: LayoutItemView[]; target?: LayoutTargetView }
   /** View only: open or close the doors in the 3D view. */
   | { type: "doors"; open: boolean }
+  /** /session only: the room photo the customer added, at its place in the thread (GET /room-file). */
+  | { type: "photo"; roomId: string }
+  /** /session only: a finished realistic picture, at its place in the thread (GET /render-file). */
+  | { type: "render"; renderId: string }
   | { type: "error"; code: KoshoyErrorCode }
   | { type: "done" };
 
@@ -380,6 +384,14 @@ export function toPublicEvent(raw: unknown): PublicEvent | null {
     }
     case "doors":
       return typeof row.open === "boolean" ? { type: "doors", open: row.open } : null;
+    case "photo": {
+      const roomId = opaqueId(row.roomId);
+      return roomId ? { type: "photo", roomId } : null;
+    }
+    case "render": {
+      const renderId = opaqueId(row.renderId);
+      return renderId ? { type: "render", renderId } : null;
+    }
     case "error":
       return {
         type: "error",

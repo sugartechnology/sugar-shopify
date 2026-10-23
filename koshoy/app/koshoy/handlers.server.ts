@@ -30,7 +30,12 @@ import {
 } from "./rate-limit.server";
 import { bundleSpec, type KoshoyBundler } from "./bundle.server";
 import { buildKoshoyCartLines } from "./pricing.server";
-import { appendTranscriptEvent, type KoshoyDesign, type KoshoySessionState } from "./store.server";
+import {
+  appendTranscriptEvent,
+  type KoshoyDesign,
+  type KoshoySessionState,
+  type KoshoyTranscriptEvent,
+} from "./store.server";
 import {
   isWellFormedKoshoyToken,
   koshoySessionCookie,
@@ -235,6 +240,49 @@ async function sessionRoom(
   return view?.status === "ready" ? view : null;
 }
 
+/** At most this many room photos and pictures come back with /session. */
+const MAX_SESSION_PICTURES = 12;
+
+/**
+ * The transcript with the session's room photos and finished pictures put
+ * back where they appeared: after the text written before them (the rows
+ * only have a time). Text from before transcript times existed stays first.
+ */
+async function transcriptWithPictures(
+  room: KoshoyRoomDeps,
+  session: KoshoySessionState,
+): Promise<KoshoyTranscriptEvent[]> {
+  const [rooms, renders] = await Promise.all([
+    room.db.koshoyRoom.findMany({ where: { sessionId: session.id } }),
+    room.db.koshoyRender.findMany({ where: { sessionId: session.id } }),
+  ]);
+  const pictures: Array<{ at: number; event: PublicEvent }> = [
+    ...rooms.map((row) => ({
+      at: row.createdAt.getTime(),
+      event: { type: "photo", roomId: row.id } as const,
+    })),
+    ...renders
+      .filter((row) => row.status === "ready")
+      .map((row) => ({
+        at: row.updatedAt.getTime(),
+        event: { type: "render", renderId: row.id } as const,
+      })),
+  ]
+    .sort((a, b) => a.at - b.at)
+    .slice(-MAX_SESSION_PICTURES);
+
+  // The `at` times stay on the text; publicEvents() drops them on the way out.
+  const out: KoshoyTranscriptEvent[] = [];
+  let next = 0;
+  for (const item of session.events) {
+    const at = item.at ?? Number.NEGATIVE_INFINITY;
+    while (next < pictures.length && pictures[next].at < at) out.push(pictures[next++].event);
+    out.push(item);
+  }
+  while (next < pictures.length) out.push(pictures[next++].event);
+  return out;
+}
+
 /* ---------------- POST /session ---------------- */
 
 export async function handleKoshoySession(
@@ -274,7 +322,9 @@ export async function handleKoshoySession(
 
     const designs = await ctx.store.listDesigns(session.id);
     const active = designs.find((design) => design.id === session.activeDesignId) ?? null;
-    const events: unknown[] = [...session.events];
+    const events: unknown[] = ctx.room
+      ? await transcriptWithPictures(ctx.room, session)
+      : [...session.events];
     if (active) {
       const quote = await ctx.pricer.quote(active.composition);
       events.push(sceneEvent(active), priceEvent(active, quote));
