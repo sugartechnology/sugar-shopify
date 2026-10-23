@@ -31,6 +31,8 @@ import {
   roomNumbersIn,
   type RoomNumbers,
   kindFromText,
+  kindsInText,
+  meansWholeSet,
   KOSHOY_SAFE_STOPPED_REPLY,
   numbersIn,
   pricesIn,
@@ -115,6 +117,12 @@ interface TurnContext {
   /** With a ready room: room measurements by unit, quoted only as "yaklaşık" (rules.ts). */
   roomNumbers: RoomNumbers | null;
   designIds: Set<string>;
+  /** The design on screen when the customer wrote (a tab sets it); edits go there, see editTarget. */
+  openDesignId: string | null;
+  /** What the customer wrote this turn: names another design or the whole set. */
+  customerText: string;
+  /** Designs made in this turn; the model may edit them right away. */
+  createdIds: Set<string>;
   stop: TurnStop;
   textSent: boolean;
   /** Server-side one-line summary of what this turn's tools did. */
@@ -379,6 +387,23 @@ async function quoteAndPublish(ctx: TurnContext, design: KoshoyDesign, withScene
   return quote;
 }
 
+/**
+ * The design an edit may change: the one on screen when the customer wrote,
+ * unless the customer named the other one's kind ("gardırobu beyaz yap") or
+ * it was made in this turn. What the model remembers from earlier in the
+ * conversation does not count (ClickUp z8qu5d6gzx).
+ */
+async function editTarget(ctx: TurnContext, wanted: KoshoyDesign | null): Promise<KoshoyDesign | null> {
+  const open = ctx.openDesignId;
+  if (!wanted || !open || wanted.id === open) return wanted;
+  if (ctx.createdIds.has(wanted.id) || kindsInText(ctx.customerText).has(wanted.kind)) return wanted;
+  return (await ctx.deps.store.getDesign(ctx.session.id, open)) ?? wanted;
+}
+
+function openDesignNote(label: string): string {
+  return `Müşteri ekranda ${label} tasarımına bakıyor; değişiklik yalnız ona uygulandı.`;
+}
+
 export async function executeKoshoyTool(
   call: KoshoyToolCall,
   ctx: TurnContext,
@@ -452,6 +477,7 @@ export async function executeKoshoyTool(
     if (!created) return { payload: { ok: false, error: "design_limit", hint: DESIGN_LIMIT_HINT } };
     const { design, plan } = created;
     ctx.designIds.add(design.id);
+    ctx.createdIds.add(design.id);
     ctx.summary = [`Senin için ${design.label} hazırladım.`, ...plan.notes.map((note) => `${note}.`)].join(" ");
     const quote = await quoteAndPublish(ctx, design, true);
     ctx.publish(designsEvent(await deps.store.listDesigns(session.id), session.activeDesignId));
@@ -496,6 +522,7 @@ export async function executeKoshoyTool(
       }
       planned.push(created.design);
       ctx.designIds.add(created.design.id);
+      ctx.createdIds.add(created.design.id);
       notes.push(...created.plan.notes);
     }
     if (!planned.length) return { payload: { ok: false, error: "design_limit", hint: DESIGN_LIMIT_HINT } };
@@ -522,7 +549,7 @@ export async function executeKoshoyTool(
     };
   }
 
-  if (call.name === "edit_design" && args.allDesigns === true) {
+  if (call.name === "edit_design" && args.allDesigns === true && meansWholeSet(ctx.customerText)) {
     const op = parseEditOp(args.op);
     if (!op || op.action !== "set_color") return { payload: { ok: false, error: "invalid_op" } };
     ctx.publish({ type: "status", key: "placing" });
@@ -546,7 +573,8 @@ export async function executeKoshoyTool(
   }
 
   if (call.name === "edit_design") {
-    const design = await resolveDesign(deps, session, str(args.designId));
+    const wanted = await resolveDesign(deps, session, str(args.designId));
+    const design = await editTarget(ctx, wanted);
     if (!design) return { payload: { ok: false, error: "design_not_found" } };
     const op = parseEditOp(args.op);
     if (!op) return { payload: { ok: false, error: "invalid_op" } };
@@ -568,6 +596,7 @@ export async function executeKoshoyTool(
     const notes = result.changed
       ? editWarningNotes(result.warnings)
       : [editRejectHint("no_change")];
+    if (design.id !== wanted?.id || args.allDesigns === true) notes.push(openDesignNote(design.label));
     return {
       payload: {
         ok: true,
@@ -659,6 +688,15 @@ function publishText(ctx: TurnContext, raw: string) {
 
 /* ---------------- model turn ---------------- */
 
+/**
+ * With more than one design the customer's message says which one is on
+ * screen: the customer may have switched with a tab since the model last spoke.
+ */
+function withOpenDesign(message: string, designs: readonly KoshoyDesign[], activeDesignId: string | null): string {
+  const open = designs.find((design) => design.id === activeDesignId);
+  return designs.length > 1 && open ? `[Ekranda açık tasarım: ${open.label}]\n${message}` : message;
+}
+
 async function runModelTurn(ctx: TurnContext, client: ClientInput) {
   const { session, deps } = ctx;
   const stream = deps.stream ?? streamLlmGatewayResponses;
@@ -709,7 +747,7 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
     const model = process.env.KOSHOY_CHAT_MODEL?.trim();
     if (platform) body.platform = platform;
     if (model) body.model = model;
-    if (message) body.message = message;
+    if (message) body.message = withOpenDesign(message, designs, session.activeDesignId);
     else body.toolResults = toolResults;
     // The room photo, once per room and model conversation, with a customer message.
     const photo = message ? hopRoom?.photo ?? null : null;
@@ -953,6 +991,9 @@ export async function runKoshoyTurn(input: {
     prices: new Set<string>(),
     roomNumbers: null,
     designIds: new Set<string>(),
+    openDesignId: session.activeDesignId,
+    customerText: "",
+    createdIds: new Set<string>(),
     stop,
     textSent: false,
     summary: "",
@@ -967,6 +1008,7 @@ export async function runKoshoyTurn(input: {
 
   try {
     const client = resolveKoshoyChoice(session, input.client);
+    ctx.customerText = clientText(client);
     if (client.type === "message" && classifyScope(client.text) === "out") {
       ctx.publish(errorEvent("out_of_scope"));
     } else if (input.deps.mock) {

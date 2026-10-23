@@ -153,6 +153,29 @@ export function kindFromText(text: string): DesignKind | null {
   return null;
 }
 
+/**
+ * Every furniture kind the customer names, inflected too ("gardırobu ve
+ * kitaplığı" → both). "Dolap" alone names none: it means any cabinet.
+ */
+export function kindsInText(text: string): Set<DesignKind> {
+  const value = text.toLocaleLowerCase("tr-TR");
+  const kinds = new Set<DesignKind>();
+  if (/komodin/u.test(value)) kinds.add("komodin");
+  if (/[sş]ifonyer/u.test(value)) kinds.add("sifonyer");
+  if (/(?<![\p{L}])tv(?![\p{L}])|televizyon/u.test(value)) kinds.add("tv_unitesi");
+  if (/kitapl[ıi][kğ]/u.test(value)) kinds.add("kitaplik");
+  if (/vestiyer|portmanto/u.test(value)) kinds.add("vestiyer");
+  if (/gard[ıi]?ro[pb]/u.test(value)) kinds.add("gardirop");
+  return kinds;
+}
+
+/** "hepsini", "tümü", "bütün set", "ikisini de": the whole set, not only the open design. */
+export function meansWholeSet(text: string): boolean {
+  return /(?<![\p{L}])(hep(si\p{L}*)?|tüm(ü\p{L}*)?|bütün\p{L}*|tamam[ıi]\p{L}*|ikisi\p{L}*|üçü\p{L}*|set\p{L}*)(?![\p{L}])/u.test(
+    text.toLocaleLowerCase("tr-TR"),
+  );
+}
+
 /* ---------------- number handling ---------------- */
 
 const NUMBER_TOKEN = /\d+(?:[.,]\d+)*/gu;

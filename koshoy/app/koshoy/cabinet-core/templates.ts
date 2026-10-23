@@ -5,7 +5,7 @@ import { DEFAULT_CABIN_COLOR, isCabinColorId } from "./colors";
 import { nextCabinUnitId, normalizeComposition } from "./composeCabins";
 import {
   CABIN_GRID_MM,
-  CABIN_TOTAL_WIDTH_MAX_MM,
+  CABIN_TOTAL_WIDTH_SAFETY_MM,
   CABIN_WIDTHS_MM,
   mmToCm,
 } from "./grid";
@@ -236,7 +236,7 @@ export function isDesignLevel(value: unknown): value is DesignLevel {
 
 /**
  * Deterministic design for a furniture kind. Width snaps down to the 160 mm
- * grid (never wider than asked, at least 320, at most 5000) and is split into
+ * grid (never wider than asked, at least 320, at most the 20 m safety bound) and is split into
  * catalog widths, widest first. Throws on an unknown kind; check with
  * `isDesignKind` first. Invalid level / color fall back to the defaults.
  */
@@ -268,9 +268,9 @@ export function planCabinet(input: PlanCabinetInput): PlanCabinetResult {
   };
 }
 
-/** Largest buildable total ≤ target: a 160 mm multiple in [320, 4960]. */
+/** Largest buildable total ≤ target: a 160 mm multiple in [320, 20000]. */
 export function snapTotalWidthMm(targetMm: number): number {
-  const max = Math.floor(CABIN_TOTAL_WIDTH_MAX_MM / CABIN_GRID_MM) * CABIN_GRID_MM;
+  const max = Math.floor(CABIN_TOTAL_WIDTH_SAFETY_MM / CABIN_GRID_MM) * CABIN_GRID_MM;
   const snapped = Math.floor(targetMm / CABIN_GRID_MM + 1e-9) * CABIN_GRID_MM;
   return Math.min(max, Math.max(CABIN_WIDTHS_MM[0], snapped));
 }
@@ -340,9 +340,9 @@ function planTotalWidthMm(
   const totalMm = snapTotalWidthMm(targetMm);
   const split = splitTotalWidthMm(totalMm, widthsMm);
   const parts = split.length > 1 ? ` (${split.map(formatCm).join(" + ")} cm)` : "";
-  if (targetMm > CABIN_TOTAL_WIDTH_MAX_MM) {
+  if (targetMm > CABIN_TOTAL_WIDTH_SAFETY_MM) {
     notes.push(
-      `Toplam genişlik en fazla ${formatCm(CABIN_TOTAL_WIDTH_MAX_MM)} cm: ` +
+      `Toplam genişlik en fazla ${formatCm(CABIN_TOTAL_WIDTH_SAFETY_MM)} cm: ` +
         `${formatCm(targetMm)} cm → ${formatCm(totalMm)} cm${parts}`,
     );
   } else if (targetMm < CABIN_WIDTHS_MM[0]) {

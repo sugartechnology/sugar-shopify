@@ -4,7 +4,7 @@
  */
 import {
   CABIN_COLOR_LABELS,
-  CABIN_TOTAL_WIDTH_MAX_MM,
+  CABIN_TOTAL_WIDTH_SAFETY_MM,
   CABIN_WIDTHS_MM,
   DESIGN_KIND_LABELS,
   DOOR_MIN_HEIGHT_MM,
@@ -70,7 +70,7 @@ const EDIT_REJECT_HINTS: Record<EditRejectReason | "stale", string> = {
     "Bu çekmece düzeniyle kapak ölçüsü katalogda yok; farklı bir çekmece seçilebilir ya da kapak kaldırılabilir.",
   fitting_not_found: "Bu gövdede o parça yok.",
   no_door: "Bu gövdede kapak yok.",
-  total_width_exceeded: `Toplam genişlik en fazla ${cmText(CABIN_TOTAL_WIDTH_MAX_MM)} cm olabilir.`,
+  total_width_exceeded: `Toplam genişlik en fazla ${cmText(CABIN_TOTAL_WIDTH_SAFETY_MM)} cm olabilir.`,
   total_width_too_small: `Toplam genişlik en az ${cmText(CABIN_WIDTHS_MM[0])} cm olabilir.`,
   width_not_allowed:
     "Bu üründe bir gövde bu genişlikte olamaz; daha geniş bir ürün için toplam genişlik artırılır, gövdeler bölünür.",

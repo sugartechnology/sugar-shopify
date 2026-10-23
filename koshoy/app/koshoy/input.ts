@@ -105,7 +105,8 @@ export function parseEditOp(raw: unknown): EditOp | null {
         : null;
     }
     case "set_total_width": {
-      const widthMm = int(row.widthMm, 1);
+      // Any length parses; the core rejects past its 20 m safety bound with a hint.
+      const widthMm = int(row.widthMm, 1, 1_000_000);
       return widthMm !== null ? { action: "set_total_width", widthMm } : null;
     }
     case "set_depth": {

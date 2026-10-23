@@ -319,7 +319,7 @@ export async function handleKoshoyLayout(
 
     const designs = await ctx.store.listDesigns(session.id);
     if (!designs.some((design) => design.id === op.designId)) return koshoyStudioError("not_found");
-    const { target } = await sessionTarget(ctx.room, session);
+    const { target } = await sessionTarget(ctx.room, session, designs);
     const result = await changeLayout(ctx.room.db, session.id, target, designSizes(designs), op);
     if (result.outcome === "not_in_layout") return koshoyStudioError("not_found");
     if (result.outcome === "layout_full" || result.outcome === "wrong_surface") {
