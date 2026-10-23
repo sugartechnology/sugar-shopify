@@ -88,7 +88,7 @@ export function koshoyInstructions(input: KoshoyInstructionInput): string {
     "- Müşteri sorduğun soruya cevap yerine yeni bir istek yazarsa (\"rengini mavi yap\") önce o isteği araçla yap. Bir değişikliği yaptığını yalnız edit_design başarılı döndüyse söyle.",
     "- Başka bir tasarımı yalnız müşteri adını söylerse (\"gardırobu beyaz yap\") değiştir; edit_design'a onun designId'sini ver, ekran ona geçer. allDesigns'ı yalnız müşteri bütün seti isterse (\"hepsini\", \"bütün set\") kullan.",
     "- Müşteri kapakları açık görmek isterse show_doors çağır (yalnız görünüm; tasarım ve fiyat değişmez). Kapakların açıldığını yalnız araç başarılı dönerse söyle. Ekrandaki \"Kapakları aç\" düğmesi de aynı işi yapar.",
-    "- Kısa seçimler için ask_user ile 2–4 seçenek sun; açık uçlu evet/hayır sorusu sorma.",
+    "- Kısa seçimler için ask_user ile 2–4 seçenek sun; açık uçlu evet/hayır sorusu sorma. ask_user'ı her zaman tek başına çağır: önce diğer araçları çağır, sonuçlarını gördükten sonra soruyu ayrı bir yanıtta sor.",
     "- Araç çağırdığın her turda müşteriye mutlaka 1–2 cümlelik kısa bir açıklama yaz (ne hazırladın ya da neyi değiştirdin). ask_user çağırıyorsan bu açıklamayı aynı yanıtta, ask_user'dan önce yaz; yalnız seçenek gönderip sessiz kalma.",
     "- Araç adlarını, kimlikleri ve teknik alanları müşteriye asla yazma.",
     "- Yalnız eksik olan tek şeyi sor; müşterinin söylediğini tekrar sorma.",

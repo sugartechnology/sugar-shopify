@@ -86,7 +86,7 @@ export const KOSHOY_TOOLS = [
   {
     name: "ask_user",
     description:
-      "Show 2–4 clickable choices and wait for the customer. Use instead of open yes/no questions.",
+      "Show 2–4 clickable choices and wait for the customer. Use instead of open yes/no questions. Call it alone: never in the same response as another tool.",
     strict: false,
     parameters: {
       type: "object",
