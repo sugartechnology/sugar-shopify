@@ -21,6 +21,10 @@ export const DOOR_OVERLAY_H_MM = 67;
 /** Same 1.5 mm side/top pay as W−3 / MCP KAPAK (Y 65.5 … H−1.5). */
 export const OVERLAY_INSET_MM = DOOR_OVERLAY_W_MM * 0.5;
 export const DOOR_THICKNESS_MM = 18;
+/**
+ * Smallest door zone: the leaf plus its 1.5 mm gap at the bottom and top.
+ * The leaf itself is 3 mm shorter, so a 317 mm KAPAK is allowed.
+ */
 export const DOOR_MIN_HEIGHT_MM = 320;
 export const DRAWER_FRONT_MM = 18;
 export const DRAWER_WALL_MM = 16;
@@ -31,6 +35,18 @@ export const CLOSING_SHELF_ID = "kapatan-raf";
 /** Overlay front band start (67 − 1.5). Shared by KAPAK and CEKMECE_KAPAK. */
 export function overlayFrontY0Mm(): number {
   return DOOR_OVERLAY_H_MM - OVERLAY_INSET_MM;
+}
+
+/**
+ * Height of the front grid: fronts tile 160 mm bands from Y 64 up to H, each
+ * band being a front plus its 3 mm gap (544 → 480, so three 160 drawers).
+ */
+export function frontGridHeightMm(size: CabinSize): number {
+  return size.heightMm - (DOOR_OVERLAY_H_MM - DOOR_OVERLAY_W_MM);
+}
+
+export function drawerBandMm(kind: CabinFitKind): number {
+  return kind === "drawer320" ? DRAWER_320_MM : DRAWER_160_MM;
 }
 
 export interface DrawerTubPanel {
@@ -83,14 +99,68 @@ export function occupyMm(kind: CabinFitKind, remainingMm: number): number | unde
   return Math.min(HANGER_PREF_ZONE_MM, remainingMm);
 }
 
+/**
+ * Adds the closing shelf above the drawer bank, unless the user already put a
+ * shelf there or the bank reaches the top panel (nothing above to close off).
+ */
 export function fittingsWithClosingShelf(
+  size: CabinSize,
   fittings: readonly CabinFitting[],
 ): CabinFitting[] {
   const list = cloneFittings(fittings);
   const n = drawerPrefix(list).length;
   if (n === 0 || list[n]?.kind === "shelf") return list;
+  if (drawerRunOccupyMm(size, list) >= frontGridHeightMm(size)) return list;
   list.splice(n, 0, { id: CLOSING_SHELF_ID, kind: "shelf" });
   return list;
+}
+
+interface StackedFitting {
+  item: CabinFitting;
+  /** Zone in the cavity, bottom and top Y (mm). */
+  y0: number;
+  y1: number;
+}
+
+/**
+ * Bottom → top layout of the interior. Stops at the first fitting that does
+ * not fit, so it and everything above it are left out.
+ * - The drawer bank takes 160 / 320 mm bands of the front grid from the
+ *   cavity bottom, as long as the bank stays inside the front grid.
+ * - The shelf right above the bank (the user's or the closing shelf) sits in
+ *   the top 16 mm of the last drawer band, centred on the seam between the
+ *   drawer front and what is above it. Both fronts then cover
+ *   16/2 − 1.5 = 6.5 mm of it.
+ * - Other shelves and hangers stack in the rest of the cavity.
+ */
+function stackFittings(
+  size: CabinSize,
+  fittings: readonly CabinFitting[],
+): StackedFitting[] {
+  const cavity = cabinCavity(size);
+  const list = fittingsWithClosingShelf(size, fittings);
+  const bankCount = drawerPrefix(list).length;
+  const bankMm = drawerRunOccupyMm(size, list);
+  const stacked: StackedFitting[] = [];
+  let y = cavity.min.y;
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (i < bankCount) {
+      const band = drawerBandMm(item.kind);
+      if (y + band > cavity.min.y + bankMm) break;
+      stacked.push({ item, y0: y, y1: y + band });
+      y += band;
+    } else if (i === bankCount && item.kind === "shelf" && bankCount > 0) {
+      if (bankMm >= frontGridHeightMm(size)) break;
+      stacked.push({ item, y0: y - SHELF_THICKNESS_MM, y1: y });
+    } else {
+      const occupy = occupyMm(item.kind, cavity.max.y - y);
+      if (occupy === undefined) break;
+      stacked.push({ item, y0: y, y1: y + occupy });
+      y += occupy;
+    }
+  }
+  return stacked;
 }
 
 export function usedFittingHeightMm(
@@ -98,13 +168,9 @@ export function usedFittingHeightMm(
   fittings: readonly CabinFitting[],
 ): number {
   const cavity = cabinCavity(size);
-  let used = 0;
-  for (const item of fittingsWithClosingShelf(fittings)) {
-    const occupy = occupyMm(item.kind, cavity.size.y - used);
-    if (occupy === undefined) break;
-    used += occupy;
-  }
-  return used;
+  let top = cavity.min.y;
+  for (const { y1 } of stackFittings(size, fittings)) top = Math.max(top, y1);
+  return top - cavity.min.y;
 }
 
 export function remainingCavityMm(
@@ -129,16 +195,17 @@ export function drawerPrefix(
   return prefix;
 }
 
+/** Height of the bottom drawer bank, up to the first drawer that leaves the front grid. */
 export function drawerRunOccupyMm(
   size: CabinSize,
   fittings: readonly CabinFitting[],
 ): number {
-  const cavityH = cabinCavity(size).size.y;
+  const gridMm = frontGridHeightMm(size);
   let used = 0;
   for (const item of drawerPrefix(fittings)) {
-    const occupy = occupyMm(item.kind, cavityH - used);
-    if (occupy === undefined) break;
-    used += occupy;
+    const band = drawerBandMm(item.kind);
+    if (used + band > gridMm) break;
+    used += band;
   }
   return used;
 }
@@ -171,11 +238,12 @@ export function doorClearHeightMm(
   );
 }
 
+/** The door zone (leaf + 1.5 mm gap at the bottom and top) has to be ≥ 320 mm. */
 export function canHaveDoor(
   size: CabinSize,
   fittings: readonly CabinFitting[],
 ): boolean {
-  return doorClearHeightMm(size, fittings) >= DOOR_MIN_HEIGHT_MM;
+  return doorClearHeightMm(size, fittings) + 2 * OVERLAY_INSET_MM >= DOOR_MIN_HEIGHT_MM;
 }
 
 function sequenceAllows(
@@ -195,13 +263,9 @@ export function canAddFitting(
   options?: CanAddFittingOptions,
 ): boolean {
   if (!sequenceAllows(fittings, kind)) return false;
-  if (occupyMm(kind, remainingCavityMm(size, fittings)) === undefined) {
-    return false;
-  }
-  if (options?.hasDoor && isDrawerKind(kind)) {
-    const next = [...fittings, { id: "next", kind }];
-    return canHaveDoor(size, next);
-  }
+  const next = [...fittings, { id: "next", kind }];
+  if (trimFittings(size, next).length !== next.length) return false;
+  if (options?.hasDoor && isDrawerKind(kind)) return canHaveDoor(size, next);
   return true;
 }
 
@@ -209,17 +273,9 @@ export function trimFittings(
   size: CabinSize,
   fittings: readonly CabinFitting[],
 ): CabinFitting[] {
-  const cavityH = cabinCavity(size).size.y;
-  const kept: CabinFitting[] = [];
-  let used = 0;
-  for (const item of fittingsWithClosingShelf(fittings)) {
-    const occupy = occupyMm(item.kind, cavityH - used);
-    if (occupy === undefined) break;
-    used += occupy;
-    if (item.id === CLOSING_SHELF_ID) continue;
-    kept.push({ ...item });
-  }
-  return kept;
+  return stackFittings(size, fittings)
+    .filter(({ item }) => item.id !== CLOSING_SHELF_ID)
+    .map(({ item }) => ({ ...item }));
 }
 
 export function nextFittingId(fittings: readonly CabinFitting[]): string {
@@ -287,12 +343,11 @@ export function layoutFittings(
 ): PlacedFitting[] {
   const cavity = cabinCavity(size);
   const placed: PlacedFitting[] = [];
-  let y = cavity.min.y;
-  for (const item of fittingsWithClosingShelf(fittings)) {
-    const occupy = occupyMm(item.kind, cavity.max.y - y);
-    if (occupy === undefined) break;
-    const min = { x: cavity.min.x, y, z: cavity.min.z };
-    const max = { x: cavity.max.x, y: y + occupy, z: cavity.max.z };
+  for (const { item, y0, y1 } of stackFittings(size, fittings)) {
+    // A bank that fills the front grid ends above the cavity (the grid also
+    // covers half the bottom panel and the top panel); the tub stays inside.
+    const min = { x: cavity.min.x, y: y0, z: cavity.min.z };
+    const max = { x: cavity.max.x, y: Math.min(y1, cavity.max.y), z: cavity.max.z };
     if (item.kind === "hanger") {
       const rodR = HANGER_DIAMETER_MM * 0.5;
       const rodY = max.y - 20;
@@ -319,7 +374,6 @@ export function layoutFittings(
         z: (min.z + max.z) / 2,
       },
     });
-    y += occupy;
   }
   return placed;
 }
@@ -402,7 +456,7 @@ export function layoutDrawerFronts(
   const inset = OVERLAY_INSET_MM;
   let y = overlayFrontY0Mm();
   for (const item of drawerPrefix(fittings)) {
-    const occupy = item.kind === "drawer320" ? DRAWER_320_MM : DRAWER_160_MM;
+    const occupy = drawerBandMm(item.kind);
     const h = occupy - DOOR_OVERLAY_W_MM;
     fronts.push(
       frontPanelBox(
@@ -424,8 +478,8 @@ export function layoutDoors(
   size: CabinSize,
   fittings: readonly CabinFitting[],
 ): CabinDoorLeaf[] {
+  if (!canHaveDoor(size, fittings)) return [];
   const height = doorClearHeightMm(size, fittings);
-  if (height < DOOR_MIN_HEIGHT_MM) return [];
   const y = doorMinYMm(size, fittings);
   const z = size.depthMm;
   const inset = DOOR_OVERLAY_W_MM * 0.5;

@@ -522,6 +522,17 @@ export async function executeKoshoyTool(
     return { payload: { ok: true, price: quote.display, design: designForModel(design, true) } };
   }
 
+  if (call.name === "show_doors") {
+    const design = await resolveDesign(deps, session);
+    if (!design) return { payload: { ok: false, error: "design_not_found" } };
+    if (!design.composition.units.some((unit) => unit.hasDoor)) {
+      return { payload: { ok: false, error: "rejected", hint: editRejectHint("no_door") } };
+    }
+    const open = args.open !== false;
+    ctx.publish({ type: "doors", open });
+    return { payload: { ok: true, open } };
+  }
+
   return { payload: { ok: false, error: "unsupported_tool" } };
 }
 

@@ -22,10 +22,12 @@ import {
   planCabinet,
   skuFor,
   toBom,
+  unitWidthsForKind,
   type BomLine,
   type CabinColorId,
   type CabinComposition,
   type CabinFitKind,
+  type DesignKind,
   type DesignLevel,
   type EditOp,
   type EditResult,
@@ -58,6 +60,7 @@ export {
   DESIGN_KIND_LABELS,
   DESIGN_KINDS,
   DOOR_MIN_HEIGHT_MM,
+  unitWidthsForKind,
 };
 
 export type PlanLevel = DesignLevel;
@@ -116,8 +119,11 @@ function withinFittingCap(composition: CabinComposition): boolean {
 export interface CabinetEngine {
   /** Deterministic template plan snapped to the catalog grid. */
   planCabinet(input: PlanInput): PlanResult;
-  /** Validates and applies one panel intent; result is normalized. */
-  applyEditOp(composition: CabinComposition, op: EditOp): EditResult;
+  /**
+   * Validates and applies one panel intent; result is normalized. With
+   * `kind`, width ops follow that kind's size rules (DESIGN_KIND_RULES).
+   */
+  applyEditOp(composition: CabinComposition, op: EditOp, kind?: DesignKind): EditResult;
   /** Deterministic, merged, stably sorted part list. */
   toBom(composition: CabinComposition): BomLine[];
   /** Shopify variant SKU for one BOM line. */
@@ -158,8 +164,8 @@ export function createCabinetEngine(
 ): CabinetEngine {
   return {
     planCabinet,
-    applyEditOp(composition, op) {
-      const result = applyEditOp(composition, op);
+    applyEditOp(composition, op, kind) {
+      const result = applyEditOp(composition, op, kind);
       if (result.ok && !withinFittingCap(result.composition)) {
         return { ok: false, reason: "no_room" };
       }
