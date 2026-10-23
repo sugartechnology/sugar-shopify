@@ -2,7 +2,7 @@
 // source: 3d-room-designer/src/core/cabinet/templates.ts
 
 import { DEFAULT_CABIN_COLOR, isCabinColorId } from "./colors";
-import { normalizeComposition } from "./composeCabins";
+import { nextCabinUnitId, normalizeComposition } from "./composeCabins";
 import {
   CABIN_GRID_MM,
   CABIN_TOTAL_WIDTH_MAX_MM,
@@ -48,6 +48,30 @@ export const DESIGN_KIND_LABELS: Record<DesignKind, string> = {
   vestiyer: "Vestiyer",
 };
 
+/**
+ * Size rules per furniture kind, on top of the catalog. A missing field means
+ * the whole catalog is allowed. Rules from the product team are added here.
+ */
+export interface DesignKindRules {
+  /** Unit widths this kind may use (mm), a subset of `CABIN_WIDTHS_MM`. */
+  unitWidthsMm?: readonly number[];
+}
+
+export const DESIGN_KIND_RULES: Record<DesignKind, DesignKindRules> = {
+  gardirop: {},
+  komodin: {},
+  sifonyer: {},
+  tv_unitesi: {},
+  // Shelves sag over a 96 cm span: a bookcase unit is at most 64 cm and a
+  // wider bookcase is split into more units.
+  kitaplik: { unitWidthsMm: [320, 480, 640] },
+  vestiyer: {},
+};
+
+export function unitWidthsForKind(kind: DesignKind): readonly number[] {
+  return DESIGN_KIND_RULES[kind]?.unitWidthsMm ?? CABIN_WIDTHS_MM;
+}
+
 export interface PlanCabinetInput {
   kind: DesignKind;
   /** Wanted total width. Snapped down to the grid, never wider. */
@@ -86,10 +110,10 @@ interface CabinTemplate {
 
 /**
  * Template table. Every entry has to pass the interior rules of fittings.ts:
- * - with plinth the cavity is H − 88, so a drawer bank fits at most H − 224
- *   (e.g. 544 → 320, 864 → 640) plus the closing shelf;
- * - a door needs H − 67 − drawers ≥ 320, so 544-high units cannot mix a door
- *   with drawers;
+ * - a drawer bank fits the front grid H − 64 (e.g. 544 → 480, 864 → 800);
+ *   the closing shelf sits inside the last drawer band;
+ * - a door zone needs H − 64 − drawers ≥ 320 (leaf ≥ 317), so a 544-high
+ *   unit takes at most one 160 drawer under a door;
  * - door heights stay on catalog KAPAK sizes (H − drawers is a catalog height);
  * - shelves stack 16 mm apart (no shelf spacing in the model), hanger zones are
  *   up to 800 mm. So kitaplık shelves sit in the bottom few cm and the
@@ -116,11 +140,9 @@ const CABIN_TEMPLATES: Record<DesignKind, CabinTemplate> = {
       },
     },
   },
-  // Contract asks for 160 + 320 drawers at 544. With plinth only 320 mm of
-  // drawers fit there, so dengeli uses 2 × 160 and premium grows to 704.
-  // 160 + 320 does fit without plinth (512 mm cavity), but that needs a
-  // BAZASIZ GOVDE (S1) and the view starts drawer fronts at 65.5 mm while
-  // the tubs start at 16 mm, so they would not line up. Open decision.
+  // Contract asks for 160 + 320 drawers at 544. That fits the 480 mm front
+  // grid, but the templates were made when only 320 mm did: dengeli uses
+  // 2 × 160 and premium grows to 704. Open decision.
   komodin: {
     widthMm: 480,
     heightMm: 544,
@@ -228,8 +250,9 @@ export function planCabinet(input: PlanCabinetInput): PlanCabinetResult {
   const spec = template.levels[level];
   const heightMm = spec.heightMm ?? template.heightMm;
   const notes: string[] = [];
-  const totalMm = planTotalWidthMm(input.targetWidthMm, template.widthMm, notes);
-  const units = splitTotalWidthMm(totalMm).map((widthMm, index) =>
+  const widths = unitWidthsForKind(input.kind);
+  const totalMm = planTotalWidthMm(input.targetWidthMm, template.widthMm, widths, notes);
+  const units = splitTotalWidthMm(totalMm, widths).map((widthMm, index) =>
     planUnit(index, widthMm, heightMm, spec.units[index % spec.units.length], color),
   );
   const composition = normalizeComposition({
@@ -252,32 +275,70 @@ export function snapTotalWidthMm(targetMm: number): number {
   return Math.min(max, Math.max(CABIN_WIDTHS_MM[0], snapped));
 }
 
-/** Catalog unit widths for a total, widest first (1920 → 960 + 960, 1760 → 960 + 480 + 320). */
-export function splitTotalWidthMm(totalMm: number): number[] {
-  return splitWidths(snapTotalWidthMm(totalMm)) ?? [CABIN_WIDTHS_MM[0]];
+/**
+ * Unit widths for a total, widest first (1920 → 960 + 960, 1760 → 960 + 480 + 320).
+ * `widthsMm` limits the widths, e.g. a kitaplık 960 → 640 + 320.
+ */
+export function splitTotalWidthMm(
+  totalMm: number,
+  widthsMm: readonly number[] = CABIN_WIDTHS_MM,
+): number[] {
+  return splitWidths(snapTotalWidthMm(totalMm), widthsMm) ?? [widthsMm[0]];
 }
 
-function splitWidths(restMm: number): number[] | undefined {
+function splitWidths(restMm: number, widthsMm: readonly number[]): number[] | undefined {
   if (restMm === 0) return [];
-  for (let i = CABIN_WIDTHS_MM.length - 1; i >= 0; i--) {
-    const width = CABIN_WIDTHS_MM[i];
+  for (let i = widthsMm.length - 1; i >= 0; i--) {
+    const width = widthsMm[i];
     if (width > restMm) continue;
-    const tail = splitWidths(restMm - width);
+    const tail = splitWidths(restMm - width, widthsMm);
     if (tail) return [width, ...tail];
   }
   return undefined;
 }
 
+/**
+ * Splits every unit the kind does not allow into allowed widths, widest
+ * first. Each new unit is a copy of the one it came from (interior, door,
+ * colors) with a new id.
+ */
+export function splitUnitsForKind(
+  composition: CabinComposition,
+  kind: DesignKind,
+): CabinComposition {
+  const widths = unitWidthsForKind(kind);
+  if (composition.units.every((unit) => widths.includes(unit.widthMm))) return composition;
+  const units: CabinUnit[] = [];
+  const taken = [...composition.units, ...(composition.widestUnits ?? [])];
+  for (const unit of composition.units) {
+    const parts = widths.includes(unit.widthMm)
+      ? [unit.widthMm]
+      : (splitWidths(unit.widthMm, widths) ?? [unit.widthMm]);
+    parts.forEach((widthMm, index) => {
+      const id = index === 0 ? unit.id : nextCabinUnitId([...taken, ...units]);
+      const copy: CabinUnit = {
+        ...unit,
+        id,
+        widthMm,
+        fittings: (unit.fittings ?? []).map((item) => ({ ...item })),
+      };
+      units.push(copy);
+    });
+  }
+  return normalizeComposition({ ...composition, units, widestUnits: undefined });
+}
+
 function planTotalWidthMm(
   targetMm: number | undefined,
   defaultMm: number,
+  widthsMm: readonly number[],
   notes: string[],
 ): number {
   if (typeof targetMm !== "number" || !Number.isFinite(targetMm) || targetMm <= 0) {
     return snapTotalWidthMm(defaultMm);
   }
   const totalMm = snapTotalWidthMm(targetMm);
-  const split = splitTotalWidthMm(totalMm);
+  const split = splitTotalWidthMm(totalMm, widthsMm);
   const parts = split.length > 1 ? ` (${split.map(formatCm).join(" + ")} cm)` : "";
   if (targetMm > CABIN_TOTAL_WIDTH_MAX_MM) {
     notes.push(

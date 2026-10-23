@@ -195,4 +195,24 @@ describe("koshoy public event whitelist", () => {
     assert.equal(sseFrame(event), 'event: text\ndata: {"type":"text","text":"Merhaba"}\n\n');
     assert.equal(sseFrame({ type: "done" }), 'event: done\ndata: {"type":"done"}\n\n');
   });
+
+  it("passes the view-only doors flag and the kind's unit widths, nothing else", () => {
+    assert.deepEqual(toPublicEvent({ type: "doors", open: true, designId: "x" }), { type: "doors", open: true });
+    assert.equal(toPublicEvent({ type: "doors", open: "yes" }), null);
+    const scene = toPublicEvent({
+      type: "scene",
+      designId: "Ab3",
+      version: 1,
+      kind: "kitaplik",
+      label: "Kitaplık 96 cm",
+      view: {
+        units: [{ id: "cabin-1", widthMm: 640, heightMm: 1984, fittings: [], hasDoor: false }],
+        depthMm: 320,
+        hasPlinth: true,
+      },
+      unitWidthsMm: [320, 480, 640, 800, "960"],
+    });
+    assert.ok(scene?.type === "scene");
+    assert.deepEqual(scene.unitWidthsMm, [320, 480, 640]);
+  });
 });

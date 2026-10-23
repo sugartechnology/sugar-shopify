@@ -5,6 +5,7 @@ import type { PublicEvent } from "./events";
 import {
   handleKoshoyCart,
   handleKoshoyEdit,
+  handleKoshoySelect,
   handleKoshoySession,
   handleKoshoyTurn,
   koshoyTurnError,
@@ -813,5 +814,75 @@ describe("koshoy studio handlers", () => {
     const session = await findSession(token, SHOP);
     const transcript = session!.events.map((event) => (event.type === "text" ? event.text : "")).join("\n");
     assert.match(transcript, /Panelden: 2\. gövdeye raf eklendi\./, "the edit's line survived the turn");
+  });
+
+  it("switches the active design from a tab and returns its scene and price", async () => {
+    const ctx = makeCtx();
+    const { session: token } = await openSession(ctx);
+    const wardrobe = await planGardirop(ctx, token);
+    const session = await ctx.store.findSession(token, SHOP);
+    assert.ok(session);
+    const plan = cabinetEngine.planCabinet({ kind: "kitaplik" });
+    const shelf = await ctx.store.createDesign(session.id, {
+      kind: "kitaplik",
+      label: plan.label,
+      composition: plan.composition,
+    });
+
+    const response = await handleKoshoySelect(post("select", { designId: shelf.id }, { token }), ctx);
+    const body = (await response.json()) as { ok: boolean; events: PublicEvent[] };
+    assert.equal(body.ok, true);
+    assert.deepEqual(body.events.map((event) => event.type), ["designs", "scene", "price"]);
+    const [designs, scene] = body.events;
+    assert.ok(designs.type === "designs" && scene.type === "scene");
+    assert.deepEqual(
+      designs.items.map((item) => [item.designId, item.active]),
+      [
+        [wardrobe.designId, false],
+        [shelf.id, true],
+      ],
+    );
+    assert.equal(scene.designId, shelf.id);
+    assert.deepEqual(scene.unitWidthsMm, [320, 480, 640]);
+    assert.equal((await ctx.store.findSession(token, SHOP))?.activeDesignId, shelf.id);
+    assert.ok(!LEAKS.test(JSON.stringify(body)));
+
+    const unknown = await handleKoshoySelect(post("select", { designId: "nope" }, { token }), ctx);
+    assert.equal(unknown.status, 400);
+    const malformed = await handleKoshoySelect(post("select", { designId: "bad id!" }, { token }), ctx);
+    assert.equal(malformed.status, 400);
+    const anonymous = await handleKoshoySelect(post("select", { designId: shelf.id }), ctx);
+    assert.equal(anonymous.status, 401);
+
+    // A running turn would save over the switch.
+    assert.ok(ctx.busy.acquire(session.id));
+    const busy = await handleKoshoySelect(post("select", { designId: wardrobe.designId }, { token }), ctx);
+    assert.equal(busy.status, 429);
+    ctx.busy.release(session.id);
+    assert.equal((await ctx.store.findSession(token, SHOP))?.activeDesignId, shelf.id);
+  });
+
+  it("applies the kind's size rules to panel edits", async () => {
+    const ctx = makeCtx();
+    const { session: token } = await openSession(ctx);
+    const session = await ctx.store.findSession(token, SHOP);
+    assert.ok(session);
+    const plan = cabinetEngine.planCabinet({ kind: "kitaplik" });
+    const shelf = await ctx.store.createDesign(session.id, {
+      kind: "kitaplik",
+      label: plan.label,
+      composition: plan.composition,
+    });
+    const wide = await handleKoshoyEdit(
+      post(
+        "edit",
+        { designId: shelf.id, version: shelf.version, op: { action: "set_unit_width", unit: 0, widthMm: 960 } },
+        { token },
+      ),
+      ctx,
+    );
+    const body = (await wide.json()) as { ok: boolean; events: PublicEvent[] };
+    assert.equal(body.ok, false);
+    assert.equal(body.events[0].type, "error");
   });
 });

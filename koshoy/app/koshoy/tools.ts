@@ -21,6 +21,7 @@ export const KOSHOY_TOOL_NAMES = [
   "edit_design",
   "quote",
   "switch_design",
+  "show_doors",
   "show_in_room",
   "render_room",
   "place_in_room",
@@ -161,6 +162,20 @@ export const KOSHOY_TOOLS = [
         designId: { type: "string" },
       },
       required: ["designId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "show_doors",
+    description:
+      "Open or close the doors of the active design in the 3D view so the customer can see inside. View only: the design, parts and price do not change.",
+    strict: false,
+    parameters: {
+      type: "object",
+      properties: {
+        open: { type: "boolean" },
+      },
+      required: ["open"],
       additionalProperties: false,
     },
   },

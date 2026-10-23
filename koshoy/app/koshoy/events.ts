@@ -5,6 +5,7 @@
 import {
   CABIN_COLOR_IDS,
   CABIN_FIT_KINDS,
+  CABIN_WIDTHS_MM,
   DESIGN_KINDS,
   KOSHOY_MAX_FITTINGS_PER_UNIT,
   type CabinColorId,
@@ -103,6 +104,8 @@ export type PublicEvent =
       kind: DesignKind;
       label: string;
       view: SceneView;
+      /** Unit widths this kind allows (panel width steppers). */
+      unitWidthsMm?: number[];
     }
   | { type: "price"; designId: string; version: number; display: string }
   | { type: "designs"; items: DesignSummary[] }
@@ -112,6 +115,8 @@ export type PublicEvent =
   /** render_room: the storefront captures the 3D view and calls POST /render. */
   | { type: "render_request"; designId: string }
   | { type: "layout"; version: number; items: LayoutItemView[]; target?: LayoutTargetView }
+  /** View only: open or close the doors in the 3D view. */
+  | { type: "doors"; open: boolean }
   | { type: "error"; code: KoshoyErrorCode }
   | { type: "done" };
 
@@ -315,7 +320,14 @@ export function toPublicEvent(raw: unknown): PublicEvent | null {
       const name = label(row.label);
       const view = toSceneView(row.view);
       if (!designId || !v || !kind || !name || !view) return null;
-      return { type: "scene", designId, version: v, kind, label: name, view };
+      const widths = Array.isArray(row.unitWidthsMm)
+        ? row.unitWidthsMm.filter((value): value is number =>
+            (CABIN_WIDTHS_MM as readonly unknown[]).includes(value),
+          )
+        : [];
+      return widths.length
+        ? { type: "scene", designId, version: v, kind, label: name, view, unitWidthsMm: widths }
+        : { type: "scene", designId, version: v, kind, label: name, view };
     }
     case "price": {
       const designId = opaqueId(row.designId);
@@ -366,6 +378,8 @@ export function toPublicEvent(raw: unknown): PublicEvent | null {
       const designId = opaqueId(row.designId);
       return designId ? { type: row.type, designId } : null;
     }
+    case "doors":
+      return typeof row.open === "boolean" ? { type: "doors", open: row.open } : null;
     case "error":
       return {
         type: "error",
