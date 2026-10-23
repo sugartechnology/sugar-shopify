@@ -3,6 +3,7 @@
  * uses (unique tokenHash, cascade delete, conditional updateMany).
  */
 import type { KoshoyLayoutRow } from "./layout.server";
+import type { KoshoyPhoneLinkDb, KoshoyPhoneLinkRow } from "./phone-link.server";
 import { measureRoom } from "./room-measure.server";
 import type { KoshoyRenderRow, KoshoyRoomDb, KoshoyRoomRow, RoomPlanes } from "./room.server";
 import type {
@@ -178,4 +179,63 @@ export function sampleReadyRoom(id: string, sessionId: string, shop = "koshoy.my
     createdAt: new Date(),
     updatedAt: new Date(),
   };
+}
+
+/**
+ * In-memory KoshoyPhoneLink table: unique tokenHash, conditional
+ * updateMany (the claim), the two deleteMany filters the link uses.
+ */
+export function createMemoryPhoneDb(now: () => number = Date.now) {
+  const links = new Map<string, KoshoyPhoneLinkRow>();
+  const db: KoshoyPhoneLinkDb = {
+    koshoyPhoneLink: {
+      async create({ data }) {
+        for (const row of links.values()) {
+          if (row.tokenHash === data.tokenHash) throw new Error("unique tokenHash");
+        }
+        const row = { ...data, createdAt: new Date(now()) };
+        links.set(row.id, row);
+        return { ...row };
+      },
+      async findUnique({ where }) {
+        for (const row of links.values()) {
+          if (row.tokenHash === where.tokenHash) return { ...row };
+        }
+        return null;
+      },
+      async findFirst({ where }) {
+        const row = links.get(where.id);
+        return row && row.sessionId === where.sessionId ? { ...row } : null;
+      },
+      async update({ where, data }) {
+        const row = links.get(where.id);
+        if (!row) throw new Error("record not found");
+        Object.assign(row, data);
+        return { ...row };
+      },
+      async updateMany({ where, data }) {
+        const row = links.get(where.id);
+        if (!row || row.usedAt !== null || row.expiresAt.getTime() <= where.expiresAt.gt.getTime()) {
+          return { count: 0 };
+        }
+        Object.assign(row, data);
+        return { count: 1 };
+      },
+      async deleteMany({ where }) {
+        let count = 0;
+        for (const [id, row] of links) {
+          const gone =
+            "sessionId" in where
+              ? row.sessionId === where.sessionId && row.roomId === null
+              : row.expiresAt.getTime() < where.expiresAt.lt.getTime();
+          if (gone) {
+            links.delete(id);
+            count += 1;
+          }
+        }
+        return { count };
+      },
+    },
+  };
+  return { db, links };
 }
