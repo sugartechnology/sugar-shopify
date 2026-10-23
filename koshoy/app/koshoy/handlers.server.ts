@@ -43,6 +43,7 @@ import {
 } from "./token.server";
 import { runKoshoyTurn, type KoshoyStreamFn } from "./turn.server";
 import { roomView, type KoshoyRoomDeps, type RoomView } from "./room.server";
+import type { KoshoyPhoneDeps } from "./phone-link.server";
 import {
   currentLayout,
   layoutEvent,
@@ -94,6 +95,8 @@ export interface KoshoyRequestContext extends KoshoyDesignDeps {
   bundler?: KoshoyBundler;
   /** Room photo and render (room-handlers.server.ts); unset when Sugar S3 or the gateway is not configured. */
   room?: KoshoyRoomDeps;
+  /** QR phone link (phone-handlers.server.ts); works only together with `room`. */
+  phone?: KoshoyPhoneDeps;
 }
 
 export const KOSHOY_WELCOME_CARDS = [

@@ -39,6 +39,10 @@ export const KOSHOY_LIMITS = {
   roomRead: { limit: 120, windowMs: 60_000 },
   /** layout writes (drags, add, remove) per session */
   layout: { limit: 120, windowMs: 60_000 },
+  /** QR phone links made per session (a new QR when the last one expired) */
+  phoneLink: { limit: 6, windowMs: 60_000 },
+  /** phone page opens (link checks) per visitor */
+  phoneCheck: { limit: 30, windowMs: 60_000 },
 } as const;
 
 /**
