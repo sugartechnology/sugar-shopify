@@ -115,9 +115,9 @@ interface CabinTemplate {
  * - a door zone needs H − 64 − drawers ≥ 320 (leaf ≥ 317), so a 544-high
  *   unit takes at most one 160 drawer under a door;
  * - door heights stay on catalog KAPAK sizes (H − drawers is a catalog height);
- * - shelves stack 16 mm apart (no shelf spacing in the model), hanger zones are
- *   up to 800 mm. So kitaplık shelves sit in the bottom few cm and the
- *   ekonomik / dengeli vestiyer rod hangs at ~85 cm (open decision).
+ * - free shelves spread over a 160 mm grid (kitaplık 1984: 568 / 888 / 1208 /
+ *   1528) and a hanger rod hangs 102 mm under the shelf or top panel above it
+ *   (vestiyer 2304: 2186), see `layoutFreeFittings`.
  */
 const CABIN_TEMPLATES: Record<DesignKind, CabinTemplate> = {
   gardirop: {

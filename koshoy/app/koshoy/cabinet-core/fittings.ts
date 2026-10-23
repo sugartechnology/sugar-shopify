@@ -3,6 +3,7 @@
 
 import { cabinCavity } from "./buildCabinPanels";
 import type {
+  CabinCavity,
   CabinFitKind,
   CabinFitting,
   CabinSize,
@@ -15,7 +16,10 @@ export const DRAWER_160_MM = 160;
 export const DRAWER_320_MM = 320;
 export const HANGER_DIAMETER_MM = 25;
 export const HANGER_MIN_ZONE_MM = 400;
-export const HANGER_PREF_ZONE_MM = 800;
+/** Rod centre under the shelf or top panel above it (PnP-3D: 2186 in a 2304 vestiyer). */
+export const HANGER_DROP_MM = 102;
+/** Free shelves sit on a 160 mm grid (PnP-3D: 248 / 408 / 568 with a plinth). */
+export const SHELF_GRID_MM = 160;
 export const DOOR_OVERLAY_W_MM = 3;
 export const DOOR_OVERLAY_H_MM = 67;
 /** Same 1.5 mm side/top pay as W−3 / MCP KAPAK (Y 65.5 … H−1.5). */
@@ -89,16 +93,6 @@ export function fittingLabel(kind: CabinFitKind): string {
   return "Askı";
 }
 
-export function occupyMm(kind: CabinFitKind, remainingMm: number): number | undefined {
-  if (kind === "drawer160") return remainingMm >= DRAWER_160_MM ? DRAWER_160_MM : undefined;
-  if (kind === "drawer320") return remainingMm >= DRAWER_320_MM ? DRAWER_320_MM : undefined;
-  if (kind === "shelf") {
-    return remainingMm >= SHELF_THICKNESS_MM ? SHELF_THICKNESS_MM : undefined;
-  }
-  if (remainingMm < HANGER_MIN_ZONE_MM) return undefined;
-  return Math.min(HANGER_PREF_ZONE_MM, remainingMm);
-}
-
 /**
  * Adds the closing shelf above the drawer bank, unless the user already put a
  * shelf there or the bank reaches the top panel (nothing above to close off).
@@ -131,7 +125,8 @@ interface StackedFitting {
  *   the top 16 mm of the last drawer band, centred on the seam between the
  *   drawer front and what is above it. Both fronts then cover
  *   16/2 − 1.5 = 6.5 mm of it.
- * - Other shelves and hangers stack in the rest of the cavity.
+ * - Other shelves and hangers share the rest of the cavity
+ *   (`layoutFreeFittings`).
  */
 function stackFittings(
   size: CabinSize,
@@ -143,24 +138,92 @@ function stackFittings(
   const bankMm = drawerRunOccupyMm(size, list);
   const stacked: StackedFitting[] = [];
   let y = cavity.min.y;
-  for (let i = 0; i < list.length; i++) {
-    const item = list[i];
-    if (i < bankCount) {
-      const band = drawerBandMm(item.kind);
-      if (y + band > cavity.min.y + bankMm) break;
-      stacked.push({ item, y0: y, y1: y + band });
-      y += band;
-    } else if (i === bankCount && item.kind === "shelf" && bankCount > 0) {
-      if (bankMm >= frontGridHeightMm(size)) break;
-      stacked.push({ item, y0: y - SHELF_THICKNESS_MM, y1: y });
-    } else {
-      const occupy = occupyMm(item.kind, cavity.max.y - y);
-      if (occupy === undefined) break;
-      stacked.push({ item, y0: y, y1: y + occupy });
-      y += occupy;
-    }
+  let i = 0;
+  for (; i < bankCount; i++) {
+    const band = drawerBandMm(list[i].kind);
+    if (y + band > cavity.min.y + bankMm) return stacked;
+    stacked.push({ item: list[i], y0: y, y1: y + band });
+    y += band;
+  }
+  if (bankCount > 0 && list[i]?.kind === "shelf") {
+    if (bankMm >= frontGridHeightMm(size)) return stacked;
+    stacked.push({ item: list[i], y0: y - SHELF_THICKNESS_MM, y1: y });
+    i++;
+  }
+  // The longest run of the remaining fittings that fits.
+  const free = list.slice(i);
+  for (let n = free.length; n > 0; n--) {
+    const placed = layoutFreeFittings(cavity, y, free.slice(0, n));
+    if (placed) return stacked.concat(placed);
   }
   return stacked;
+}
+
+/**
+ * Grid lines for free shelves above `startY`: shelf bottoms on cavity bottom
+ * + 16 + 160·k, at least one grid step above `startY` and below the top panel.
+ */
+function shelfLinesMm(cavity: CabinCavity, startY: number): number[] {
+  const lines: number[] = [];
+  const lastY = cavity.max.y - SHELF_GRID_MM - SHELF_THICKNESS_MM;
+  for (let y = cavity.min.y + SHELF_THICKNESS_MM; y <= lastY; y += SHELF_GRID_MM) {
+    if (y - startY >= SHELF_GRID_MM) lines.push(y);
+  }
+  return lines;
+}
+
+/**
+ * Shelves and hangers above `startY` (the drawer bank, or the cavity bottom).
+ * The shelves split the space into gaps, counted in grid steps; a hanger hangs
+ * in the gap it is listed in, its rod 102 mm under the shelf or top panel
+ * above. Without hangers the gaps get the same number of steps; with hangers
+ * the other gaps get one step and the hanger gaps share the rest. Spare steps
+ * go to the lowest gaps. Undefined when the fittings do not fit.
+ */
+function layoutFreeFittings(
+  cavity: CabinCavity,
+  startY: number,
+  items: readonly CabinFitting[],
+): StackedFitting[] | undefined {
+  const lines = shelfLinesMm(cavity, startY);
+  const gapOfItem: number[] = [];
+  const hangerGaps: number[] = [];
+  let gap = 0;
+  for (const item of items) {
+    if (item.kind === "shelf") gap++;
+    else if (item.kind !== "hanger" || hangerGaps.includes(gap)) return undefined;
+    else hangerGaps.push(gap);
+    gapOfItem.push(gap);
+  }
+  const gapCount = gap + 1;
+  // Steps from startY to the top panel: one more than the grid lines.
+  let spare = lines.length + 1 - gapCount;
+  if (spare < 0) return undefined;
+  const steps: number[] = new Array(gapCount).fill(1);
+  const wideGaps = hangerGaps.length > 0 ? hangerGaps : steps.map((_, g) => g);
+  for (let k = 0; spare > 0; k = (k + 1) % wideGaps.length, spare--) {
+    steps[wideGaps[k]]++;
+  }
+  // Bottom of each shelf, and each gap's [bottom, top].
+  const shelfY: number[] = [];
+  let line = -1;
+  for (let g = 0; g < gapCount - 1; g++) {
+    line += steps[g];
+    shelfY.push(lines[line]);
+  }
+  const gapBottom = (g: number) => (g === 0 ? startY : shelfY[g - 1] + SHELF_THICKNESS_MM);
+  const gapTop = (g: number) => (g === gapCount - 1 ? cavity.max.y : shelfY[g]);
+  for (const g of hangerGaps) {
+    if (gapTop(g) - gapBottom(g) < HANGER_MIN_ZONE_MM) return undefined;
+  }
+  return items.map((item, index) => {
+    if (item.kind === "shelf") {
+      const y0 = shelfY[gapOfItem[index] - 1];
+      return { item, y0, y1: y0 + SHELF_THICKNESS_MM };
+    }
+    const g = gapOfItem[index];
+    return { item, y0: gapBottom(g), y1: gapTop(g) };
+  });
 }
 
 export function usedFittingHeightMm(
@@ -350,7 +413,7 @@ export function layoutFittings(
     const max = { x: cavity.max.x, y: Math.min(y1, cavity.max.y), z: cavity.max.z };
     if (item.kind === "hanger") {
       const rodR = HANGER_DIAMETER_MM * 0.5;
-      const rodY = max.y - 20;
+      const rodY = max.y - HANGER_DROP_MM;
       min.y = rodY - rodR;
       max.y = rodY + rodR;
       min.z = cavity.min.z + cavity.size.z * 0.35;
