@@ -256,6 +256,8 @@ describe("koshoy turn loop", () => {
           event: "tool_call",
           data: { callId: "call_brief", name: "set_brief", arguments: { notes: "bütçe 20000 TL" } },
         },
+      ],
+      [
         {
           event: "tool_call",
           data: {
@@ -293,6 +295,29 @@ describe("koshoy turn loop", () => {
       type: "text",
       text: "Bu dolap [FİYAT] olur.",
     });
+  });
+
+  it("asks only in a turn of its own: a question next to other tools is sent back (ClickUp z8qu5d6gzx)", async () => {
+    const ctx = await setup();
+    const ask = (id: string) => ({
+      event: "tool_call",
+      data: { callId: id, name: "ask_user", arguments: { question: "Nasıl devam edelim?", options: [{ id: "a", label: "Böyle kalsın" }, { id: "b", label: "Raf ekle" }] } },
+    });
+    const { stream, bodies } = scriptedStream([
+      [
+        { event: "tool_call", data: { callId: "call_plan", name: "plan_cabinet", arguments: { kind: "gardirop" } } },
+        ask("call_ask_1"),
+      ],
+      [{ event: "text", data: { text: "Gardırobun hazır." } }, ask("call_ask_2")],
+    ]);
+    const events = await turn(ctx, ctx.session, { type: "message", text: "gardırop" }, { stream });
+
+    const first = bodies[1].toolResults as Array<{ id: string; payload: Record<string, unknown> }>;
+    assert.equal(first.find((row) => row.id === "call_plan")?.payload.ok, true);
+    assert.deepEqual(first.find((row) => row.id === "call_ask_1")?.payload.error, "ask_alone");
+    assert.equal(events.filter((event) => event.type === "choice").length, 1, "only the lone question is shown");
+    // The customer's answer will travel alone, without stale results beside it.
+    assert.deepEqual(ctx.session.pendingTools.map((tool) => tool.id), ["call_ask_2"]);
   });
 
   it("never forwards model-chosen option ids (tool names, SKU text) to the storefront", async () => {

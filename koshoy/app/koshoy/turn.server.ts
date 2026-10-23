@@ -377,6 +377,9 @@ function rotateModelSession(session: KoshoySessionState) {
 
 /* ---------------- tools ---------------- */
 
+const ASK_ALONE_HINT =
+  "Soru gösterilmedi. Diğer araçların sonucunu müşteriye kısaca yaz, sonra soruyu ask_user ile tek başına (aynı yanıtta başka araç olmadan) sor.";
+
 const SET_EXISTS_HINT =
   "Bu sohbette tasarımlar zaten var. Rengi bütün sette değiştirmek için edit_design'ı allDesigns: true ile çağır; yeni ürün eklemek için plan_room'a items ver ya da plan_cabinet kullan.";
 
@@ -822,7 +825,15 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
 
     const results: KoshoyPendingTool[] = [];
     let askedUser = false;
+    // A question goes in a turn of its own. Asked next to other tools, the
+    // customer's next words would reach the model beside those results, and it
+    // answered the results instead of the customer (ClickUp z8qu5d6gzx).
+    const askAlone = unique.length > 1 && unique.some((call) => call.name === "ask_user");
     for (const call of unique) {
+      if (askAlone && call.name === "ask_user") {
+        results.push({ id: call.id, name: call.name, payload: { ok: false, error: "ask_alone", hint: ASK_ALONE_HINT } });
+        continue;
+      }
       const result = await runTool(call, ctx);
       if (result.askedUser) askedUser = true;
       results.push({ id: call.id, name: call.name, payload: result.payload });
