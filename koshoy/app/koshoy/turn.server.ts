@@ -697,6 +697,23 @@ function withOpenDesign(message: string, designs: readonly KoshoyDesign[], activ
   return designs.length > 1 && open ? `[Ekranda açık tasarım: ${open.label}]\n${message}` : message;
 }
 
+/**
+ * The same note on the customer's answer to ask_user: most turns end with a
+ * question, so the customer's next request ("rengini mavi yap") arrives as
+ * that answer.
+ */
+function withOpenDesignAnswers(
+  results: KoshoyPendingTool[],
+  designs: readonly KoshoyDesign[],
+  activeDesignId: string | null,
+): KoshoyPendingTool[] {
+  const open = designs.find((design) => design.id === activeDesignId);
+  if (designs.length < 2 || !open) return results;
+  return results.map((result) =>
+    result.name === "ask_user" ? { ...result, payload: { ...result.payload, openDesign: open.label } } : result,
+  );
+}
+
 async function runModelTurn(ctx: TurnContext, client: ClientInput) {
   const { session, deps } = ctx;
   const stream = deps.stream ?? streamLlmGatewayResponses;
@@ -748,7 +765,7 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
     if (platform) body.platform = platform;
     if (model) body.model = model;
     if (message) body.message = withOpenDesign(message, designs, session.activeDesignId);
-    else body.toolResults = toolResults;
+    else body.toolResults = withOpenDesignAnswers(toolResults ?? [], designs, session.activeDesignId);
     // The room photo, once per room and model conversation, with a customer message.
     const photo = message ? hopRoom?.photo ?? null : null;
     if (photo) body.image = { contentBase64: photo.contentBase64, mimeType: photo.mimeType };
