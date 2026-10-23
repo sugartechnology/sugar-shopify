@@ -160,7 +160,7 @@ describe("koshoy cabinet engine contract", () => {
         }
       }
     }
-    // The core alone would take ~115 shelves in a kitaplık unit.
+    // The 160 mm shelf grid takes ten free shelves in a kitaplık unit, under the cap.
     let composition = engine.planCabinet({ kind: "kitaplik" }).composition;
     let added = 0;
     for (let i = 0; i < 40; i += 1) {
@@ -172,7 +172,8 @@ describe("koshoy cabinet engine contract", () => {
       composition = result.composition;
       added += 1;
     }
-    assert.equal(composition.units[0].fittings.length, KOSHOY_MAX_FITTINGS_PER_UNIT);
+    assert.equal(composition.units[0].fittings.length, 10);
+    assert.ok(composition.units[0].fittings.length <= KOSHOY_MAX_FITTINGS_PER_UNIT);
     assert.ok(added > 0 && added < 40);
   });
 });
