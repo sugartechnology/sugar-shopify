@@ -546,11 +546,11 @@ describe("koshoy turn loop", () => {
       [
         call("call_drawer", "edit_design", { op: { action: "add_fitting", unit: 0, kind: "drawer320" } }),
         call("call_same", "edit_design", { op: { action: "set_color", target: "all", color: "wood" } }),
-        call("call_wide", "edit_design", { op: { action: "set_total_width", widthMm: 6000 } }),
+        call("call_wide", "edit_design", { op: { action: "set_total_width", widthMm: 30000 } }),
         call("call_shelf", "edit_design", { op: { action: "add_fitting", unit: 0, kind: "shelf" } }),
         call("call_quote", "quote", {}),
       ],
-      [{ event: "text", data: { text: "Kapak en az 32 cm olmalı, toplam en fazla 500 cm." } }],
+      [{ event: "text", data: { text: "Kapak en az 32 cm olmalı, toplam en fazla 2000 cm." } }],
     ]);
     const events = await turn(ctx, ctx.session, { type: "message", text: "TV ünitesi" }, { stream });
     const results = bodies[2].toolResults as Array<{ id: string; payload: Record<string, unknown> }>;
@@ -567,7 +567,7 @@ describe("koshoy turn loop", () => {
     assert.deepEqual(byId.call_wide, {
       ok: false,
       error: "rejected",
-      hint: "Toplam genişlik en fazla 500 cm olabilir.",
+      hint: "Toplam genişlik en fazla 2000 cm olabilir.",
     });
     assert.equal(byId.call_shelf.ok, true);
     assert.equal(byId.call_shelf.changed, true);
@@ -588,7 +588,7 @@ describe("koshoy turn loop", () => {
 
     // Hint numbers are server facts, so the reply may repeat them.
     const reply = events.filter((event) => event.type === "text").at(-1);
-    assert.deepEqual(reply, { type: "text", text: "Kapak en az 32 cm olmalı, toplam en fazla 500 cm." });
+    assert.deepEqual(reply, { type: "text", text: "Kapak en az 32 cm olmalı, toplam en fazla 2000 cm." });
     const scenes = events.filter((event) => event.type === "scene");
     assert.deepEqual(
       scenes.map((event) => (event.type === "scene" ? event.version : 0)),
@@ -780,6 +780,65 @@ describe("koshoy turn loop", () => {
     await turn(ctx, ctx.session, { type: "message", text: "hepsinin derinliği 48 olsun" }, { stream: recolour.stream });
     const [refused] = recolour.bodies[3].toolResults as Array<{ payload: Record<string, unknown> }>;
     assert.deepEqual(refused.payload, { ok: false, error: "invalid_op" });
+  });
+
+  it("edits the design open on screen unless the customer names another one (ClickUp z8qu5d6gzx)", async () => {
+    const ctx = await setup();
+    const [wardrobe, nightstand] = await Promise.all(
+      (["gardirop", "komodin"] as const).map((kind) =>
+        ctx.store.createDesign(ctx.session.id, {
+          kind,
+          label: kind === "gardirop" ? "Gardırop 192 cm" : "Komodin 48 cm",
+          composition: cabinetEngine.planCabinet({ kind }).composition,
+        }),
+      ),
+    );
+    const colorOf = async (id: string) =>
+      (await ctx.store.getDesign(ctx.session.id, id))!.composition.units.map((unit) => unit.color);
+    const edit = (args: Record<string, unknown>) => ({
+      event: "tool_call",
+      data: { callId: "call_edit", name: "edit_design", arguments: JSON.stringify(args) },
+    });
+    const blue = { action: "set_color", target: "all", color: "blue" };
+
+    // The customer opened the nightstand tab (/select); the model still remembers the wardrobe.
+    ctx.session.activeDesignId = nightstand.id;
+    const remembered = scriptedStream([
+      [edit({ designId: wardrobe.id, op: blue })],
+      [{ event: "text", data: { text: "Komodini mavi yaptım." } }],
+    ]);
+    await turn(ctx, ctx.session, { type: "message", text: "rengini mavi yap" }, { stream: remembered.stream });
+    assert.match(String(remembered.bodies[0].message), /^\[Ekranda açık tasarım: Komodin 48 cm\]\nrengini mavi yap$/);
+    assert.ok((await colorOf(nightstand.id)).every((color) => color === "blue"));
+    assert.ok((await colorOf(wardrobe.id)).every((color) => color === "wood"));
+    const [result] = remembered.bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>;
+    assert.match(JSON.stringify(result.payload.notes), /ekranda Komodin 48 cm/);
+    assert.equal(ctx.session.activeDesignId, nightstand.id);
+
+    // "rengini" is not "hepsini": allDesigns still changes only the open design.
+    ctx.session.activeDesignId = wardrobe.id;
+    const wholeSet = scriptedStream([
+      [edit({ allDesigns: true, op: { ...blue, color: "ivory" } })],
+      [{ event: "text", data: { text: "Gardırobu krem yaptım." } }],
+    ]);
+    await turn(ctx, ctx.session, { type: "message", text: "rengini krem yap" }, { stream: wholeSet.stream });
+    assert.ok((await colorOf(wardrobe.id)).every((color) => color === "ivory"));
+    assert.ok((await colorOf(nightstand.id)).every((color) => color === "blue"));
+
+    // Naming the other design changes it and moves the tab there.
+    ctx.session.activeDesignId = nightstand.id;
+    const named = scriptedStream([
+      [edit({ designId: wardrobe.id, op: { ...blue, color: "wood" } })],
+      [{ event: "text", data: { text: "Gardırobu ahşap yaptım." } }],
+    ]);
+    const events = await turn(ctx, ctx.session, { type: "message", text: "gardırobu ahşap yap" }, { stream: named.stream });
+    assert.ok((await colorOf(wardrobe.id)).every((color) => color === "wood"));
+    assert.ok((await colorOf(nightstand.id)).every((color) => color === "blue"));
+    assert.equal(ctx.session.activeDesignId, wardrobe.id);
+    const tabs = events.filter((event) => event.type === "designs").at(-1) as
+      | { items: Array<{ designId: string; active: boolean }> }
+      | undefined;
+    assert.equal(tabs?.items.find((item) => item.active)?.designId, wardrobe.id);
   });
 
   it("opens the doors in the view only through show_doors, never on a design without doors", async () => {

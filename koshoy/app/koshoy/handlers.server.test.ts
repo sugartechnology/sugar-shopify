@@ -297,7 +297,7 @@ describe("koshoy studio handlers", () => {
     assert.ok(staleBody.events[1].type === "scene" && staleBody.events[1].version === 2);
 
     const rejected = await handleKoshoyEdit(
-      post("edit", { designId: scene.designId, version: 2, op: { action: "set_total_width", widthMm: 6000 } }, { token }),
+      post("edit", { designId: scene.designId, version: 2, op: { action: "set_total_width", widthMm: 30000 } }, { token }),
       ctx,
     );
     const rejectedBody = (await rejected.json()) as { ok: boolean; events: PublicEvent[] };

@@ -6,9 +6,11 @@ import {
   checkReply,
   classifyScope,
   kindFromText,
+  kindsInText,
   KOSHOY_RULES,
   KOSHOY_SAFE_EMPTY_REPLY,
   KOSHOY_SAFE_TOPIC_REPLY,
+  meansWholeSet,
   numbersIn,
   pricesIn,
 } from "./rules";
@@ -284,5 +286,20 @@ describe("koshoy scope", () => {
     assert.equal(kindFromText("Girişe ayakkabılık"), "ayakkabilik");
     assert.equal(kindFromText("Banyo dolabı lazım"), "banyo_dolabi");
     assert.equal(kindFromText("Merhaba"), null);
+  });
+});
+
+describe("koshoy design references in customer text", () => {
+  it("finds every named kind, inflected; the whole set only on purpose", () => {
+    assert.deepEqual([...kindsInText("Gardırobu ve kitaplığı beyaz yap")].sort(), ["gardirop", "kitaplik"]);
+    assert.deepEqual([...kindsInText("komodinin rengini değiştir")], ["komodin"]);
+    assert.deepEqual([...kindsInText("dolabın rengini mavi yap")], []);
+    assert.deepEqual([...kindsInText("rengini mavi yap")], []);
+    for (const text of ["hepsini mavi yap", "tümü krem olsun", "bütün seti ahşap yap", "ikisini de mavi yap", "hep beyaz olsun"]) {
+      assert.ok(meansWholeSet(text), text);
+    }
+    for (const text of ["rengini mavi yap", "tamam", "komodini mavi yap", "bir çekmece ekle"]) {
+      assert.ok(!meansWholeSet(text), text);
+    }
   });
 });

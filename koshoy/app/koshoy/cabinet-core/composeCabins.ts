@@ -11,7 +11,7 @@ import {
 } from "./fittings";
 import {
   CABIN_HEIGHTS_MM,
-  CABIN_TOTAL_WIDTH_MAX_MM,
+  CABIN_TOTAL_WIDTH_SAFETY_MM,
   CABIN_WIDTHS_MM,
   nearestHeight,
   nearestWidth,
@@ -93,7 +93,7 @@ export function syncCompositionToWidth(
 ): CabinComposition {
   const cap = Math.min(
     Math.max(targetMm, CABIN_WIDTHS_MM[0]),
-    CABIN_TOTAL_WIDTH_MAX_MM,
+    CABIN_TOTAL_WIDTH_SAFETY_MM,
   );
   const next = cloneCabinComposition(composition);
   if (next.units.length === 0) {
@@ -157,7 +157,7 @@ export function setUnitWidth(
   const others = totalWidthMm(next) - unit.widthMm;
   const snapped = nearestWidth(widthMm);
   const allowed = largestWidthAtMost(
-    Math.min(snapped, CABIN_TOTAL_WIDTH_MAX_MM - others),
+    Math.min(snapped, CABIN_TOTAL_WIDTH_SAFETY_MM - others),
   );
   if (allowed !== undefined) unit.widthMm = allowed;
   return next;
@@ -382,7 +382,7 @@ function expandUnits(composition: CabinComposition, targetMm: number): void {
   composition.widestUnits = widest;
   let total = totalWidthMm(units);
   while (total < targetMm) {
-    const remaining = Math.min(targetMm, CABIN_TOTAL_WIDTH_MAX_MM) - total;
+    const remaining = Math.min(targetMm, CABIN_TOTAL_WIDTH_SAFETY_MM) - total;
     if (units.length === 0) break;
     const last = units[units.length - 1];
     const grown = nextWidthAbove(last.widthMm);

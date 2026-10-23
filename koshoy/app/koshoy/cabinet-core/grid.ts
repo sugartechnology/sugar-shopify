@@ -15,7 +15,12 @@ export const CABIN_DEPTHS_MM = [320, 480, 640] as const;
 
 export const DEFAULT_CABIN_DEPTH_MM = 640;
 
-export const CABIN_TOTAL_WIDTH_MAX_MM = 5000;
+/**
+ * Not a product limit (Akın, 23 Oct 2026: a row may be as long as the room
+ * allows, like PnP-3D). Only stops absurd input ("1 km") from building
+ * thousands of units on the server.
+ */
+export const CABIN_TOTAL_WIDTH_SAFETY_MM = 20000;
 
 /**
  * Nearest allowed catalog size. Ties go to the smaller value.
