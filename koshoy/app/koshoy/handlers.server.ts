@@ -57,6 +57,7 @@ import {
   editSummaryText,
   priceEvent,
   sceneEvent,
+  setTotalEvent,
   type KoshoyDesignDeps,
 } from "./design-ops.server";
 
@@ -338,6 +339,8 @@ export async function handleKoshoySession(
       const others = designs.filter((design) => design.id !== active?.id);
       events.push(...layoutScenes(layout.layout, others));
     }
+    const total = await setTotalEvent(ctx, session.id);
+    if (total) events.push(total);
 
     return koshoyJson(
       {
@@ -527,6 +530,8 @@ export async function handleKoshoyEdit(
     }
     session.activeDesignId = result.design.id;
     await ctx.store.saveSession(session);
+    const total = await setTotalEvent(ctx, session.id);
+    if (total) events.push(total);
     return koshoyJson({ ok: true, events: publicEvents(events) });
   } catch (error) {
     console.error("[koshoy] edit failed", error);

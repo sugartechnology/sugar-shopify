@@ -13,11 +13,13 @@ import {
   EDIT_ACTIONS,
   PLAN_LEVELS,
 } from "./engine";
+import { KOSHOY_ROOM_SET_IDS } from "./room-sets";
 
 export const KOSHOY_TOOL_NAMES = [
   "set_brief",
   "ask_user",
   "plan_cabinet",
+  "plan_room",
   "edit_design",
   "quote",
   "switch_design",
@@ -125,14 +127,44 @@ export const KOSHOY_TOOLS = [
     },
   },
   {
+    name: "plan_room",
+    description:
+      "Create the whole set for a room at once: one NEW design per product, all in the same colour, standing together (in the room photo, or in front of the studio wall without one). Without items the room's set from the system facts is used; pass items when the customer named other products or counts. Sizes and interior are the templates' defaults; details come later, product by product.",
+    strict: false,
+    parameters: {
+      type: "object",
+      properties: {
+        room: { type: "string", enum: [...KOSHOY_ROOM_SET_IDS] },
+        items: {
+          type: "array",
+          maxItems: 6,
+          items: {
+            type: "object",
+            properties: {
+              kind: { type: "string", enum: [...DESIGN_KINDS] },
+              count: { type: "integer", minimum: 1, maximum: 4 },
+            },
+            required: ["kind"],
+            additionalProperties: false,
+          },
+        },
+        level: { type: "string", enum: [...PLAN_LEVELS] },
+        color: { type: "string", enum: [...CABIN_COLOR_IDS] },
+      },
+      required: ["room"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "edit_design",
     description:
-      "Apply one change to an existing design (defaults to the active one). The server validates it; on rejection the result has a short hint: explain it simply and offer an alternative.",
+      "Apply one change to an existing design (defaults to the active one). The server validates it; on rejection the result has a short hint: explain it simply and offer an alternative. allDesigns: true applies a colour change (set_color) to every design of the conversation.",
     strict: false,
     parameters: {
       type: "object",
       properties: {
         designId: { type: "string" },
+        allDesigns: { type: "boolean", description: "Only with set_color: apply it to every design" },
         op: EDIT_OP_SCHEMA,
       },
       required: ["op"],

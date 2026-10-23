@@ -139,7 +139,7 @@ describe("koshoy turn loop", () => {
     assert.ok(String(first.instructions).includes(KOSHOY_RULES[0].text));
     assert.deepEqual(
       (first.tools as Array<{ name: string }>).map((tool) => tool.name),
-      ["set_brief", "ask_user", "plan_cabinet", "edit_design", "quote", "switch_design", "show_doors"],
+      ["set_brief", "ask_user", "plan_cabinet", "plan_room", "edit_design", "quote", "switch_design", "show_doors"],
       "room tools only when the room feature is on",
     );
     assert.equal(second.message, undefined);
@@ -676,6 +676,110 @@ describe("koshoy turn loop", () => {
     assert.ok(!offEvents.some((event) => event.type === "room_show"));
     const [offResult] = off.bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>;
     assert.deepEqual(offResult.payload, { ok: false, error: "unsupported_tool" });
+  });
+
+  it("plans a room's whole set at once, side by side in the studio, with the set total", async () => {
+    const ctx = await setup();
+    const rooms = createMemoryRoomDb();
+    const room: KoshoyRoomDeps = {
+      db: rooms.db,
+      files: { put: async (name) => name, get: async () => null, signedUrl: async (key) => key },
+      tagService: async () => {
+        throw new Error("no upstream in this test");
+      },
+      download: async () => null,
+    };
+    const { stream, bodies } = scriptedStream([
+      [
+        {
+          event: "tool_call",
+          data: { callId: "call_room", name: "plan_room", arguments: JSON.stringify({ room: "yatak_odasi", color: "blue" }) },
+        },
+      ],
+      [{ event: "text", data: { text: "Yatak odan için seti hazırladım." } }],
+    ]);
+    const events = await turn(ctx, ctx.session, { type: "message", text: "Yatak odamı döşeyelim, mavi olsun" }, { stream, room });
+
+    const designs = await ctx.store.listDesigns(ctx.session.id);
+    assert.deepEqual(designs.map((design) => design.kind), ["gardirop", "komodin", "komodin", "sifonyer"]);
+    assert.ok(
+      designs.every((design) => design.composition.units.every((unit) => unit.color === "blue")),
+      "one colour for the whole set",
+    );
+    assert.equal(ctx.session.activeDesignId, designs[0].id, "details start with the first product");
+    assert.equal(events.filter((event) => event.type === "scene").length, 4);
+    const layout = events.filter((event) => event.type === "layout").at(-1);
+    assert.ok(layout?.type === "layout");
+    assert.deepEqual(layout.items.map((item) => item.designId).sort(), designs.map((design) => design.id).sort());
+    const total = events.find((event) => event.type === "total");
+    assert.ok(total?.type === "total");
+    assert.equal(total.count, 4);
+    assert.match(total.display, /^\d{1,3}(\.\d{3})*,\d{2} TL$/);
+    const [result] = bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>;
+    assert.equal(result.payload.ok, true);
+    assert.equal((result.payload.designs as unknown[]).length, 4);
+    assertNoLeak(events);
+
+    const again = scriptedStream([
+      [
+        {
+          event: "tool_call",
+          data: { callId: "call_room", name: "plan_room", arguments: JSON.stringify({ room: "yatak_odasi", color: "ivory" }) },
+        },
+      ],
+      [{ event: "text", data: { text: "Rengi değiştireyim." } }],
+    ]);
+    await turn(ctx, ctx.session, { type: "message", text: "hepsi fildişi olsun" }, { stream: again.stream, room });
+    const [refused] = again.bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>;
+    assert.equal(refused.payload.error, "set_exists", "a second set without named items is refused");
+    assert.match(String(refused.payload.hint), /allDesigns/);
+    assert.equal((await ctx.store.listDesigns(ctx.session.id)).length, 4);
+
+    const custom = scriptedStream([
+      [
+        {
+          event: "tool_call",
+          data: {
+            callId: "call_room",
+            name: "plan_room",
+            arguments: JSON.stringify({ room: "salon", items: [{ kind: "kitaplik", count: 2 }, { kind: "koltuk" }] }),
+          },
+        },
+      ],
+      [{ event: "text", data: { text: "İki kitaplık ekledim." } }],
+    ]);
+    await turn(ctx, ctx.session, { type: "message", text: "Salona iki kitaplık" }, { stream: custom.stream, room });
+    const after = await ctx.store.listDesigns(ctx.session.id);
+    assert.deepEqual(after.slice(4).map((design) => design.kind), ["kitaplik", "kitaplik"], "named items win; unknown kinds are dropped");
+  });
+
+  it("recolours every design with allDesigns, only for colour changes", async () => {
+    const ctx = await setup();
+    for (const kind of ["gardirop", "komodin"] as const) {
+      await ctx.store.createDesign(ctx.session.id, {
+        kind,
+        label: kind,
+        composition: cabinetEngine.planCabinet({ kind }).composition,
+      });
+    }
+    const call = (op: Record<string, unknown>) => ({
+      event: "tool_call",
+      data: { callId: "call_edit", name: "edit_design", arguments: JSON.stringify({ allDesigns: true, op }) },
+    });
+    const recolour = scriptedStream([
+      [call({ action: "set_color", target: "all", color: "ivory" })],
+      [{ event: "text", data: { text: "Hepsini krem yaptım." } }],
+      [call({ action: "set_depth", depthMm: 480 })],
+      [{ event: "text", data: { text: "Bunu tek tek yapalım." } }],
+    ]);
+    await turn(ctx, ctx.session, { type: "message", text: "hepsi krem olsun" }, { stream: recolour.stream });
+    const designs = await ctx.store.listDesigns(ctx.session.id);
+    assert.ok(designs.every((design) => design.composition.units.every((unit) => unit.color === "ivory")));
+    assert.deepEqual((recolour.bodies[1].toolResults as Array<{ payload: unknown }>)[0].payload, { ok: true, changed: 2 });
+
+    await turn(ctx, ctx.session, { type: "message", text: "hepsinin derinliği 48 olsun" }, { stream: recolour.stream });
+    const [refused] = recolour.bodies[3].toolResults as Array<{ payload: Record<string, unknown> }>;
+    assert.deepEqual(refused.payload, { ok: false, error: "invalid_op" });
   });
 
   it("opens the doors in the view only through show_doors, never on a design without doors", async () => {
