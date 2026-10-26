@@ -3,7 +3,12 @@
 
   var STEPS = ["studio", "upload", "loading", "result"];
   var ATTEMPT_STORAGE_KEY = "sugar_rs_design_attempts";
+  var RS_DESIGN_STORAGE_KEY = "sugar_rs_visitor_designs";
+  var RS_MAX_SAVED_DESIGNS = 20;
   var DEFAULT_PLACEMENT_SCALE = 0.28;
+  var PLACEMENT_SCALE_MIN = 0.12;
+  var PLACEMENT_SCALE_MAX = 0.55;
+  var PLACEMENT_SCALE_STEP = 0.04;
 
   function ensureMediaDevices() {
     if (typeof navigator === "undefined") return false;
@@ -154,6 +159,14 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  var MAX_PRODUCT_QTY = 99;
+
+  function clampProductQty(raw) {
+    var n = Math.floor(Number(raw));
+    if (!isFinite(n) || n < 1) return 1;
+    return Math.min(MAX_PRODUCT_QTY, n);
   }
 
   function slugifyLabel(value) {
@@ -395,6 +408,7 @@
     this.categoryQuery = "";
     this.productQuery = "";
     this.selectedIds = [];
+    this.selectedQtyById = {};
     this.gridPageSize = 12;
     this.gridRenderLimit = 12;
     this.collectionPrefetchPages = 2;
@@ -405,7 +419,8 @@
     this.roomNaturalSize = null;
     this.cameraStream = null;
     this.designMode = "auto";
-    this.placementsByProductId = {};
+    this.placements = [];
+    this.placementSeq = 0;
     this.selectedPlacementId = null;
     this.placementDrag = null;
     this.compareAutoplayRaf = null;
@@ -986,6 +1001,7 @@
     this.renderSelectedCount();
     this.updateContinueState();
     this.updateGenerateState();
+    this.syncSavedDesignsBadge();
     if (this.config.customCss) {
       var style = document.createElement("style");
       style.textContent = this.config.customCss;
@@ -1513,10 +1529,16 @@
     this.manualTipEl = this.root.querySelector("[data-sugar-rs-manual-tip]");
     this.designModeEl = this.root.querySelector("[data-sugar-rs-design-mode]");
     this.clearBtn = this.root.querySelector("[data-sugar-rs-clear]");
+    this.savedToggleBtn = this.root.querySelector("[data-sugar-rs-saved-toggle]");
+    this.savedBadgeEl = this.root.querySelector("[data-sugar-rs-saved-badge]");
+    this.savedPanelEl = this.root.querySelector("[data-sugar-rs-saved-panel]");
+    this.savedStripEl = this.root.querySelector("[data-sugar-rs-saved-strip]");
+    this.savedEmptyEl = this.root.querySelector("[data-sugar-rs-saved-empty]");
     this.continueBtn = this.root.querySelector("[data-sugar-rs-continue]");
     this.generateBtn = this.root.querySelector("[data-sugar-rs-generate]");
     this.backStudioBtn = this.root.querySelector("[data-sugar-rs-back-studio]");
     this.backStudioResultBtn = this.root.querySelector("[data-sugar-rs-back-studio-result]");
+    this.designScratchBtn = this.root.querySelector("[data-sugar-rs-design-scratch]");
     this.redesignBtn = this.root.querySelector("[data-sugar-rs-redesign]");
     this.redesignTipEl = this.root.querySelector("[data-sugar-rs-redesign-tip]");
     this.redesignTipTextEl = this.root.querySelector("[data-sugar-rs-redesign-tip-text]");
@@ -1658,6 +1680,37 @@
         self.clearSelection();
       });
     }
+    if (this.savedToggleBtn) {
+      this.savedToggleBtn.addEventListener("click", function () {
+        self.toggleSavedDesignsPanel();
+      });
+    }
+    if (this.savedPanelEl) {
+      this.savedPanelEl.addEventListener("click", function (e) {
+        var closeEl = e.target.closest("[data-sugar-rs-saved-close]");
+        if (closeEl) {
+          self.closeSavedDesignsPanel();
+          return;
+        }
+        var deleteBtn = e.target.closest("[data-sugar-rs-delete-design]");
+        if (deleteBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          self.removeSavedDesign(deleteBtn.getAttribute("data-sugar-rs-delete-design"));
+          return;
+        }
+        var card = e.target.closest("[data-sugar-rs-saved-design]");
+        if (card) {
+          self.openSavedDesign(card.getAttribute("data-sugar-rs-saved-design"));
+        }
+      });
+      this.savedPanelEl.addEventListener("keydown", function (e) {
+        var card = e.target.closest("[data-sugar-rs-saved-design]");
+        if (!card || (e.key !== "Enter" && e.key !== " ")) return;
+        e.preventDefault();
+        self.openSavedDesign(card.getAttribute("data-sugar-rs-saved-design"));
+      });
+    }
     if (this.continueBtn) {
       this.continueBtn.addEventListener("click", function () {
         self.onContinueClick();
@@ -1675,6 +1728,11 @@
     }
     if (this.backStudioResultBtn) {
       this.backStudioResultBtn.addEventListener("click", function () {
+        self.setStep("upload");
+      });
+    }
+    if (this.designScratchBtn) {
+      this.designScratchBtn.addEventListener("click", function () {
         self.setStep("studio");
       });
     }
@@ -1817,6 +1875,8 @@
     } else {
       this.dialog.setAttribute("open", "");
     }
+    this.closeSavedDesignsPanel();
+    this.syncSavedDesignsBadge();
     this.setStep("studio");
   };
 
@@ -1834,6 +1894,7 @@
     if (step !== "loading") this.stopLoadingProgress();
     if (step !== "result") this.stopCompareAutoplay();
     if (step !== "upload") this.closeRoomCamera();
+    if (step !== "studio") this.closeSavedDesignsPanel();
     this.step = step;
     var self = this;
     STEPS.forEach(function (s) {
@@ -2600,6 +2661,328 @@
     return String(this.config.shopDomain || "shop") + ":curator";
   };
 
+  SugarRoomStudio.prototype.getCore = function () {
+    return (window.SugarPdpKit && window.SugarPdpKit.core) || null;
+  };
+
+  SugarRoomStudio.prototype.getSavedDesignsKey = function () {
+    return this.getShopAttemptKey();
+  };
+
+  SugarRoomStudio.prototype.getMaxSavedDesigns = function () {
+    var core = this.getCore();
+    return Math.max(
+      1,
+      Number(
+        this.config.maxSavedDesigns ||
+          (core && core.DEFAULT_MAX_SAVED_DESIGNS) ||
+          RS_MAX_SAVED_DESIGNS,
+      ),
+    );
+  };
+
+  SugarRoomStudio.prototype.readRsDesignStore = function () {
+    try {
+      var raw = localStorage.getItem(RS_DESIGN_STORAGE_KEY);
+      if (!raw) return { version: 1, byShop: {} };
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return { version: 1, byShop: {} };
+      if (!parsed.byShop || typeof parsed.byShop !== "object") parsed.byShop = {};
+      parsed.version = 1;
+      return parsed;
+    } catch (err) {
+      return { version: 1, byShop: {} };
+    }
+  };
+
+  SugarRoomStudio.prototype.writeRsDesignStore = function (store) {
+    try {
+      localStorage.setItem(RS_DESIGN_STORAGE_KEY, JSON.stringify(store));
+    } catch (err) {
+      /* quota */
+    }
+  };
+
+  SugarRoomStudio.prototype.loadSavedDesigns = function () {
+    var core = this.getCore();
+    if (core && typeof core.getDesignsForProduct === "function") {
+      return core.getDesignsForProduct(this.getSavedDesignsKey());
+    }
+    var store = this.readRsDesignStore();
+    var list = store.byShop[this.getSavedDesignsKey()] || [];
+    return list.slice().sort(function (a, b) {
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
+  };
+
+  SugarRoomStudio.prototype.getSavedDesignById = function (designId) {
+    return this.loadSavedDesigns().find(function (item) {
+      return String(item.id) === String(designId);
+    });
+  };
+
+  SugarRoomStudio.prototype.saveDesignRecord = function (record) {
+    var core = this.getCore();
+    var max = this.getMaxSavedDesigns();
+    if (core && typeof core.saveDesignForProduct === "function") {
+      return core.saveDesignForProduct(this.getSavedDesignsKey(), record, max);
+    }
+    var store = this.readRsDesignStore();
+    var key = this.getSavedDesignsKey();
+    var list = store.byShop[key] || [];
+    var id = String(record.id || record.generationId || Date.now());
+    list = list.filter(function (item) {
+      return String(item.id) !== id;
+    });
+    list.unshift({
+      id: id,
+      generationId: record.generationId || id,
+      imageUrl: record.imageUrl || "",
+      thumbnailUrl: record.thumbnailUrl || record.imageUrl || "",
+      status: record.status || "completed",
+      createdAt: record.createdAt || Date.now(),
+      products: record.products || [],
+      originImageUrl: record.originImageUrl || "",
+    });
+    store.byShop[key] = list.slice(0, max);
+    this.writeRsDesignStore(store);
+    return store.byShop[key];
+  };
+
+  SugarRoomStudio.prototype.removeSavedDesign = function (designId) {
+    if (!designId) return;
+    var core = this.getCore();
+    if (core && typeof core.removeDesignForProduct === "function") {
+      core.removeDesignForProduct(this.getSavedDesignsKey(), designId);
+    } else {
+      var store = this.readRsDesignStore();
+      var key = this.getSavedDesignsKey();
+      var list = (store.byShop[key] || []).filter(function (item) {
+        return String(item.id) !== String(designId);
+      });
+      if (list.length) store.byShop[key] = list;
+      else delete store.byShop[key];
+      this.writeRsDesignStore(store);
+    }
+    this.renderSavedDesignsPanel();
+    this.syncSavedDesignsBadge();
+  };
+
+  SugarRoomStudio.prototype.formatSavedDesignDate = function (timestamp) {
+    try {
+      return new Intl.DateTimeFormat(this.locale || undefined, {
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(timestamp));
+    } catch (err) {
+      return new Date(timestamp).toLocaleString();
+    }
+  };
+
+  SugarRoomStudio.prototype.collectSavedDesignProducts = function () {
+    var self = this;
+    var ids =
+      Array.isArray(this.resultProductIds) && this.resultProductIds.length
+        ? this.resultProductIds
+        : this.selectedIds;
+    var products = [];
+    ids.forEach(function (id) {
+      var p = self.catalog.byId[id];
+      if (!p) return;
+      products.push({
+        id: p.id || p.productId,
+        productId: p.productId || p.id,
+        variantId: p.variantId || "",
+        title: p.title || "",
+        imageUrl: p.imageUrl || "",
+      });
+    });
+    return products;
+  };
+
+  SugarRoomStudio.prototype.persistSavedDesign = async function (data) {
+    if (!data || !data.imageUrl) return;
+    var core = this.getCore();
+    var sourceImageUrl = data.imageUrl;
+    var storedImageUrl = sourceImageUrl;
+    var thumbnailUrl = sourceImageUrl;
+    var originPreview = this.roomPreviewUrl || "";
+
+    if (core) {
+      if (typeof core.resolveStoredDesignImageUrl === "function") {
+        storedImageUrl = (await core.resolveStoredDesignImageUrl(sourceImageUrl)) || sourceImageUrl;
+      }
+      if (typeof core.createDesignThumbnail === "function") {
+        thumbnailUrl =
+          (await core.createDesignThumbnail(sourceImageUrl)) || storedImageUrl;
+      }
+      if (originPreview && typeof core.compressDesignImage === "function") {
+        originPreview =
+          (await core.compressDesignImage(originPreview, {
+            maxWidth: 1200,
+            quality: 0.82,
+          })) || originPreview;
+      }
+    }
+
+    this.saveDesignRecord({
+      id: data.generationId || "design-" + Date.now(),
+      generationId: data.generationId,
+      imageUrl: storedImageUrl,
+      thumbnailUrl: thumbnailUrl,
+      originImageUrl: originPreview,
+      status: data.status || "completed",
+      products: this.collectSavedDesignProducts(),
+      createdAt: Date.now(),
+    });
+    this.syncSavedDesignsBadge();
+    if (this.savedPanelEl && !this.savedPanelEl.hidden) {
+      this.renderSavedDesignsPanel();
+    }
+  };
+
+  SugarRoomStudio.prototype.syncSavedDesignsBadge = function () {
+    var count = this.loadSavedDesigns().length;
+    if (this.savedBadgeEl) {
+      if (count > 0) {
+        this.savedBadgeEl.hidden = false;
+        this.savedBadgeEl.textContent = String(count);
+      } else {
+        this.savedBadgeEl.hidden = true;
+        this.savedBadgeEl.textContent = "0";
+      }
+    }
+    if (this.savedToggleBtn) {
+      this.savedToggleBtn.classList.toggle("has-designs", count > 0);
+    }
+  };
+
+  SugarRoomStudio.prototype.toggleSavedDesignsPanel = function () {
+    if (!this.savedPanelEl) return;
+    if (this.savedPanelEl.hidden) this.openSavedDesignsPanel();
+    else this.closeSavedDesignsPanel();
+  };
+
+  SugarRoomStudio.prototype.openSavedDesignsPanel = function () {
+    if (!this.savedPanelEl) return;
+    this.renderSavedDesignsPanel();
+    this.savedPanelEl.hidden = false;
+    if (this.savedToggleBtn) {
+      this.savedToggleBtn.setAttribute("aria-expanded", "true");
+    }
+  };
+
+  SugarRoomStudio.prototype.closeSavedDesignsPanel = function () {
+    if (!this.savedPanelEl) return;
+    this.savedPanelEl.hidden = true;
+    if (this.savedToggleBtn) {
+      this.savedToggleBtn.setAttribute("aria-expanded", "false");
+    }
+  };
+
+  SugarRoomStudio.prototype.renderSavedDesignsPanel = function () {
+    if (!this.savedStripEl) return;
+    var designs = this.loadSavedDesigns();
+    if (this.savedEmptyEl) {
+      this.savedEmptyEl.hidden = designs.length > 0;
+    }
+    this.savedStripEl.innerHTML = "";
+    var self = this;
+    designs.forEach(function (design) {
+      self.savedStripEl.appendChild(self.createSavedDesignCard(design));
+    });
+  };
+
+  SugarRoomStudio.prototype.createSavedDesignCard = function (design) {
+    var card = document.createElement("div");
+    card.className = "sugar-rs-saved-card";
+    card.setAttribute("role", "button");
+    card.tabIndex = 0;
+    card.setAttribute("data-sugar-rs-saved-design", design.id);
+    card.setAttribute(
+      "aria-label",
+      this.formatSavedDesignDate(design.createdAt || Date.now()),
+    );
+
+    var products = Array.isArray(design.products) ? design.products : [];
+    var productsHtml = "";
+    if (products.length) {
+      productsHtml = '<span class="sugar-rs-saved-card__products">';
+      products.slice(0, 4).forEach(function (p) {
+        if (!p || !p.imageUrl) return;
+        productsHtml +=
+          '<img class="sugar-rs-saved-card__product" src="' +
+          escapeHtml(p.imageUrl) +
+          '" alt="" loading="lazy">';
+      });
+      if (products.length > 4) {
+        productsHtml +=
+          '<span class="sugar-rs-saved-card__more">+' +
+          (products.length - 4) +
+          "</span>";
+      }
+      productsHtml += "</span>";
+    }
+
+    card.innerHTML =
+      '<span class="sugar-rs-saved-card__media">' +
+      '<img class="sugar-rs-saved-card__img" src="' +
+      escapeHtml(design.thumbnailUrl || design.imageUrl || "") +
+      '" alt="" loading="lazy">' +
+      "</span>" +
+      '<span class="sugar-rs-saved-card__date">' +
+      escapeHtml(this.formatSavedDesignDate(design.createdAt || Date.now())) +
+      "</span>" +
+      productsHtml +
+      '<button type="button" class="sugar-rs-saved-card__delete" data-sugar-rs-delete-design="' +
+      escapeHtml(design.id) +
+      '" aria-label="' +
+      escapeHtml(this.t("savedDesignDelete", "Delete design")) +
+      '">×</button>';
+    return card;
+  };
+
+  SugarRoomStudio.prototype.openSavedDesign = function (designId) {
+    var record = this.getSavedDesignById(designId);
+    if (!record) return;
+
+    this.closeSavedDesignsPanel();
+    this.hideMessage();
+    this.designResult = {
+      generationId: record.generationId,
+      imageUrl: record.imageUrl,
+      thumbnailUrl: record.thumbnailUrl,
+      status: record.status || "completed",
+      products: record.products || [],
+    };
+    this.resultProductIds = (record.products || [])
+      .map(function (p) {
+        return p && (p.productId || p.id);
+      })
+      .filter(Boolean);
+    this.resultSelections = {};
+    (record.products || []).forEach(function (p) {
+      if (p && p.variantId) this.resultSelections[String(p.variantId)] = true;
+    }, this);
+
+    if (this.compareOrigin) {
+      this.compareOrigin.src = record.originImageUrl || "";
+    }
+    if (this.compareDesign) {
+      this.compareDesign.src = record.imageUrl || "";
+    }
+    this.setComparePosition(0);
+    this.renderResultList();
+
+    if (this.displayMode === "modal" && this.dialog && !this.dialog.open) {
+      if (typeof this.dialog.showModal === "function") this.dialog.showModal();
+      else this.dialog.setAttribute("open", "");
+    }
+    this.setStep("result");
+  };
+
   SugarRoomStudio.prototype.syncAttemptCount = function () {
     this.attemptCount = this.unlimitedAttempts
       ? 0
@@ -3019,12 +3402,81 @@
     this.bindGridInfiniteScroll();
   };
 
+  SugarRoomStudio.prototype.getProductQty = function (productId) {
+    var id = String(productId || "");
+    if (!id || this.selectedIds.indexOf(id) === -1) return 0;
+    return clampProductQty(this.selectedQtyById[id]);
+  };
+
+  SugarRoomStudio.prototype.changeProductQty = function (productId, delta) {
+    var id = String(productId || "");
+    if (!id || this.selectedIds.indexOf(id) === -1) return;
+    var next = this.getProductQty(id) + Number(delta || 0);
+    if (next < 1) {
+      this.toggleProduct(id);
+      return;
+    }
+    this.selectedQtyById[id] = clampProductQty(next);
+    this.trimPlacementsToQty(id);
+    this.renderSlots();
+    this.renderUploadProducts();
+    this.renderPlacementLayers();
+  };
+
+  SugarRoomStudio.prototype.qtyStepperHtml = function (productId, qty) {
+    var id = escapeHtml(productId);
+    var value = clampProductQty(qty);
+    return (
+      '<div class="sugar-rs-qty" data-qty-for="' +
+      id +
+      '">' +
+      '<button type="button" class="sugar-rs-qty__btn" data-qty-delta="-1" aria-label="' +
+      escapeHtml(this.t("decreaseQty", "Decrease quantity")) +
+      '">−</button>' +
+      '<span class="sugar-rs-qty__value" aria-live="polite">' +
+      value +
+      "</span>" +
+      '<button type="button" class="sugar-rs-qty__btn" data-qty-delta="1" aria-label="' +
+      escapeHtml(this.t("increaseQty", "Increase quantity")) +
+      '"' +
+      (value >= MAX_PRODUCT_QTY ? " disabled" : "") +
+      ">+</button>" +
+      "</div>"
+    );
+  };
+
+  SugarRoomStudio.prototype.bindQtyStepperEvents = function (rootEl) {
+    var self = this;
+    if (!rootEl) return;
+    rootEl.querySelectorAll("[data-qty-for]").forEach(function (wrap) {
+      if (wrap.__sugarRsQtyBound) return;
+      wrap.__sugarRsQtyBound = true;
+      wrap.addEventListener("pointerdown", function (e) {
+        e.stopPropagation();
+      });
+      wrap.addEventListener("mousedown", function (e) {
+        e.stopPropagation();
+      });
+      wrap.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-qty-delta]");
+        if (!btn || !wrap.contains(btn)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        self.changeProductQty(
+          wrap.getAttribute("data-qty-for"),
+          Number(btn.getAttribute("data-qty-delta") || 0),
+        );
+      });
+    });
+  };
+
   SugarRoomStudio.prototype.toggleProduct = function (productId) {
     var id = String(productId || "");
     if (!id || !this.catalog.byId[id]) return;
     var idx = this.selectedIds.indexOf(id);
     if (idx !== -1) {
       this.selectedIds.splice(idx, 1);
+      delete this.selectedQtyById[id];
     } else {
       if (this.selectedIds.length >= this.maxProducts) {
         this.showError(
@@ -3035,6 +3487,7 @@
         return;
       }
       this.selectedIds.push(id);
+      this.selectedQtyById[id] = 1;
     }
     this.renderGrid({ preserveScroll: true });
     this.renderSlots();
@@ -3048,7 +3501,8 @@
 
   SugarRoomStudio.prototype.clearSelection = function () {
     this.selectedIds = [];
-    this.placementsByProductId = {};
+    this.selectedQtyById = {};
+    this.placements = [];
     this.selectedPlacementId = null;
     this.renderGrid();
     this.renderSlots();
@@ -3091,7 +3545,7 @@
     return this.selectedIds.reduce(function (sum, id) {
       var product = self.catalog.byId[id];
       if (!product) return sum;
-      return sum + normalizePriceToCents(product.price);
+      return sum + normalizePriceToCents(product.price) * self.getProductQty(id);
     }, 0);
   };
 
@@ -3110,6 +3564,7 @@
       var id = this.selectedIds[i];
       var product = id ? this.catalog.byId[id] : null;
       if (product) {
+        var qty = this.getProductQty(product.productId);
         html +=
           '<article class="sugar-rs-slot is-filled" data-slot-id="' +
           escapeHtml(product.productId) +
@@ -3132,6 +3587,7 @@
             this.locale,
           ) +
           "</div>" +
+          this.qtyStepperHtml(product.productId, qty) +
           '<button type="button" class="sugar-rs-slot__remove" data-remove-slot="' +
           escapeHtml(product.productId) +
           '" aria-label="' +
@@ -3144,6 +3600,7 @@
       }
     }
     this.slotsEl.innerHTML = html;
+    this.bindQtyStepperEvents(this.slotsEl);
     this.slotsEl.querySelectorAll("[data-remove-slot]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         self.toggleProduct(btn.getAttribute("data-remove-slot"));
@@ -3292,7 +3749,7 @@
     this.roomFile = null;
     this.roomPreviewUrl = "";
     this.roomNaturalSize = null;
-    this.placementsByProductId = {};
+    this.placements = [];
     this.selectedPlacementId = null;
     if (this.roomImg) {
       this.roomImg.onload = null;
@@ -3729,14 +4186,73 @@
     }
   };
 
+  SugarRoomStudio.prototype.nextPlacementId = function () {
+    this.placementSeq += 1;
+    return "plc-" + this.placementSeq;
+  };
+
+  SugarRoomStudio.prototype.getPlacementById = function (placementId) {
+    var id = String(placementId || "");
+    for (var i = 0; i < this.placements.length; i++) {
+      if (this.placements[i].id === id) return this.placements[i];
+    }
+    return null;
+  };
+
+  SugarRoomStudio.prototype.getPlacementsForProduct = function (productId) {
+    var id = String(productId || "");
+    return this.placements.filter(function (p) {
+      return p.productId === id;
+    });
+  };
+
+  SugarRoomStudio.prototype.countPlacementsForProduct = function (productId) {
+    return this.getPlacementsForProduct(productId).length;
+  };
+
+  SugarRoomStudio.prototype.canPlaceMore = function (productId) {
+    return this.countPlacementsForProduct(productId) < this.getProductQty(productId);
+  };
+
+  SugarRoomStudio.prototype.trimPlacementsToQty = function (productId) {
+    var id = String(productId || "");
+    var qty = this.getProductQty(id);
+    var kept = [];
+    var used = 0;
+    var removedSelected = false;
+    for (var i = 0; i < this.placements.length; i++) {
+      var item = this.placements[i];
+      if (item.productId !== id) {
+        kept.push(item);
+        continue;
+      }
+      if (used < qty) {
+        kept.push(item);
+        used += 1;
+      } else if (this.selectedPlacementId === item.id) {
+        removedSelected = true;
+      }
+    }
+    this.placements = kept;
+    if (removedSelected) this.selectedPlacementId = null;
+  };
+
   SugarRoomStudio.prototype.syncPlacementsWithSelection = function () {
     var self = this;
-    var keep = {};
+    var selected = {};
     this.selectedIds.forEach(function (id) {
-      if (self.placementsByProductId[id]) keep[id] = self.placementsByProductId[id];
+      selected[id] = true;
     });
-    this.placementsByProductId = keep;
-    if (this.selectedPlacementId && !keep[this.selectedPlacementId]) {
+    this.placements = this.placements.filter(function (p) {
+      return !!selected[p.productId];
+    });
+    this.selectedIds.forEach(function (id) {
+      self.trimPlacementsToQty(id);
+    });
+    if (
+      this.selectedPlacementId &&
+      !this.getPlacementById(this.selectedPlacementId)
+    ) {
       this.selectedPlacementId = null;
     }
   };
@@ -3772,11 +4288,15 @@
     this.selectedIds.forEach(function (id) {
       var product = self.catalog.byId[id];
       if (!product) return;
-      var placed = !!self.placementsByProductId[id];
+      var qty = self.getProductQty(id);
+      var placedCount = self.countPlacementsForProduct(id);
+      var fullyPlaced = isManual && placedCount >= qty;
+      var partiallyPlaced = isManual && placedCount > 0 && placedCount < qty;
       html +=
         '<article class="sugar-rs-upload-item' +
         (isManual ? " is-draggable" : "") +
-        (placed ? " is-placed" : "") +
+        (fullyPlaced ? " is-placed" : "") +
+        (partiallyPlaced ? " is-partial" : "") +
         '" data-upload-product-id="' +
         escapeHtml(product.productId) +
         '"' +
@@ -3805,7 +4325,18 @@
           product.currency || currency,
           self.locale,
         ) +
+        (isManual
+          ? '<p class="sugar-rs-upload-item__placed">' +
+            escapeHtml(
+              self.tReplace("placedCount", "Placed {{placed}} / {{qty}}", {
+                placed: placedCount,
+                qty: qty,
+              }),
+            ) +
+            "</p>"
+          : "") +
         "</div>" +
+        self.qtyStepperHtml(product.productId, qty) +
         (isManual
           ? '<div class="sugar-rs-upload-item__nudge">' +
             '<button type="button" class="sugar-rs-upload-item__nudge-btn" data-upload-nudge="' +
@@ -3813,7 +4344,7 @@
             '" data-nudge-x="-0.06" aria-label="' +
             escapeHtml(self.t("moveLeft", "Move left")) +
             '"' +
-            (placed ? "" : " disabled") +
+            (placedCount > 0 ? "" : " disabled") +
             ">" +
             '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M14.5 6.5 9 12l5.5 5.5"/></svg>' +
             "</button>" +
@@ -3822,7 +4353,7 @@
             '" data-nudge-x="0.06" aria-label="' +
             escapeHtml(self.t("moveRight", "Move right")) +
             '"' +
-            (placed ? "" : " disabled") +
+            (placedCount > 0 ? "" : " disabled") +
             ">" +
             '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9.5 6.5 15 12l-5.5 5.5"/></svg>' +
             "</button>" +
@@ -3832,20 +4363,24 @@
     });
     this.uploadProductsEl.innerHTML = html;
     this.uploadProductsEl.classList.toggle("is-manual", isManual);
+    this.bindQtyStepperEvents(this.uploadProductsEl);
 
     if (!isManual) return;
 
     this.uploadProductsEl.querySelectorAll("[data-upload-product-id]").forEach(function (item) {
       var productId = item.getAttribute("data-upload-product-id");
       item.addEventListener("click", function (e) {
-        if (e.target.closest("[data-upload-nudge]")) return;
+        if (e.target.closest("[data-upload-nudge], .sugar-rs-qty")) return;
         e.preventDefault();
-        if (self.placementsByProductId[productId]) {
-          self.selectedPlacementId = productId;
-          self.renderPlacementLayers();
-          self.renderUploadProducts();
+        if (self.canPlaceMore(productId)) {
+          self.placeProductAt(productId, 0.5, 0.5, { matchSiblingPose: true });
         } else {
-          self.placeProductAt(productId, 0.5, 0.5);
+          var list = self.getPlacementsForProduct(productId);
+          if (list.length) {
+            self.selectedPlacementId = list[list.length - 1].id;
+            self.renderPlacementLayers();
+            self.renderUploadProducts();
+          }
         }
         if (self.roomPreviewEl && self.isMobileStudioLayout()) {
           try {
@@ -3871,11 +4406,18 @@
         e.preventDefault();
         e.stopPropagation();
         var id = btn.getAttribute("data-upload-nudge");
-        if (!self.placementsByProductId[id]) {
+        var target =
+          self.getPlacementById(self.selectedPlacementId) &&
+          self.getPlacementById(self.selectedPlacementId).productId === id
+            ? self.getPlacementById(self.selectedPlacementId)
+            : self.getPlacementsForProduct(id).slice(-1)[0];
+        if (!target) {
           self.placeProductAt(id, 0.5, 0.5);
+          target = self.getPlacementById(self.selectedPlacementId);
         }
+        if (!target) return;
         self.nudgePlacement(
-          id,
+          target.id,
           Number(btn.getAttribute("data-nudge-x") || 0),
           Number(btn.getAttribute("data-nudge-y") || 0),
         );
@@ -3894,39 +4436,149 @@
     };
   };
 
-  SugarRoomStudio.prototype.placeProductAt = function (productId, x, y) {
+  SugarRoomStudio.prototype.placeProductAt = function (productId, x, y, options) {
+    options = options || {};
     var id = String(productId || "");
     if (!id || this.selectedIds.indexOf(id) === -1) return;
     if (!this.roomFile || this.designMode !== "manual") return;
-    var existing = this.placementsByProductId[id] || {};
-    this.placementsByProductId[id] = {
+
+    if (!this.canPlaceMore(id)) {
+      var existing = this.getPlacementsForProduct(id);
+      var target =
+        (this.selectedPlacementId &&
+          existing.filter(function (p) {
+            return p.id === this.selectedPlacementId;
+          }, this)[0]) ||
+        existing[existing.length - 1];
+      if (!target) return;
+      target.x = x;
+      target.y = y;
+      this.selectedPlacementId = target.id;
+      this.renderUploadProducts();
+      this.renderPlacementLayers();
+      return;
+    }
+
+    var siblings = this.getPlacementsForProduct(id);
+    var scale = DEFAULT_PLACEMENT_SCALE;
+    if (siblings.length) {
+      var src = siblings[siblings.length - 1];
+      scale = src.scale || DEFAULT_PLACEMENT_SCALE;
+      if (options.matchSiblingPose) {
+        x = src.x;
+        y = src.y;
+      }
+    }
+
+    var placement = {
+      id: this.nextPlacementId(),
+      productId: id,
       x: x,
       y: y,
-      scale: existing.scale || DEFAULT_PLACEMENT_SCALE,
+      scale: scale,
     };
-    this.selectedPlacementId = id;
+    this.placements.push(placement);
+    this.selectedPlacementId = placement.id;
     this.renderUploadProducts();
     this.renderPlacementLayers();
   };
 
-  SugarRoomStudio.prototype.nudgePlacement = function (productId, dx, dy) {
-    var id = String(productId || "");
-    var placement = this.placementsByProductId[id];
+  SugarRoomStudio.prototype.nudgePlacement = function (placementId, dx, dy) {
+    var placement = this.getPlacementById(placementId);
     if (!placement) return;
     placement.x = Math.min(0.96, Math.max(0.04, Number(placement.x || 0.5) + Number(dx || 0)));
     placement.y = Math.min(0.96, Math.max(0.04, Number(placement.y || 0.5) + Number(dy || 0)));
-    this.selectedPlacementId = id;
+    this.selectedPlacementId = placement.id;
     this.renderPlacementLayers();
     this.renderUploadProducts();
   };
 
-  SugarRoomStudio.prototype.removePlacement = function (productId) {
-    var id = String(productId || "");
-    if (!id || !this.placementsByProductId[id]) return;
-    delete this.placementsByProductId[id];
+  SugarRoomStudio.prototype.scaleToSlider = function (scale) {
+    var value = Number(scale || DEFAULT_PLACEMENT_SCALE);
+    var pct =
+      ((value - PLACEMENT_SCALE_MIN) / (PLACEMENT_SCALE_MAX - PLACEMENT_SCALE_MIN)) * 100;
+    return Math.round(Math.min(100, Math.max(0, pct)));
+  };
+
+  SugarRoomStudio.prototype.sliderToScale = function (value) {
+    var pct = Math.min(100, Math.max(0, Number(value) || 0)) / 100;
+    return PLACEMENT_SCALE_MIN + pct * (PLACEMENT_SCALE_MAX - PLACEMENT_SCALE_MIN);
+  };
+
+  SugarRoomStudio.prototype.scalePlacement = function (placementId, delta) {
+    var placement = this.getPlacementById(placementId);
+    if (!placement) return;
+    var next = Math.min(
+      PLACEMENT_SCALE_MAX,
+      Math.max(
+        PLACEMENT_SCALE_MIN,
+        Number(placement.scale || DEFAULT_PLACEMENT_SCALE) + Number(delta || 0),
+      ),
+    );
+    this.setPlacementScale(placementId, next);
+  };
+
+  SugarRoomStudio.prototype.setPlacementScale = function (placementId, scale) {
+    var placement = this.getPlacementById(placementId);
+    if (!placement) return;
+    var next = Math.min(
+      PLACEMENT_SCALE_MAX,
+      Math.max(PLACEMENT_SCALE_MIN, Number(scale) || DEFAULT_PLACEMENT_SCALE),
+    );
+    this.getPlacementsForProduct(placement.productId).forEach(function (p) {
+      p.scale = next;
+    });
+    this.selectedPlacementId = placement.id;
+    this.renderPlacementLayers();
+  };
+
+  SugarRoomStudio.prototype.duplicatePlacement = function (placementId) {
+    var placement = this.getPlacementById(placementId);
+    if (!placement) return;
+    var productId = placement.productId;
+    var qty = this.getProductQty(productId);
+    if (qty >= MAX_PRODUCT_QTY) {
+      this.showError(
+        this.t(
+          "errorMaxPlacementQty",
+          "All units of this product are already placed. Increase quantity to add more.",
+        ),
+      );
+      return;
+    }
+    this.selectedQtyById[productId] = qty + 1;
+    this.placeProductAt(productId, placement.x, placement.y, {
+      matchSiblingPose: true,
+    });
+    this.renderSlots();
+    this.renderSelectedCount();
+    this.updateContinueState();
+    this.updateGenerateState();
+  };
+
+  SugarRoomStudio.prototype.removePlacement = function (placementId) {
+    var placement = this.getPlacementById(placementId);
+    if (!placement) return;
+    var productId = placement.productId;
+    var id = placement.id;
+    this.placements = this.placements.filter(function (p) {
+      return p.id !== id;
+    });
     if (this.selectedPlacementId === id) this.selectedPlacementId = null;
+
+    // Also reduce cart qty, but keep at least 1 while product stays selected.
+    var qty = this.getProductQty(productId);
+    if (qty > 1) {
+      this.selectedQtyById[productId] = qty - 1;
+      this.trimPlacementsToQty(productId);
+    }
+
+    this.renderSlots();
     this.renderUploadProducts();
     this.renderPlacementLayers();
+    this.renderSelectedCount();
+    this.updateContinueState();
+    this.updateGenerateState();
   };
 
   SugarRoomStudio.prototype.renderPlacementLayers = function () {
@@ -3940,16 +4592,19 @@
     }
 
     var html = "";
-    this.selectedIds.forEach(function (id) {
-      var product = self.catalog.byId[id];
-      var placement = self.placementsByProductId[id];
-      if (!product || !placement) return;
+    this.placements.forEach(function (placement) {
+      var product = self.catalog.byId[placement.productId];
+      if (!product) return;
       var scalePct = Math.round((placement.scale || DEFAULT_PLACEMENT_SCALE) * 100);
+      var sliderVal = self.scaleToSlider(placement.scale);
+      var canDuplicate = self.getProductQty(placement.productId) < MAX_PRODUCT_QTY;
       html +=
         '<div class="sugar-rs-place-layer' +
-        (self.selectedPlacementId === id ? " is-selected" : "") +
+        (self.selectedPlacementId === placement.id ? " is-selected" : "") +
         '" data-placement-id="' +
-        escapeHtml(id) +
+        escapeHtml(placement.id) +
+        '" data-placement-product-id="' +
+        escapeHtml(placement.productId) +
         '" style="left:' +
         placement.x * 100 +
         "%;top:" +
@@ -3962,27 +4617,35 @@
             escapeHtml(product.imageUrl) +
             '" alt="" draggable="false">'
           : "") +
-        '<div class="sugar-rs-place-layer__controls">' +
-        '<button type="button" class="sugar-rs-place-layer__nudge" data-nudge-placement="' +
-        escapeHtml(id) +
-        '" data-nudge-x="-0.06" aria-label="' +
-        escapeHtml(self.t("moveLeft", "Move left")) +
+        '<div class="sugar-rs-place-layer__actions" role="toolbar" aria-label="' +
+        escapeHtml(self.t("placementControls", "Placement controls")) +
         '">' +
-        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M14.5 6.5 9 12l5.5 5.5"/></svg>' +
+        '<button type="button" class="sugar-rs-place-layer__btn" data-duplicate-placement="' +
+        escapeHtml(placement.id) +
+        '" aria-label="' +
+        escapeHtml(self.t("duplicatePlacement", "Duplicate")) +
+        '"' +
+        (canDuplicate ? "" : " disabled") +
+        ">" +
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></svg>' +
         "</button>" +
-        '<button type="button" class="sugar-rs-place-layer__nudge" data-nudge-placement="' +
-        escapeHtml(id) +
-        '" data-nudge-x="0.06" aria-label="' +
-        escapeHtml(self.t("moveRight", "Move right")) +
+        '<button type="button" class="sugar-rs-place-layer__btn sugar-rs-place-layer__btn--danger" data-remove-placement="' +
+        escapeHtml(placement.id) +
+        '" aria-label="' +
+        escapeHtml(self.t("removePlacement", "Remove from room")) +
         '">' +
-        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9.5 6.5 15 12l-5.5 5.5"/></svg>' +
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M8 7l1 13h6l1-13M10 11v6M14 11v6"/></svg>' +
         "</button>" +
         "</div>" +
-        '<button type="button" class="sugar-rs-place-layer__remove" data-remove-placement="' +
-        escapeHtml(id) +
-        '" aria-label="' +
-        escapeHtml(self.t("removeProduct", "Remove")) +
-        '">×</button>' +
+        '<div class="sugar-rs-place-layer__scale">' +
+        '<span class="sugar-rs-place-layer__scale-label">Far</span>' +
+        '<input type="range" class="sugar-rs-place-layer__slider" min="0" max="100" step="1" value="' +
+        sliderVal +
+        '" data-scale-slider="' +
+        escapeHtml(placement.id) +
+        '" aria-label="Far to Near">' +
+        '<span class="sugar-rs-place-layer__scale-label">Near</span>' +
+        "</div>" +
         "</div>";
     });
     this.roomLayersEl.innerHTML = html;
@@ -3993,20 +4656,60 @@
         e.stopPropagation();
         self.removePlacement(btn.getAttribute("data-remove-placement"));
       });
+      btn.addEventListener("pointerdown", function (e) {
+        e.stopPropagation();
+      });
     });
 
-    this.roomLayersEl.querySelectorAll("[data-nudge-placement]").forEach(function (btn) {
+    this.roomLayersEl.querySelectorAll("[data-duplicate-placement]").forEach(function (btn) {
       btn.addEventListener("click", function (e) {
         e.preventDefault();
         e.stopPropagation();
-        self.nudgePlacement(
-          btn.getAttribute("data-nudge-placement"),
-          Number(btn.getAttribute("data-nudge-x") || 0),
-          Number(btn.getAttribute("data-nudge-y") || 0),
-        );
+        self.duplicatePlacement(btn.getAttribute("data-duplicate-placement"));
       });
       btn.addEventListener("pointerdown", function (e) {
         e.stopPropagation();
+      });
+    });
+
+    this.roomLayersEl.querySelectorAll("[data-scale-slider]").forEach(function (input) {
+      var applyScale = function () {
+        self.setPlacementScale(
+          input.getAttribute("data-scale-slider"),
+          self.sliderToScale(input.value),
+        );
+      };
+      input.addEventListener("pointerdown", function (e) {
+        e.stopPropagation();
+      });
+      input.addEventListener("click", function (e) {
+        e.stopPropagation();
+      });
+      input.addEventListener("input", function (e) {
+        e.stopPropagation();
+        var id = input.getAttribute("data-scale-slider");
+        var scale = self.sliderToScale(input.value);
+        var placement = self.getPlacementById(id);
+        if (!placement) return;
+        self.getPlacementsForProduct(placement.productId).forEach(function (p) {
+          p.scale = scale;
+        });
+        self.selectedPlacementId = id;
+        var widthPct = Math.round(scale * 100) + "%";
+        self.roomLayersEl.querySelectorAll(".sugar-rs-place-layer").forEach(function (layer) {
+          var layerProduct = layer.getAttribute("data-placement-product-id");
+          if (layerProduct === placement.productId) {
+            layer.style.width = widthPct;
+          }
+          var slider = layer.querySelector("[data-scale-slider]");
+          if (slider && layerProduct === placement.productId) {
+            slider.value = String(self.scaleToSlider(scale));
+          }
+        });
+      });
+      input.addEventListener("change", function (e) {
+        e.stopPropagation();
+        applyScale();
       });
     });
   };
@@ -4043,30 +4746,35 @@
 
     this.roomPreviewEl.addEventListener("pointerdown", function (e) {
       if (self.designMode !== "manual" || !self.roomFile) return;
-      var removeBtn = e.target.closest("[data-remove-placement]");
-      if (removeBtn) return;
-      if (e.target.closest("[data-nudge-placement]")) return;
+      if (
+        e.target.closest(
+          "[data-remove-placement], [data-duplicate-placement], [data-scale-slider], .sugar-rs-place-layer__scale",
+        )
+      ) {
+        return;
+      }
       var layer = e.target.closest(".sugar-rs-place-layer");
       if (!layer || !self.roomLayersEl || !self.roomLayersEl.contains(layer)) return;
-      var productId = layer.getAttribute("data-placement-id");
-      if (!productId) return;
+      var placementId = layer.getAttribute("data-placement-id");
+      if (!placementId || !self.getPlacementById(placementId)) return;
       e.preventDefault();
-      self.selectedPlacementId = productId;
+      self.selectedPlacementId = placementId;
       self.roomLayersEl.querySelectorAll(".sugar-rs-place-layer").forEach(function (el) {
         el.classList.toggle(
           "is-selected",
-          el.getAttribute("data-placement-id") === productId,
+          el.getAttribute("data-placement-id") === placementId,
         );
       });
       layer.classList.add("is-dragging");
-      self.placementDrag = { id: productId, pointerId: e.pointerId };
+      self.placementDrag = { id: placementId, pointerId: e.pointerId };
       try {
         layer.setPointerCapture(e.pointerId);
       } catch (err) {}
       var point = self.getPreviewDropPoint(e.clientX, e.clientY);
-      if (point && self.placementsByProductId[productId]) {
-        self.placementsByProductId[productId].x = point.x;
-        self.placementsByProductId[productId].y = point.y;
+      var placement = self.getPlacementById(placementId);
+      if (point && placement) {
+        placement.x = point.x;
+        placement.y = point.y;
         layer.style.left = point.x * 100 + "%";
         layer.style.top = point.y * 100 + "%";
       }
@@ -4076,7 +4784,7 @@
       if (!self.placementDrag || self.placementDrag.pointerId !== e.pointerId) return;
       var point = self.getPreviewDropPoint(e.clientX, e.clientY);
       if (!point) return;
-      var placement = self.placementsByProductId[self.placementDrag.id];
+      var placement = self.getPlacementById(self.placementDrag.id);
       if (!placement) return;
       placement.x = point.x;
       placement.y = point.y;
@@ -4111,26 +4819,53 @@
     var self = this;
     var isManual = this.designMode === "manual";
     var extras = Array.isArray(extraProducts) ? extraProducts : [];
-    var base = this.selectedIds
-      .map(function (id, index) {
-        var p = self.catalog.byId[id];
-        if (!p || !p.variantId) return null;
-        var placement = isManual ? self.placementsByProductId[id] : null;
-        return {
-          productId: p.productId,
-          variantId: p.variantId,
-          isPrimary: index === 0,
-          quantity: 1,
-          position: placement
-            ? {
-                x: placement.x,
-                y: placement.y,
-                scale: placement.scale || DEFAULT_PLACEMENT_SCALE,
-              }
-            : null,
-        };
-      })
-      .filter(Boolean);
+    var base = [];
+    var primarySet = false;
+
+    this.selectedIds.forEach(function (id) {
+      var p = self.catalog.byId[id];
+      if (!p || !p.variantId) return;
+      var qty = self.getProductQty(id);
+      var productPlacements = isManual ? self.getPlacementsForProduct(id) : [];
+
+      if (isManual && productPlacements.length > 0) {
+        productPlacements.forEach(function (placement) {
+          base.push({
+            productId: p.productId,
+            variantId: p.variantId,
+            isPrimary: !primarySet,
+            quantity: 1,
+            position: {
+              x: placement.x,
+              y: placement.y,
+              scale: placement.scale || DEFAULT_PLACEMENT_SCALE,
+            },
+          });
+          primarySet = true;
+        });
+        var remaining = qty - productPlacements.length;
+        if (remaining > 0) {
+          base.push({
+            productId: p.productId,
+            variantId: p.variantId,
+            isPrimary: !primarySet,
+            quantity: remaining,
+            position: null,
+          });
+          primarySet = true;
+        }
+        return;
+      }
+
+      base.push({
+        productId: p.productId,
+        variantId: p.variantId,
+        isPrimary: !primarySet,
+        quantity: qty,
+        position: null,
+      });
+      primarySet = true;
+    });
 
     extras.forEach(function (p) {
       if (!p || !p.variantId) return;
@@ -4142,7 +4877,7 @@
         productId: p.productId,
         variantId: p.variantId,
         isPrimary: false,
-        quantity: 1,
+        quantity: clampProductQty(p.quantity || 1),
         position: null,
       });
     });
@@ -4325,6 +5060,11 @@
       this.designCompletionCount += 1;
       this.syncRedesignTip();
       this.renderResultList();
+      try {
+        await this.persistSavedDesign(data);
+      } catch (persistErr) {
+        console.warn("[Sugar Curator] could not persist design", persistErr);
+      }
       if (!this.unlimitedAttempts) {
         this.attemptCount = recordAttempt(this.getShopAttemptKey());
       }
@@ -4513,13 +5253,21 @@
         props[imageKey] = cartImageUrl;
         imageAttached = true;
       }
-      items.push({ id: Number(p.variantId), quantity: 1, properties: props });
+      items.push({
+        id: Number(p.variantId),
+        quantity: self.getProductQty(id),
+        properties: props,
+      });
     });
 
     if (items.length === 0) {
       this.showError(this.t("errorSelectProduct", "Select at least one product."));
       return;
     }
+
+    var itemCount = items.reduce(function (sum, item) {
+      return sum + (item.quantity || 0);
+    }, 0);
 
     this.hideMessage();
     this.addCartBtn.disabled = true;
@@ -4549,7 +5297,7 @@
         var detail = self.tReplace(
           "cartSuccessDetail",
           "{{count}} item(s) added to your cart.",
-          { count: items.length },
+          { count: itemCount },
         );
         self.showSuccess(self.t("cartSuccess", "Added to cart!") + " " + detail);
         self.notifyThemeCartUpdated(data);

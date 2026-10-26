@@ -1,5 +1,6 @@
 {{ 'room-studio.css' | asset_url | stylesheet_tag }}
 <script src="{{ 'sugar-rs-i18n.js' | asset_url }}" defer></script>
+<script src="{{ 'sugar-pdp-core.js' | asset_url }}" defer></script>
 <script src="{{ 'sugar-image-utils.js' | asset_url }}" defer></script>
 <script src="{{ 'sugar-generate-client.js' | asset_url }}" defer></script>
 <script src="{{ 'room-studio.js' | asset_url }}" defer></script>
@@ -279,9 +280,12 @@
 
 {%- capture sugar_rs_css_vars -%}
 --sugar-rs-accent: {{ accent_color }};
+--sugar-rs-accent-dark: {{ accent_color | color_darken: 12 }};
 --sugar-rs-menu-active: {{ menu_link_color }};
 --sugar-rs-text: {{ modal_text_color }};
 --sugar-rs-bg: {{ modal_bg_color }};
+--sugar-rs-surface: {{ modal_bg_color | color_darken: 3 }};
+--sugar-rs-border: {{ modal_text_color | color_modify: 'alpha', 0.12 }};
 --sugar-rs-overlay: {{ overlay_color }};
 --sugar-rs-radius: {{ modal_radius }}px;
 --sugar-rs-font-scale: {{ font_scale_pct | times: 0.01 }};
@@ -522,6 +526,23 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12"/></svg>
               <span class="sugar-rs-ghost-btn__label">{{ 'sugar_rs.clear_all' | t }}</span>
             </button>
+            <button
+              type="button"
+              class="sugar-rs-ghost-btn sugar-rs-ghost-btn--saved"
+              data-sugar-rs-saved-toggle
+              aria-label="{{ 'sugar_rs.saved_designs' | t }}"
+              aria-expanded="false"
+              aria-controls="sugar-rs-saved-panel"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                <rect x="3" y="4" width="7" height="7" rx="1"/>
+                <rect x="14" y="4" width="7" height="7" rx="1"/>
+                <rect x="3" y="13" width="7" height="7" rx="1"/>
+                <rect x="14" y="13" width="7" height="7" rx="1"/>
+              </svg>
+              <span class="sugar-rs-ghost-btn__label">{{ 'sugar_rs.saved_designs' | t }}</span>
+              <span class="sugar-rs-saved-badge" data-sugar-rs-saved-badge hidden>0</span>
+            </button>
             <button type="button" class="sugar-rs-primary-btn" data-sugar-rs-continue disabled>
               {{ 'sugar_rs.continue_to_upload' | t }}
               <span aria-hidden="true">→</span>
@@ -634,9 +655,14 @@
         <div class="sugar-rs-result">
           <div class="sugar-rs-result__head">
             <p class="sugar-rs-result__badge">{{ 'sugar_rs.result_ready' | t }}</p>
-            <button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-back-studio-result>
-              {{ 'sugar_rs.back_to_studio' | t }}
-            </button>
+            <div class="sugar-rs-result__nav">
+              <button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-back-studio-result>
+                {{ 'sugar_rs.back_to_studio' | t }}
+              </button>
+              <button type="button" class="sugar-rs-ghost-btn" data-sugar-rs-design-scratch>
+                {{ 'sugar_rs.design_from_scratch' | t }}
+              </button>
+            </div>
           </div>
           <div class="sugar-rs-compare" data-sugar-rs-compare style="--sugar-rs-compare: 0%;">
             <img data-sugar-rs-compare-origin width="1200" height="900" alt="{{ 'sugar_rs.compare_origin' | t }}">
@@ -678,6 +704,37 @@
         </div>
       </div>
       <div class="sugar-rs-redesign-modal" data-sugar-rs-redesign-modal hidden></div>
+
+      <div
+        class="sugar-rs-saved-panel"
+        id="sugar-rs-saved-panel"
+        data-sugar-rs-saved-panel
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sugar-rs-saved-title"
+      >
+        <div class="sugar-rs-saved-panel__backdrop" data-sugar-rs-saved-close tabindex="-1"></div>
+        <div class="sugar-rs-saved-panel__sheet">
+          <div class="sugar-rs-saved-panel__head">
+            <h3 id="sugar-rs-saved-title">{{ 'sugar_rs.saved_designs' | t }}</h3>
+            <button
+              type="button"
+              class="sugar-rs-icon-btn"
+              data-sugar-rs-saved-close
+              aria-label="{{ 'sugar_rs.close_aria' | t }}"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18"/>
+              </svg>
+            </button>
+          </div>
+          <p class="sugar-rs-saved-panel__empty" data-sugar-rs-saved-empty hidden>
+            {{ 'sugar_rs.saved_designs_empty' | t }}
+          </p>
+          <div class="sugar-rs-saved-panel__strip" data-sugar-rs-saved-strip></div>
+        </div>
+      </div>
     </div>
 
   {%- if display_mode == 'modal' -%}
