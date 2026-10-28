@@ -261,3 +261,12 @@ model KoshoyEvent {
   @@index([at])
   @@index([name])
 }
+
+/// Last alarm sent for one check (catalog-alarm.server.ts), so a restart never repeats it.
+model KoshoyAlarm {
+  /// e.g. "catalog-gaps:koshoy.myshopify.com"
+  key       String   @id
+  /// What was reported; a new alarm goes out only when this changes
+  signature String
+  updatedAt DateTime @updatedAt
+}

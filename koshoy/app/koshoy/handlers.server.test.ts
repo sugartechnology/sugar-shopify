@@ -34,13 +34,13 @@ const GOLDEN: CabinComposition = {
         { id: "fit-2", kind: "hanger" },
       ],
       hasDoor: true,
-      color: "wood",
+      color: "lake-beyaz",
     },
-    { id: "cabin-2", widthMm: 960, heightMm: 2304, fittings: [], hasDoor: false, color: "wood" },
+    { id: "cabin-2", widthMm: 960, heightMm: 2304, fittings: [], hasDoor: false, color: "lake-beyaz" },
   ],
   depthMm: 640,
   hasPlinth: true,
-  color: "wood",
+  color: "lake-beyaz",
 };
 
 function makeCtx(overrides: Partial<KoshoyRequestContext> = {}): KoshoyRequestContext {
@@ -162,6 +162,7 @@ describe("koshoy studio handlers", () => {
     assert.ok((body.welcome as { cards: unknown[] }).cards.length >= 2);
     assert.deepEqual(Object.keys(body).sort(), [
       "activeDesignId",
+      "colors",
       "designs",
       "enabled",
       "events",
@@ -220,7 +221,7 @@ describe("koshoy studio handlers", () => {
     assert.ok(streamed.some((event) => event.type === "scene"));
 
     const json = await handleKoshoyTurn(
-      post("turn", { input: { type: "choice", selected: "color_blue" } }, { token, accept: "application/json" }),
+      post("turn", { input: { type: "choice", selected: "color_kumtasi" } }, { token, accept: "application/json" }),
       ctx,
     );
     assert.match(json.headers.get("Content-Type") ?? "", /application\/json/);
@@ -387,7 +388,7 @@ describe("koshoy studio handlers", () => {
     // A valid op that changes nothing is an idempotent success at the same version.
     const same = (await (
       await handleKoshoyEdit(
-        post("edit", { designId: scene.designId, version: 3, op: { action: "set_color", target: "all", color: "wood" } }, { token }),
+        post("edit", { designId: scene.designId, version: 3, op: { action: "set_color", target: "all", color: "lake-beyaz" } }, { token }),
         ctx,
       )
     ).json()) as { ok: boolean; events: PublicEvent[] };
@@ -438,7 +439,7 @@ describe("koshoy studio handlers", () => {
     });
     session.brief.room = "Salon";
     Object.assign(session.journey, { structure: "skip", roomApprovedAt: 1, shownStage: "cart" });
-    Object.assign(session.journey.style, { level: "en_iyisi", panel: "ivory", front: "kapak-18", crown: "on" });
+    Object.assign(session.journey.style, { level: "en_iyisi", panel: "kumtasi", front: "kapak-18", crown: "on" });
     session.journey.approvals[design.id] = { status: "approved", version: design.version };
     await ctx.store.saveSession(session);
     const body = (await (
@@ -761,10 +762,10 @@ describe("koshoy studio handlers", () => {
       kind: "kitaplik",
       label: "Kitaplık 96 cm",
       composition: {
-        units: [{ id: "cabin-1", widthMm: 960, heightMm: 1984, fittings: shelves, hasDoor: false, color: "wood" }],
+        units: [{ id: "cabin-1", widthMm: 960, heightMm: 1984, fittings: shelves, hasDoor: false, color: "lake-beyaz" }],
         depthMm: 320,
         hasPlinth: true,
-        color: "wood",
+        color: "lake-beyaz",
       },
     });
     const body = (await (

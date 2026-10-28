@@ -214,8 +214,8 @@ describe("koshoy turn loop", () => {
             arguments: {
               question: "Hangi renk?",
               options: [
-                { id: "wood", label: "Ahşap" },
-                { id: "ivory", label: "Kırık beyaz" },
+                { id: "lake-beyaz", label: "Lake beyaz" },
+                { id: "kumtasi", label: "Kumtaşı" },
               ],
             },
           },
@@ -229,8 +229,8 @@ describe("koshoy turn loop", () => {
       type: "choice",
       question: "Hangi renk?",
       options: [
-        { id: "opt_1", label: "Ahşap" },
-        { id: "opt_2", label: "Kırık beyaz" },
+        { id: "opt_1", label: "Lake beyaz" },
+        { id: "opt_2", label: "Kumtaşı" },
       ],
     });
 
@@ -240,13 +240,13 @@ describe("koshoy turn loop", () => {
 
     // The storefront answers with the public id; the model gets its own id back.
     const second = scriptedStream([[{ event: "text", data: { text: "Tamam." } }]]);
-    await turn(ctx, session, { type: "choice", selected: "opt_2", label: "Kırık beyaz" }, { stream: second.stream });
+    await turn(ctx, session, { type: "choice", selected: "opt_2", label: "Kumtaşı" }, { stream: second.stream });
     assert.equal(second.bodies[0].message, undefined);
     assert.deepEqual(second.bodies[0].toolResults, [
       {
         id: "call_ask",
         name: "ask_user",
-        payload: { question: "Hangi renk?", selected: "ivory", label: "Kırık beyaz" },
+        payload: { question: "Hangi renk?", selected: "kumtasi", label: "Kumtaşı" },
       },
     ]);
     assert.equal(session.pendingTools.length, 0);
@@ -271,9 +271,9 @@ describe("koshoy turn loop", () => {
               question: "Bütçen 20.000 TL mi?",
               options: [
                 { id: "b1", label: "5.000 TL" },
-                { id: "wood", label: "Ahşap" },
+                { id: "lake-beyaz", label: "Lake beyaz" },
                 { id: "ship", label: "Kargo ile" },
-                { id: "blue", label: "Mavi" },
+                { id: "kumtasi", label: "Kumtaşı" },
               ],
             },
           },
@@ -286,8 +286,8 @@ describe("koshoy turn loop", () => {
       type: "choice",
       question: "Hangisini seçersin?",
       options: [
-        { id: "opt_1", label: "Ahşap" },
-        { id: "opt_2", label: "Mavi" },
+        { id: "opt_1", label: "Lake beyaz" },
+        { id: "opt_2", label: "Kumtaşı" },
       ],
     });
 
@@ -330,7 +330,7 @@ describe("koshoy turn loop", () => {
       data: {
         callId: id,
         name: "ask_user",
-        arguments: { question: "Hangi renk?", options: [{ id: "wood", label: "Ahşap" }, { id: "ivory", label: "Kırık beyaz" }] },
+        arguments: { question: "Hangi renk?", options: [{ id: "lake-beyaz", label: "Lake beyaz" }, { id: "kumtasi", label: "Kumtaşı" }] },
       },
     });
 
@@ -344,7 +344,7 @@ describe("koshoy turn loop", () => {
       [{ event: "text", data: { text: "Harika bir yatak odası hazırlayabiliriz! Setin için baskın rengi seçebilirsin:" } }],
       [colorAsk("call_color_2")],
     ]);
-    const events = await turn(ctx, session, { type: "choice", selected: "opt_2", label: "Kırık beyaz" }, { stream: pick.stream });
+    const events = await turn(ctx, session, { type: "choice", selected: "opt_2", label: "Kumtaşı" }, { stream: pick.stream });
     assert.equal(pick.bodies.length, 2);
     assert.match(String(pick.bodies[1].message), /ask_user ile tek başına sor/);
     assert.equal(events.filter((event) => event.type === "choice").length, 1);
@@ -353,18 +353,18 @@ describe("koshoy turn loop", () => {
     // A question sent back for asking beside another tool, then never asked.
     const alone = await setup();
     const sentBack = scriptedStream([
-      [{ event: "tool_call", data: { callId: "call_brief", name: "set_brief", arguments: { color: "ivory" } } }, colorAsk("call_ask_1")],
+      [{ event: "tool_call", data: { callId: "call_brief", name: "set_brief", arguments: { color: "kumtasi" } } }, colorAsk("call_ask_1")],
       [{ event: "text", data: { text: "Rengi not aldım." } }],
       [colorAsk("call_ask_2")],
     ]);
-    const asked = await turn(alone, alone.session, { type: "message", text: "Kırık beyaz" }, { stream: sentBack.stream });
+    const asked = await turn(alone, alone.session, { type: "message", text: "Kumtaşı" }, { stream: sentBack.stream });
     assert.equal(sentBack.bodies.length, 3);
     assert.equal(asked.filter((event) => event.type === "choice").length, 1);
 
     // Nothing at all, twice: one nudge, then the safe reply; never silent.
     const quiet = await setup();
     const silent = scriptedStream([[], []]);
-    const said = await turn(quiet, quiet.session, { type: "message", text: "Kırık beyaz" }, { stream: silent.stream });
+    const said = await turn(quiet, quiet.session, { type: "message", text: "Kumtaşı" }, { stream: silent.stream });
     assert.equal(silent.bodies.length, 2);
     assert.match(String(silent.bodies[1].message), /hiçbir şey gösterilmedi/);
     assert.deepEqual(said.slice(-2), [{ type: "text", text: KOSHOY_SAFE_STOPPED_REPLY }, { type: "done" }]);
@@ -554,7 +554,7 @@ describe("koshoy turn loop", () => {
     const events = await turn(
       ctx,
       ctx.session,
-      { type: "message", text: "Yatak odama 2 metre beyaz gardırop" },
+      { type: "message", text: "Yatak odama 2 metre kumtaşı gardırop" },
       { stream, mock: true },
     );
     const types = events.map((event) => event.type);
@@ -564,17 +564,17 @@ describe("koshoy turn loop", () => {
     assert.equal(types.at(-1), "done");
     const scene = events.find((event) => event.type === "scene");
     assert.ok(scene?.type === "scene");
-    assert.equal(scene.view.color, "ivory");
+    assert.equal(scene.view.color, "kumtasi");
     assertNoLeak(events);
 
     const choice = events.find((event) => event.type === "choice");
-    const blue = choice?.type === "choice" ? choice.options.find((option) => option.label === "Mavi") : undefined;
-    assert.match(blue?.id ?? "", /^opt_\d$/);
-    const next = await turn(ctx, ctx.session, { type: "choice", selected: blue!.id }, { stream, mock: true });
+    const white = choice?.type === "choice" ? choice.options.find((option) => option.label === "Lake beyaz") : undefined;
+    assert.match(white?.id ?? "", /^opt_\d$/);
+    const next = await turn(ctx, ctx.session, { type: "choice", selected: white!.id }, { stream, mock: true });
     const recolored = next.find((event) => event.type === "scene");
     assert.ok(recolored?.type === "scene");
     assert.equal(recolored.version, 2);
-    assert.ok(recolored.view.units.every((unit) => unit.color === "blue"));
+    assert.ok(recolored.view.units.every((unit) => unit.color === "lake-beyaz"));
   });
 
   it("caps designs per session and sends only the active design in full", async () => {
@@ -628,7 +628,7 @@ describe("koshoy turn loop", () => {
         // 544 − 67 − 320 = 157: a 320 drawer fits under the door, 160 more does not.
         call("call_drawer", "edit_design", { op: { action: "add_fitting", unit: 0, kind: "drawer320" } }),
         call("call_full", "edit_design", { op: { action: "add_fitting", unit: 0, kind: "drawer160" } }),
-        call("call_same", "edit_design", { op: { action: "set_color", target: "all", color: "wood" } }),
+        call("call_same", "edit_design", { op: { action: "set_color", target: "all", color: "lake-beyaz" } }),
         call("call_wide", "edit_design", { op: { action: "set_total_width", widthMm: 30000 } }),
         call("call_shelf", "edit_design", { op: { action: "add_fitting", unit: 0, kind: "shelf" } }),
         call("call_quote", "quote", {}),
@@ -783,17 +783,17 @@ describe("koshoy turn loop", () => {
       [
         {
           event: "tool_call",
-          data: { callId: "call_room", name: "plan_room", arguments: JSON.stringify({ room: "yatak_odasi", color: "blue" }) },
+          data: { callId: "call_room", name: "plan_room", arguments: JSON.stringify({ room: "yatak_odasi", color: "kumtasi" }) },
         },
       ],
       [{ event: "text", data: { text: "Yatak odan için seti hazırladım." } }],
     ]);
-    const events = await turn(ctx, ctx.session, { type: "message", text: "Yatak odamı döşeyelim, mavi olsun" }, { stream, room });
+    const events = await turn(ctx, ctx.session, { type: "message", text: "Yatak odamı döşeyelim, kumtaşı olsun" }, { stream, room });
 
     const designs = await ctx.store.listDesigns(ctx.session.id);
     assert.deepEqual(designs.map((design) => design.kind), ["gardirop", "komodin", "komodin", "sifonyer"]);
     assert.ok(
-      designs.every((design) => design.composition.units.every((unit) => unit.color === "blue")),
+      designs.every((design) => design.composition.units.every((unit) => unit.color === "kumtasi")),
       "one colour for the whole set",
     );
     assert.equal(ctx.session.activeDesignId, designs[0].id, "details start with the first product");
@@ -814,7 +814,7 @@ describe("koshoy turn loop", () => {
       [
         {
           event: "tool_call",
-          data: { callId: "call_room", name: "plan_room", arguments: JSON.stringify({ room: "yatak_odasi", color: "ivory" }) },
+          data: { callId: "call_room", name: "plan_room", arguments: JSON.stringify({ room: "yatak_odasi", color: "kumtasi" }) },
         },
       ],
       [{ event: "text", data: { text: "Rengi değiştireyim." } }],
@@ -862,14 +862,14 @@ describe("koshoy turn loop", () => {
       data: { callId: "call_edit", name: "edit_design", arguments: JSON.stringify({ allDesigns: true, op }) },
     });
     const recolour = scriptedStream([
-      [call({ action: "set_color", target: "all", color: "ivory" })],
+      [call({ action: "set_color", target: "all", color: "kumtasi" })],
       [{ event: "text", data: { text: "Hepsini krem yaptım." } }],
       [call({ action: "set_depth", depthMm: 480 })],
       [{ event: "text", data: { text: "Bunu tek tek yapalım." } }],
     ]);
     await turn(ctx, ctx.session, { type: "message", text: "hepsi krem olsun" }, { stream: recolour.stream });
     const designs = await ctx.store.listDesigns(ctx.session.id);
-    assert.ok(designs.every((design) => design.composition.units.every((unit) => unit.color === "ivory")));
+    assert.ok(designs.every((design) => design.composition.units.every((unit) => unit.color === "kumtasi")));
     assert.deepEqual((recolour.bodies[1].toolResults as Array<{ payload: unknown }>)[0].payload, { ok: true, changed: 2 });
 
     await turn(ctx, ctx.session, { type: "message", text: "hepsinin derinliği 48 olsun" }, { stream: recolour.stream });
@@ -894,18 +894,18 @@ describe("koshoy turn loop", () => {
       event: "tool_call",
       data: { callId: "call_edit", name: "edit_design", arguments: JSON.stringify(args) },
     });
-    const blue = { action: "set_color", target: "all", color: "blue" };
+    const blue = { action: "set_color", target: "all", color: "kumtasi" };
 
     // The customer opened the nightstand tab (/select); the model still remembers the wardrobe.
     ctx.session.activeDesignId = nightstand.id;
     const remembered = scriptedStream([
       [edit({ designId: wardrobe.id, op: blue })],
-      [{ event: "text", data: { text: "Komodini mavi yaptım." } }],
+      [{ event: "text", data: { text: "Komodini kumtaşı yaptım." } }],
     ]);
-    await turn(ctx, ctx.session, { type: "message", text: "rengini mavi yap" }, { stream: remembered.stream });
-    assert.match(String(remembered.bodies[0].message), /^\[Ekranda açık tasarım: Komodin 48 cm\]\nrengini mavi yap$/);
-    assert.ok((await colorOf(nightstand.id)).every((color) => color === "blue"));
-    assert.ok((await colorOf(wardrobe.id)).every((color) => color === "wood"));
+    await turn(ctx, ctx.session, { type: "message", text: "rengini kumtaşı yap" }, { stream: remembered.stream });
+    assert.match(String(remembered.bodies[0].message), /^\[Ekranda açık tasarım: Komodin 48 cm\]\nrengini kumtaşı yap$/);
+    assert.ok((await colorOf(nightstand.id)).every((color) => color === "kumtasi"));
+    assert.ok((await colorOf(wardrobe.id)).every((color) => color === "lake-beyaz"));
     const [result] = remembered.bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>;
     assert.match(JSON.stringify(result.payload.notes), /ekranda Komodin 48 cm/);
     assert.equal(ctx.session.activeDesignId, nightstand.id);
@@ -913,22 +913,22 @@ describe("koshoy turn loop", () => {
     // "rengini" is not "hepsini": allDesigns still changes only the open design.
     ctx.session.activeDesignId = wardrobe.id;
     const wholeSet = scriptedStream([
-      [edit({ allDesigns: true, op: { ...blue, color: "ivory" } })],
+      [edit({ allDesigns: true, op: { ...blue, color: "kumtasi" } })],
       [{ event: "text", data: { text: "Gardırobu krem yaptım." } }],
     ]);
     await turn(ctx, ctx.session, { type: "message", text: "rengini krem yap" }, { stream: wholeSet.stream });
-    assert.ok((await colorOf(wardrobe.id)).every((color) => color === "ivory"));
-    assert.ok((await colorOf(nightstand.id)).every((color) => color === "blue"));
+    assert.ok((await colorOf(wardrobe.id)).every((color) => color === "kumtasi"));
+    assert.ok((await colorOf(nightstand.id)).every((color) => color === "kumtasi"));
 
     // Naming the other design changes it and moves the tab there.
     ctx.session.activeDesignId = nightstand.id;
     const named = scriptedStream([
-      [edit({ designId: wardrobe.id, op: { ...blue, color: "wood" } })],
-      [{ event: "text", data: { text: "Gardırobu ahşap yaptım." } }],
+      [edit({ designId: wardrobe.id, op: { ...blue, color: "lake-beyaz" } })],
+      [{ event: "text", data: { text: "Gardırobu lake beyaz yaptım." } }],
     ]);
-    const events = await turn(ctx, ctx.session, { type: "message", text: "gardırobu ahşap yap" }, { stream: named.stream });
-    assert.ok((await colorOf(wardrobe.id)).every((color) => color === "wood"));
-    assert.ok((await colorOf(nightstand.id)).every((color) => color === "blue"));
+    const events = await turn(ctx, ctx.session, { type: "message", text: "gardırobu lake beyaz yap" }, { stream: named.stream });
+    assert.ok((await colorOf(wardrobe.id)).every((color) => color === "lake-beyaz"));
+    assert.ok((await colorOf(nightstand.id)).every((color) => color === "kumtasi"));
     assert.equal(ctx.session.activeDesignId, wardrobe.id);
     const tabs = events.filter((event) => event.type === "designs").at(-1) as
       | { items: Array<{ designId: string; active: boolean }> }
@@ -945,7 +945,7 @@ describe("koshoy turn loop", () => {
           data: { callId: "call_ask", name: "ask_user", arguments: JSON.stringify({ question: "Çekmeceler iyi mi?", options: [{ id: "ok", label: "İyi" }, { id: "no", label: "Değiştir" }] }) },
         },
       ],
-      [edit({ op: { ...blue, color: "ivory" } })],
+      [edit({ op: { ...blue, color: "kumtasi" } })],
       [{ event: "text", data: { text: "Komodini krem yaptım." } }],
     ]);
     await turn(ctx, ctx.session, { type: "message", text: "komodine bakalım" }, { stream: asked.stream });
@@ -1056,7 +1056,7 @@ describe("koshoy journey: room first, then product by product, then the cart", (
     assert.ok(wardrobe?.composition.units.every((unit) => unit.hasCrown), "tall wardrobe crowned");
 
     // The colour pick completes the style: the room summary appears.
-    const panel = ctx.session.pendingAskUser?.options.find((option) => option.value === "style:panel:ivory");
+    const panel = ctx.session.pendingAskUser?.options.find((option) => option.value === "style:panel:kumtasi");
     assert.ok(panel);
     const summary = await run({ type: "choice", selected: panel.id }, [say("Oda özetin ekranda.")]);
     const room = cards(summary).find((event) => event.type === "room_summary");
@@ -1110,7 +1110,7 @@ describe("koshoy journey: room first, then product by product, then the cart", (
       composition: cabinetEngine.planCabinet({ kind: "tv_unitesi" }).composition,
     });
     Object.assign(ctx.session.journey, { structure: "skip", roomApprovedAt: 1 });
-    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "ivory", front: "kapak-18" });
+    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "kumtasi", front: "kapak-18" });
     ctx.session.brief.room = "Salon";
     ctx.session.journey.approvals[komodin.id] = { status: "approved", version: komodin.version };
 
@@ -1135,7 +1135,7 @@ describe("koshoy journey: room first, then product by product, then the cart", (
     await turn(ctx, ctx.session, { type: "message", text: "Sadece bir vestiyer", intent: "single" }, { stream });
     assert.equal(ctx.session.journey.kind, "single");
     Object.assign(ctx.session.journey, { structure: "skip" });
-    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "wood", front: "kapak-18", crown: "on" });
+    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "lake-beyaz", front: "kapak-18", crown: "on" });
     const events = await turn(ctx, ctx.session, { type: "journey", action: "approve_room" }, {
       stream: scriptedStream([[{ event: "text", data: { text: "Onaylandı." } }]]).stream,
     });
@@ -1183,7 +1183,7 @@ describe("koshoy journey: room first, then product by product, then the cart", (
     const answer = scriptedStream([[{ event: "text", data: { text: "Güzel seçim." } }]]);
     await turn(ctx, ctx.session, { type: "choice", selected: choice.options[1].id }, { stream: answer.stream });
     const [result] = answer.bodies[0].toolResults as Array<{ id: string; name: string; payload: Record<string, unknown> }>;
-    assert.deepEqual([result.id, result.name, result.payload.selected], ["s1", "ask_style", "style:panel:ivory"]);
+    assert.deepEqual([result.id, result.name, result.payload.selected], ["s1", "ask_style", "style:panel:kumtasi"]);
     assert.equal(answer.bodies[0].message, undefined, "the pick is the tool result, not a later message");
   });
 
@@ -1195,7 +1195,7 @@ describe("koshoy journey: room first, then product by product, then the cart", (
     const sifonyer = await make("sifonyer");
     ctx.session.brief.room = "Yatak odası";
     Object.assign(ctx.session.journey, { structure: "skip", roomApprovedAt: 1, shownStage: "cart" });
-    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "ivory", front: "kapak-18" });
+    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "kumtasi", front: "kapak-18" });
     ctx.session.journey.approvals[komodin.id] = { status: "approved", version: komodin.version };
     ctx.session.journey.approvals[sifonyer.id] = { status: "later", version: sifonyer.version };
     const say = (text: string) => scriptedStream([[{ event: "text", data: { text } }]]).stream;
@@ -1222,7 +1222,7 @@ describe("koshoy journey: room first, then product by product, then the cart", (
       label: "Gardırop",
       composition: cabinetEngine.planCabinet({ kind: "gardirop" }).composition,
     });
-    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "ivory", front: "kapak-18", crown: "on" });
+    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "kumtasi", front: "kapak-18", crown: "on" });
     const { applyStyleDecision } = await import("./journey.server");
     const deps = { store: ctx.store, engine: cabinetEngine, pricer: ctx.pricer };
     await applyStyleDecision(deps, ctx.session, KOSHOY_DATA_DEFAULTS, "level", "fiyatina_bakarak");
@@ -1238,7 +1238,7 @@ describe("koshoy journey: room first, then product by product, then the cart", (
     });
     ctx.session.brief.room = "Yatak odası";
     Object.assign(ctx.session.journey, { structure: "skip" });
-    Object.assign(ctx.session.journey.style, { level: "fiyatina_bakarak", panel: "ivory", crown: "off" });
+    Object.assign(ctx.session.journey.style, { level: "fiyatina_bakarak", panel: "kumtasi", crown: "off" });
     const ask = scriptedStream([
       [{ event: "tool_call", data: { callId: "s1", name: "ask_style", arguments: JSON.stringify({ decision: "front" }) } }],
     ]);

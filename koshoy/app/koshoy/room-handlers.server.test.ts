@@ -859,14 +859,14 @@ describe("koshoy room photo and render endpoints", () => {
   it("describes the cabinet for the render prompt in product language", () => {
     const composition: CabinComposition = {
       units: [
-        { id: "cabin-1", widthMm: 960, heightMm: 2304, fittings: [{ id: "f1", kind: "shelf" }], hasDoor: true, color: "wood" },
-        { id: "cabin-2", widthMm: 960, heightMm: 2304, fittings: [], hasDoor: false, color: "wood" },
+        { id: "cabin-1", widthMm: 960, heightMm: 2304, fittings: [{ id: "f1", kind: "shelf" }], hasDoor: true, color: "lake-beyaz" },
+        { id: "cabin-2", widthMm: 960, heightMm: 2304, fittings: [], hasDoor: false, color: "lake-beyaz" },
       ],
       depthMm: 640,
       hasPlinth: true,
-      color: "wood",
+      color: "lake-beyaz",
     };
     const text = cabinetDescription(cabinetEngine, { id: "d1", kind: "gardirop", label: "Gardırop 192 cm", version: 1, composition });
-    assert.match(text, /^\d+ kapaklı gardırop, ahşap, 192 cm genişlik, 230,4 cm yükseklik, 64 cm derinlik$/);
+    assert.match(text, /^\d+ kapaklı gardırop, lake beyaz, 192 cm genişlik, 230,4 cm yükseklik, 64 cm derinlik$/);
   });
 });

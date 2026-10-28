@@ -161,13 +161,13 @@ describe("koshoy room tools in the chat", () => {
     await design(t);
     const session = await t.fresh();
     session.brief.room = "Yatak odası";
-    Object.assign(session.journey.style, { level: "en_iyisi", panel: "ivory", front: "kapak-18", crown: "on" });
+    Object.assign(session.journey.style, { level: "en_iyisi", panel: "kumtasi", front: "kapak-18", crown: "on" });
     // The colour pick ends the style decisions: the room summary comes, with the picture request.
     session.journey.style.panel = "";
     session.pendingAskUser = {
       id: "s1",
       question: "Renk?",
-      options: [{ id: "opt_1", label: "Kırık beyaz", value: "style:panel:ivory" }],
+      options: [{ id: "opt_1", label: "Kumtaşı", value: "style:panel:kumtasi" }],
     };
     const { stream } = scripted([[{ event: "text", data: { text: "Özetin ekranda." } }], [{ event: "text", data: { text: "Tamam." } }]]);
     const run = async (client: ClientInput) => {

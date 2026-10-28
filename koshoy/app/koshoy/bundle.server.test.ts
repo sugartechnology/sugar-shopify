@@ -28,13 +28,13 @@ const GOLDEN: CabinComposition = {
         { id: "fit-2", kind: "hanger" },
       ],
       hasDoor: true,
-      color: "wood",
+      color: "lake-beyaz",
     },
-    { id: "cabin-2", widthMm: 960, heightMm: 2304, fittings: [], hasDoor: false, color: "wood" },
+    { id: "cabin-2", widthMm: 960, heightMm: 2304, fittings: [], hasDoor: false, color: "lake-beyaz" },
   ],
   depthMm: 640,
   hasPlinth: true,
-  color: "ivory",
+  color: "kumtasi",
 };
 
 function quoteOf(parts: Record<string, number>): KoshoyQuote {
@@ -54,33 +54,33 @@ function quoteOf(parts: Record<string, number>): KoshoyQuote {
 
 describe("bundle names (store content guide §4.1)", () => {
   const twoUnits = GOLDEN;
-  const oneUnit: CabinComposition = { ...GOLDEN, units: [{ ...GOLDEN.units[0], widthMm: 480 }], color: "blue" };
+  const oneUnit: CabinComposition = { ...GOLDEN, units: [{ ...GOLDEN.units[0], widthMm: 480 }], color: "kumtasi" };
 
   it("doors + drawers on a wardrobe: Çekmeceli prefix, door count", () => {
     assert.equal(
       bundleTitle("gardirop", twoUnits, quoteOf({ GOVDE: 2, KAPAK: 4, CEKMECE_ON: 4 })),
-      "Çekmeceli Gardırop 192 cm, 4 Kapaklı – Kırık Beyaz",
+      "Çekmeceli Gardırop 192 cm, 4 Kapaklı – Kumtaşı",
     );
   });
 
   it("cupboards without a guide name use its nearest product type", () => {
     assert.equal(
       bundleTitle("kiler", twoUnits, quoteOf({ GOVDE: 2, KAPAK: 2, RAF: 8 })),
-      "Boy Dolabı 192 cm, 2 Kapaklı – Kırık Beyaz",
+      "Boy Dolabı 192 cm, 2 Kapaklı – Kumtaşı",
     );
-    assert.equal(bundleTitle("ayakkabilik", oneUnit, quoteOf({ GOVDE: 1, KAPAK: 1, RAF: 2 })), "Ayakkabılık 48 cm, 1 Kapaklı – Mavi");
-    assert.equal(bundleTitle("cok_amacli_dolap", oneUnit, quoteOf({ GOVDE: 1, KAPAK: 1 })), "Dolap 48 cm, 1 Kapaklı – Mavi");
+    assert.equal(bundleTitle("ayakkabilik", oneUnit, quoteOf({ GOVDE: 1, KAPAK: 1, RAF: 2 })), "Ayakkabılık 48 cm, 1 Kapaklı – Kumtaşı");
+    assert.equal(bundleTitle("cok_amacli_dolap", oneUnit, quoteOf({ GOVDE: 1, KAPAK: 1 })), "Dolap 48 cm, 1 Kapaklı – Kumtaşı");
   });
 
   it("no doors: drawer count, open shelves", () => {
     assert.equal(
       bundleTitle("sifonyer", oneUnit, quoteOf({ GOVDE: 1, CEKMECE_ON: 1, RAF: 2 })),
-      "Şifonyer 48 cm, 1 Çekmeceli Açık Raflı – Mavi",
+      "Şifonyer 48 cm, 1 Çekmeceli Açık Raflı – Kumtaşı",
     );
-    assert.equal(bundleTitle("kitaplik", oneUnit, quoteOf({ GOVDE: 1, RAF: 4 })), "Kitaplık 48 cm, Açık Raflı – Mavi");
+    assert.equal(bundleTitle("kitaplik", oneUnit, quoteOf({ GOVDE: 1, RAF: 4 })), "Kitaplık 48 cm, Açık Raflı – Kumtaşı");
     assert.equal(
       bundleTitle("tv_unitesi", twoUnits, quoteOf({ GOVDE: 2, KAPAK: 2 })),
-      "TV Ünitesi 192 cm, 2 Kapaklı – Kırık Beyaz",
+      "TV Ünitesi 192 cm, 2 Kapaklı – Kumtaşı",
     );
   });
 
@@ -97,7 +97,7 @@ describe("bundle spec", () => {
     const spec = bundleSpec("gardirop", GOLDEN, quote, "d1");
     assert.ok(spec);
     assert.equal(spec.priceCents, quote.totalCents);
-    assert.equal(spec.title, "Gardırop 192 cm, 2 Kapaklı – Kırık Beyaz");
+    assert.equal(spec.title, "Gardırop 192 cm, 2 Kapaklı – Kumtaşı");
     assert.equal(
       spec.components.reduce((sum, c) => sum + c.quantity, 0),
       quote.lines.reduce((sum, l) => sum + l.qty, 0),
@@ -119,7 +119,7 @@ describe("bundle spec", () => {
 describe("bundler", () => {
   const spec: BundleSpec = {
     designId: "d1",
-    title: "Gardırop 96 cm, 2 Kapaklı – Ahşap",
+    title: "Gardırop 96 cm, 2 Kapaklı – Lake beyaz",
     productType: "Gardırop",
     components: [
       { variantId: 11, quantity: 1 },
@@ -254,7 +254,7 @@ describe("stale bundle cleanup", () => {
 describe("bundle picture", () => {
   const spec: BundleSpec = {
     designId: "d9",
-    title: "Komodin 48 cm, 2 Çekmeceli – Ahşap",
+    title: "Komodin 48 cm, 2 Çekmeceli – Lake beyaz",
     productType: "Komodin",
     components: [{ variantId: 11, quantity: 1 }],
     priceCents: 100000,

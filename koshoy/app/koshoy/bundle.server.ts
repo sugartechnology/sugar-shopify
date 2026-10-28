@@ -16,7 +16,8 @@
  *   at most every 6 h per shop, piggybacking on add-to-cart.
  */
 import { createHash } from "node:crypto";
-import { CABIN_COLORS, DESIGN_KIND_LABELS, normalizeCabinColor } from "./cabinet-core";
+import { DESIGN_KIND_LABELS, normalizeCabinColor } from "./cabinet-core";
+import { colorLabel } from "./shop-colors";
 import type { CabinComposition, DesignKind } from "./engine";
 import type { KoshoyAdminGraphql, KoshoyQuote } from "./pricing.server";
 import { variantGidToNumber } from "./pricing.server";
@@ -65,8 +66,7 @@ export function bundleTitle(kind: DesignKind, composition: CabinComposition, quo
   if (doors === 0 && shelves > 0) features.push("Açık Raflı");
 
   const prefix = doors > 0 && drawers > 0 && !DRAWER_KINDS.has(kind) ? "Çekmeceli " : "";
-  const colorId = normalizeCabinColor(composition.color);
-  const color = titleCase(CABIN_COLORS.find((option) => option.id === colorId)?.label ?? "");
+  const color = titleCase(colorLabel(normalizeCabinColor(composition.color)));
 
   let title = `${prefix}${type} ${cmText(widthMm)} cm`;
   if (features.length) title += `, ${features.join(" ")}`;

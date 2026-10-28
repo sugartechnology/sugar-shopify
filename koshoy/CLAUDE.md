@@ -78,10 +78,16 @@ uygular), girişsiz 30 gün, hesaplı 180 gün.
 
 ## Değişmez kurallar
 
-1. **Fiyat yalnız Shopify'dan gelir.** Dolabın parça listesi (`toBom`) Shopify ürün
-   adlarıyla eşleşir (mağazada SKU yok): `Bakay LAKE BEYAZ WxHxD mm` gövde (renk adı parça adından sonra gelir), `Acıbay` kapak,
-   `Acıbay Çekmece` çekmece önü, `Sırgak` çekmece, `Tekçe` raf, `Tündük` taç,
-   `Gardırop Askısı W`. Eşleşmeyen parçaya fiyat uydurulmaz, ekranda `[FİYAT]` görünür.
+1. **Fiyat yalnız Shopify'dan gelir.** Dolabın parça listesi (`toBom`) Shopify ürünleriyle
+   **yapıdan** eşleşir (mağazada SKU yok): ürün adı (ya da `koshoy.parca` metafield'i) parça +
+   kapak serisi + renk + ölçü olarak okunur (`part-catalog.ts`), ad sırası, boşluk, büyük/küçük
+   harf önemsizdir. Parça adları kodda değil `shop-parts.json`'dadır (`Bakay` gövde, `Acıbay` /
+   `Aruuke` kapak, `… Çekmece` çekmece önü, `Sırgak` çekmece, `Tekçe` raf, `Tündük` taç,
+   `Gardırop Askısı` askı, `Kulp` kulp). Eşleşmeyen ya da iki ürünlü parçaya fiyat uydurulmaz,
+   ekranda `[FİYAT]` görünür; eksikler admin sayfasında (Katalog sağlığı) ve
+   `[koshoy] catalog gap` logunda görünür (`catalog-alarm.server.ts`).
+   Dolap ve kulp renkleri mağazanın renkleridir (`shop-colors.ts`, görünüşleri veri API'sinin
+   `colors` belgesi); sabit renk listesi yazılmaz.
 2. **Frontend'e backend izi gitmez.** Olaylar `events.ts` beyaz listesinden geçer;
    iç adlar, SKU'lar, hata ayrıntıları, sağlayıcı adları tarayıcıya yazılmaz.
 3. **Sepet = bizim app'in oluşturduğu paket ürün** (`bundle.server.ts`):

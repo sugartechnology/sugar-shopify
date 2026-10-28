@@ -61,6 +61,8 @@ export type EditOp =
   | { action: "set_crown"; unit: number; hasCrown: boolean }
   /** Door / drawer-front series of the whole design (`CABINET_RULES.frontSeries`). */
   | { action: "set_front_series"; series: string }
+  /** Handle colour of the whole design (one handle per door leaf and drawer front); null = none. */
+  | { action: "set_handle"; color: CabinColorId | null }
   | {
       action: "set_color";
       target: "all" | "unit" | "door";
@@ -281,6 +283,8 @@ function applyOp(
       return crownOp(c, op.unit, op.hasCrown);
     case "set_front_series":
       return seriesOp(c, op.series);
+    case "set_handle":
+      return handleOp(c, op.color);
     case "set_color":
       return colorOp(c, op.target, op.unit, op.color);
     default:
@@ -445,6 +449,15 @@ function withCrown(unit: CabinUnit, hasCrown: boolean): CabinUnit {
   return hasCrown ? { ...rest, hasCrown: true } : rest;
 }
 
+function handleOp(c: CabinComposition, color: unknown): CabinComposition | EditRejectReason {
+  if (color === null) {
+    const { handleColor: _old, ...rest } = c;
+    return rest;
+  }
+  if (!isCabinColorId(color)) return "invalid_value";
+  return { ...c, handleColor: color };
+}
+
 function colorOp(
   c: CabinComposition,
   target: unknown,
@@ -516,6 +529,7 @@ function sameComposition(a: CabinComposition, b: CabinComposition): boolean {
     a.hasPlinth !== b.hasPlinth ||
     a.color !== b.color ||
     a.frontSeries !== b.frontSeries ||
+    a.handleColor !== b.handleColor ||
     a.units.length !== b.units.length
   ) {
     return false;

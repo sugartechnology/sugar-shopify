@@ -5,12 +5,12 @@
 import { toLayoutPlace } from "./events";
 import type { LayoutOp } from "./layout-solver";
 import {
-  CABIN_COLOR_IDS,
   CABIN_FIT_KINDS,
   type CabinColorId,
   type CabinFitKind,
   type EditOp,
 } from "./engine";
+import { bodyColorIds, handleColorIds } from "./shop-colors";
 
 /** The journey buttons on the screen (journey.ts, CONTRACT §4 journey cards). */
 export const JOURNEY_ACTIONS = [
@@ -193,13 +193,18 @@ export function parseEditOp(raw: unknown): EditOp | null {
         : null;
     case "set_color": {
       const target = oneOf(row.target, ["all", "unit", "door"] as const);
-      const color = oneOf<CabinColorId>(row.color, CABIN_COLOR_IDS);
+      const color = oneOf<CabinColorId>(row.color, bodyColorIds());
       if (!target || !color) return null;
       if (target === "unit" && unit === null) return null;
       if (row.unit !== undefined && row.unit !== null && unit === null) return null;
       return unit !== null
         ? { action: "set_color", target, unit, color }
         : { action: "set_color", target, color };
+    }
+    case "set_handle": {
+      if (row.color === null) return { action: "set_handle", color: null };
+      const color = oneOf<CabinColorId>(row.color, handleColorIds());
+      return color ? { action: "set_handle", color } : null;
     }
     default:
       return null;

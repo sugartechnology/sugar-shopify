@@ -8,10 +8,10 @@ describe("koshoy client input", () => {
       type: "message",
       text: "2 metre dolap",
     });
-    assert.deepEqual(parseClientInput({ type: "choice", selected: "wood", label: "Ahşap" }), {
+    assert.deepEqual(parseClientInput({ type: "choice", selected: "lake-beyaz", label: "Lake beyaz" }), {
       type: "choice",
-      selected: "wood",
-      label: "Ahşap",
+      selected: "lake-beyaz",
+      label: "Lake beyaz",
     });
     assert.deepEqual(
       parseClientInput({ type: "add_cart_result", ok: false, error: "422 <script>" }),
@@ -33,12 +33,12 @@ describe("koshoy client input", () => {
       action: "set_depth",
       depthMm: 480,
     });
-    assert.deepEqual(parseEditOp({ action: "set_color", target: "all", color: "blue", unit: null }), {
+    assert.deepEqual(parseEditOp({ action: "set_color", target: "all", color: "kumtasi", unit: null }), {
       action: "set_color",
       target: "all",
-      color: "blue",
+      color: "kumtasi",
     });
-    assert.equal(parseEditOp({ action: "set_color", target: "unit", color: "blue" }), null);
+    assert.equal(parseEditOp({ action: "set_color", target: "unit", color: "kumtasi" }), null);
     // No product width limit: long totals reach the core, which owns the safety bound.
     assert.deepEqual(parseEditOp({ action: "set_total_width", widthMm: 12000 }), {
       action: "set_total_width",

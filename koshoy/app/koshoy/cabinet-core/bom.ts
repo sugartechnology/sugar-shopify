@@ -1,7 +1,7 @@
 // generated — do not edit, run npm run sync:cabinet-core
 // source: 3d-room-designer/src/core/cabinet/bom.ts
 
-import { CABIN_COLORS, normalizeCabinColor } from "./colors";
+import { cabinColors, normalizeCabinColor } from "./colors";
 import { normalizeComposition } from "./composeCabins";
 import {
   DRAWER_160_MM,
@@ -28,7 +28,8 @@ export type BomPart =
   | "CEKMECE"
   | "CEKMECE_ON"
   | "ASKI"
-  | "TAC";
+  | "TAC"
+  | "KULP";
 
 /** Output order of `toBom`. */
 export const BOM_PARTS: readonly BomPart[] = [
@@ -39,12 +40,14 @@ export const BOM_PARTS: readonly BomPart[] = [
   "CEKMECE_ON",
   "ASKI",
   "TAC",
+  "KULP",
 ];
 
 /**
  * One catalog part. Sizes follow the catalog record: KAPAK / CEKMECE_ON have
  * depth 0, RAF has height 0, ASKI only carries the unit width, TAC is
- * W × 25 × D (the body's nominal depth; the 20 mm overhang is not in the size).
+ * W × 25 × D (the body's nominal depth; the 20 mm overhang is not in the size),
+ * KULP carries only its colour (sizes 0).
  */
 export interface BomLine {
   part: BomPart;
@@ -85,6 +88,7 @@ export const DEFAULT_SKU_CONVENTION: SkuConvention = {
     CEKMECE_ON: "CEKMECE_ON",
     ASKI: "ASKI",
     TAC: "TAC",
+    KULP: "KULP",
   },
   fields: {
     GOVDE: ["widthMm", "heightMm", "depthMm", "color"],
@@ -94,6 +98,7 @@ export const DEFAULT_SKU_CONVENTION: SkuConvention = {
     CEKMECE_ON: ["widthMm", "heightMm", "color"],
     ASKI: ["widthMm"],
     TAC: ["widthMm", "depthMm", "color"],
+    KULP: ["color"],
   },
   colorCodes: { wood: "WOOD", ivory: "IVORY", blue: "BLUE" },
   noPlinthSuffix: "BAZASIZ",
@@ -108,13 +113,18 @@ export interface SkuLine {
  * Parts list of a composition. The composition is normalized first and every
  * part comes from the layout the 3D view draws: closing and hanger shelves
  * included, doors only when they fit, door leaves per width, one TAC per unit
- * with a crown. Identical lines are merged and sorted.
+ * with a crown, one KULP per door leaf and drawer front when the design has a
+ * handle colour. Identical lines are merged and sorted.
  */
 export function toBom(composition: CabinComposition): BomLine[] {
   const normalized = normalizeComposition(composition);
   const lines: BomLine[] = [];
   for (const unit of normalized.units) {
     pushUnitParts(lines, unit, normalized);
+  }
+  const fronts = lines.filter((line) => line.part === "KAPAK" || line.part === "CEKMECE_ON").length;
+  if (normalized.handleColor && fronts > 0) {
+    lines.push({ ...part("KULP", 0, 0, 0, normalized.handleColor), qty: fronts });
   }
   return mergeBomLines(lines);
 }
@@ -126,7 +136,9 @@ export function skuFor(
   const segments = [convention.partCodes[line.part]];
   for (const field of convention.fields[line.part]) {
     segments.push(
-      field === "color" ? convention.colorCodes[line.color] : String(line[field]),
+      field === "color"
+        ? convention.colorCodes[line.color] ?? line.color.toUpperCase()
+        : String(line[field]),
     );
   }
   if (line.part === "GOVDE" && line.plinth === false && convention.noPlinthSuffix) {
@@ -247,7 +259,7 @@ function mergeBomLines(lines: readonly BomLine[]): BomLine[] {
 }
 
 function colorRank(color: CabinColorId): number {
-  return CABIN_COLORS.findIndex((option) => option.id === color);
+  return cabinColors().findIndex((option) => option.id === color);
 }
 
 /** Part order, then larger sizes first, plinth before none, then color. */

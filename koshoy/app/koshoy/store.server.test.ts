@@ -41,7 +41,7 @@ describe("koshoy session store", () => {
     const { store, advance } = setup();
     const { session, token } = await store.createSession(SHOP);
     session.brief.room = "yatak odası";
-    session.brief.color = "ivory";
+    session.brief.color = "kumtasi";
     session.pendingAskUser = { id: "call_1", question: "Renk?", options: [{ id: "opt_1", label: "A", value: "a" }] };
     session.pendingTools = [{ id: "call_1", name: "ask_user", payload: { question: "Renk?" } }];
     appendTranscriptEvent(session, { type: "text", text: "Merhaba" }, 1_000);
@@ -51,7 +51,7 @@ describe("koshoy session store", () => {
     const found = await store.findSession(token, SHOP);
     assert.ok(found, "save extended the expiry");
     assert.equal(found.brief.room, "yatak odası");
-    assert.equal(found.brief.color, "ivory");
+    assert.equal(found.brief.color, "kumtasi");
     assert.equal(found.pendingAskUser?.id, "call_1");
     assert.equal(found.pendingTools[0]?.id, "call_1");
     assert.deepEqual(found.events, [{ type: "text", text: "Merhaba", at: 1_000 }], "the time is kept");

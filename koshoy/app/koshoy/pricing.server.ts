@@ -4,7 +4,8 @@
  * guessed price, the display becomes [FİYAT] and the SKU is logged.
  */
 import { gidToNumericId } from "../services/shopify-ids";
-import { fetchShopVariants, partKeyOf, variantsByPartKey, type ShopVariant } from "./sku-audit.server";
+import { findPart, readPartCatalog, type PartCatalog, type ShopVariant } from "./part-catalog";
+import { fetchShopVariants } from "./sku-audit.server";
 import type { BomPart, CabinComposition, CabinetEngine } from "./engine";
 import { PRICE_PLACEHOLDER } from "./events";
 
@@ -68,11 +69,11 @@ export function variantGidToNumber(gid: string): number | null {
 
 /* ---------------- mock table (KOSHOY_PRICE_MOCK=1) ---------------- */
 
-/** Spike numbers (MCP × 1.10); `*` matches any colour suffix. */
+/** Spike numbers (MCP × 1.10); `*` matches any shop colour. */
 export const KOSHOY_MOCK_PRICES: ReadonlyArray<{ pattern: string; price: string }> = [
-  { pattern: "Bakay LAKE BEYAZ 960x2304x640 mm", price: "6425.00" },
-  { pattern: "Acıbay LAKE BEYAZ 477x2237x0 mm", price: "1069.43" },
-  { pattern: "Tekçe LAKE BEYAZ 960x0x640 mm", price: "573.28" },
+  { pattern: "Bakay * 960x2304x640 mm", price: "6425.00" },
+  { pattern: "Acıbay * 477x2237x0 mm", price: "1069.43" },
+  { pattern: "Tekçe * 960x0x640 mm", price: "573.28" },
   { pattern: "Gardırop Askısı 960", price: "396.00" },
 ];
 
@@ -118,11 +119,12 @@ export function createMockSkuResolver(
 /* ---------------- Shopify Admin resolver ---------------- */
 
 /**
- * Koshoy's parts are products named by type + size (no SKUs). The whole part
- * catalog (~260 products) is read once per shop and kept for a few minutes;
- * every BOM key is then matched by exact title (or SKU, if the shop adds one).
+ * Koshoy's parts are products named by part + colour + size (no SKUs). The whole
+ * part catalog (~600 products) is read once per shop and kept for a few minutes;
+ * every BOM title is then matched by structure (part-catalog.ts), so a title
+ * written another way still finds its product.
  */
-type CatalogEntry = { byKey: Map<string, SkuPrice>; expiresAt: number };
+type CatalogEntry = { catalog: PartCatalog; expiresAt: number };
 const sharedCatalogs = new Map<string, CatalogEntry>();
 
 export function createShopifySkuResolver(
@@ -132,31 +134,31 @@ export function createShopifySkuResolver(
     cache?: Map<string, CatalogEntry>;
     now?: () => number;
     fetchVariants?: (admin: KoshoyAdminGraphql) => Promise<ShopVariant[]>;
+    /** Called with every freshly read catalog (catalog health, alarm). */
+    onCatalog?: (catalog: PartCatalog) => void;
   } = {},
 ): SkuResolver {
   const cache = options.cache ?? sharedCatalogs;
   const now = options.now ?? Date.now;
   const fetchVariants = options.fetchVariants ?? fetchShopVariants;
 
-  async function catalog(): Promise<Map<string, SkuPrice>> {
+  async function readCatalog(): Promise<PartCatalog> {
     const hit = cache.get(shop);
-    if (hit && hit.expiresAt > now()) return hit.byKey;
-    const byKey = new Map<string, SkuPrice>();
-    for (const [key, variant] of variantsByPartKey(await fetchVariants(admin))) {
-      const variantId = variantGidToNumber(variant.variantId);
-      const priceCents = moneyToCents(variant.price);
-      if (variantId && priceCents !== null) byKey.set(key, { variantId, priceCents });
-    }
-    cache.set(shop, { byKey, expiresAt: now() + POSITIVE_TTL_MS });
-    return byKey;
+    if (hit && hit.expiresAt > now()) return hit.catalog;
+    const catalog = readPartCatalog(await fetchVariants(admin));
+    cache.set(shop, { catalog, expiresAt: now() + POSITIVE_TTL_MS });
+    options.onCatalog?.(catalog);
+    return catalog;
   }
 
-  return async (keys) => {
-    const byKey = await catalog();
+  return async (titles) => {
+    const catalog = await readCatalog();
     const out = new Map<string, SkuPrice>();
-    for (const key of keys) {
-      const value = byKey.get(partKeyOf(key));
-      if (value) out.set(key, value);
+    for (const title of titles) {
+      const variant = findPart(catalog, title);
+      const variantId = variant ? variantGidToNumber(variant.variantId) : null;
+      const priceCents = variant ? moneyToCents(variant.price) : null;
+      if (variantId && priceCents !== null) out.set(title, { variantId, priceCents });
     }
     return out;
   };
@@ -164,10 +166,14 @@ export function createShopifySkuResolver(
 
 /**
  * Resolver for a shop: the spike price table when KOSHOY_PRICE_MOCK=1 (no
- * Shopify calls), otherwise the shop's part catalog matched by product title.
+ * Shopify calls), otherwise the shop's part catalog matched by part structure.
  */
-export function createKoshoySkuResolver(admin: KoshoyAdminGraphql, shop: string): SkuResolver {
-  return isKoshoyPriceMock() ? createMockSkuResolver() : createShopifySkuResolver(admin, shop);
+export function createKoshoySkuResolver(
+  admin: KoshoyAdminGraphql,
+  shop: string,
+  onCatalog?: (catalog: PartCatalog) => void,
+): SkuResolver {
+  return isKoshoyPriceMock() ? createMockSkuResolver() : createShopifySkuResolver(admin, shop, { onCatalog });
 }
 
 /* ---------------- pricer ---------------- */

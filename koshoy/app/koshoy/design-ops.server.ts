@@ -3,7 +3,6 @@
  * (/edit, /cart): create, edit, price, and the events/summaries they yield.
  */
 import {
-  CABIN_COLOR_LABELS,
   CABIN_HEIGHTS_MM,
   CABIN_TOTAL_WIDTH_SAFETY_MM,
   CABIN_WIDTHS_MM,
@@ -24,6 +23,7 @@ import {
 import { frontSeriesOf } from "./cabinet-core";
 import { PRICE_PLACEHOLDER, toPublicEvent, type DesignSummary, type PublicEvent } from "./events";
 import { formatTl, type KoshoyPricer, type KoshoyQuote } from "./pricing.server";
+import { colorLabel } from "./shop-colors";
 import type {
   KoshoyDesign,
   KoshoySessionState,
@@ -44,6 +44,7 @@ const PART_LABELS: Record<BomPart, string> = {
   CEKMECE_ON: "çekmece önü",
   ASKI: "askı",
   TAC: "taç",
+  KULP: "kulp",
 };
 
 const FITTING_LABELS: Record<CabinFitKind, string> = {
@@ -176,17 +177,18 @@ export function designForModel(design: KoshoyDesign, active: boolean) {
     totalWidthCm: totalWidthMm(c) / 10,
     depthCm: c.depthMm / 10,
     plinth: c.hasPlinth,
-    color: c.color ? CABIN_COLOR_LABELS[c.color] : undefined,
+    color: c.color ? colorLabel(c.color) : undefined,
     fronts: frontSeriesOf(c.frontSeries).label,
+    handles: c.handleColor ? colorLabel(c.handleColor) : undefined,
     units: c.units.map((unit, index) => ({
       unit: index,
       widthCm: unit.widthMm / 10,
       heightCm: unit.heightMm / 10,
       door: unit.hasDoor,
-      color: unit.color ? CABIN_COLOR_LABELS[unit.color] : undefined,
+      color: unit.color ? colorLabel(unit.color) : undefined,
       doorColor:
         unit.hasDoor && unit.doorColor && unit.doorColor !== unit.color
-          ? CABIN_COLOR_LABELS[unit.doorColor]
+          ? colorLabel(unit.doorColor)
           : undefined,
       crown: unit.hasCrown === true,
       // Bottom → top; drawers always sit at the bottom.
@@ -309,7 +311,7 @@ function editActionText(op: EditOp, design: KoshoyDesign): string {
     case "set_front_series":
       return `Kapaklar ${frontSeriesOf(op.series).label.toLocaleLowerCase("tr-TR")} oldu.`;
     case "set_color": {
-      const color = CABIN_COLOR_LABELS[op.color].toLocaleLowerCase("tr-TR");
+      const color = colorLabel(op.color).toLocaleLowerCase("tr-TR");
       if (op.target === "all") return `Renk ${color} oldu.`;
       if (op.target === "door") {
         return op.unit === undefined
@@ -318,5 +320,7 @@ function editActionText(op: EditOp, design: KoshoyDesign): string {
       }
       return `${nth(op.unit ?? 0)}nin rengi ${color} oldu.`;
     }
+    case "set_handle":
+      return op.color ? `Kulplar ${colorLabel(op.color).toLocaleLowerCase("tr-TR")} oldu.` : "Kulplar çıkarıldı.";
   }
 }

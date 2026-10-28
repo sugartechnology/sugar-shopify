@@ -49,6 +49,7 @@ import type { KoshoyPhoneDeps } from "./phone-link.server";
 import type { KoshoyRoomSessionsDb } from "./room-sessions.server";
 import { approvalOf } from "./journey";
 import { journeyView, stageCards, type KoshoyJourneyData } from "./journey.server";
+import { handleChoices, publicColors } from "./shop-colors";
 import type { KoshoyJourneyEvent } from "./journey-events.server";
 import {
   currentLayout,
@@ -380,8 +381,8 @@ export async function handleKoshoySession(
     if (total) events.push(total);
     // The current stage's card (structure, room summary, product, cart), rebuilt from the state.
     const data = await ctx.journeyData();
-    const view = await journeyView(ctx, session, data);
-    events.push(...(await stageCards(ctx, session, view, data, { photo: Boolean(ctx.room), handles: [] })));
+    const view = await journeyView(ctx, session, data, handleChoices());
+    events.push(...(await stageCards(ctx, session, view, data, { photo: Boolean(ctx.room), ...handleChoices() })));
 
     return koshoyJson(
       {
@@ -391,6 +392,7 @@ export async function handleKoshoySession(
         designs: summaries(designs, active?.id ?? null),
         events: publicEvents(events),
         welcome: { cards: KOSHOY_WELCOME_CARDS },
+        colors: publicColors(),
         ...(room ? { room } : {}),
         ...(layout ? { layout: layoutView(layout.layout, designs, layout.target) } : {}),
       },
@@ -457,6 +459,7 @@ export async function handleKoshoyTurn(
           signal: gone.signal,
           room: ctx.room,
           data: journeyData,
+          handles: handleChoices(),
           customerId: ctx.customerId,
           track: ctx.track ? (name, props) => ctx.track?.(session.id, name, props) : undefined,
         },
@@ -577,10 +580,10 @@ export async function handleKoshoyEdit(
     // A panel edit can undo an approval (the design changed) or move the stage: show that stage's card now.
     if (result.changed) {
       const data = await ctx.journeyData();
-      const view = await journeyView(ctx, session, data);
+      const view = await journeyView(ctx, session, data, handleChoices());
       const lostApproval = approvalOf(session.journey, design) !== "pending";
       if (view.stage !== session.journey.shownStage || lostApproval) {
-        events.push(...(await stageCards(ctx, session, view, data, { photo: Boolean(ctx.room), handles: [] })));
+        events.push(...(await stageCards(ctx, session, view, data, { photo: Boolean(ctx.room), ...handleChoices() })));
         session.journey.shownStage = view.stage;
       }
     }

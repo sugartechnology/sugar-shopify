@@ -3,7 +3,6 @@
  * storefront is rebuilt field by field here; anything else is dropped.
  */
 import {
-  CABIN_COLOR_IDS,
   CABIN_FIT_KINDS,
   CABIN_WIDTHS_MM,
   DESIGN_KINDS,
@@ -15,6 +14,7 @@ import {
 import { findFrontSeries } from "./cabinet-core";
 import { MAX_PHOTO_ITEMS } from "./photo-items";
 import { MAX_LAYOUT_ITEMS } from "./room-layout";
+import { knownColorIds } from "./shop-colors";
 
 export const KOSHOY_ERROR_CODES = [
   "unavailable",
@@ -65,6 +65,8 @@ export interface SceneView {
   color?: CabinColorId;
   /** Front series id of the core table (no shop names); missing = default. */
   frontSeries?: string;
+  /** Handle colour id; missing = no handles. */
+  handleColor?: CabinColorId;
 }
 
 export interface DesignSummary {
@@ -256,7 +258,7 @@ function toSceneFitting(raw: unknown): SceneFitting | null {
   const id = opaqueId(row.id);
   const kind = oneOf(row.kind, CABIN_FIT_KINDS);
   if (!id || !kind) return null;
-  const color = oneOf(row.color, CABIN_COLOR_IDS);
+  const color = oneOf(row.color, knownColorIds());
   return color ? { id, kind, color } : { id, kind };
 }
 
@@ -282,8 +284,8 @@ function toSceneUnit(raw: unknown): SceneUnit | null {
     fittings,
     hasDoor: row.hasDoor === true,
   };
-  const color = oneOf(row.color, CABIN_COLOR_IDS);
-  const doorColor = oneOf(row.doorColor, CABIN_COLOR_IDS);
+  const color = oneOf(row.color, knownColorIds());
+  const doorColor = oneOf(row.doorColor, knownColorIds());
   if (color) unit.color = color;
   if (doorColor) unit.doorColor = doorColor;
   if (row.hasCrown === true) unit.hasCrown = true;
@@ -304,10 +306,12 @@ export function toSceneView(raw: unknown): SceneView | null {
   const depthMm = positiveMm(row.depthMm);
   if (!depthMm) return null;
   const view: SceneView = { units, depthMm, hasPlinth: row.hasPlinth !== false };
-  const color = oneOf(row.color, CABIN_COLOR_IDS);
+  const color = oneOf(row.color, knownColorIds());
   if (color) view.color = color;
   const series = findFrontSeries(row.frontSeries);
   if (series) view.frontSeries = series.id;
+  const handleColor = oneOf(row.handleColor, knownColorIds());
+  if (handleColor) view.handleColor = handleColor;
   return view;
 }
 

@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  CABIN_COLOR_IDS,
-  CABIN_COLOR_LABELS,
   CABIN_FIT_KINDS,
   createCabinetEngine,
   DESIGN_KINDS,
@@ -27,7 +25,7 @@ const GOLDEN: CabinComposition = {
         { id: "fit-2", kind: "hanger" },
       ],
       hasDoor: true,
-      color: "wood",
+      color: "lake-beyaz",
     },
     {
       id: "cabin-2",
@@ -35,12 +33,12 @@ const GOLDEN: CabinComposition = {
       heightMm: 2304,
       fittings: [],
       hasDoor: false,
-      color: "wood",
+      color: "lake-beyaz",
     },
   ],
   depthMm: 640,
   hasPlinth: true,
-  color: "wood",
+  color: "lake-beyaz",
 };
 
 describe("koshoy cabinet engine contract", () => {
@@ -68,23 +66,25 @@ describe("koshoy cabinet engine contract", () => {
       "Gardırop Askısı 960",
     ]);
     const title = (part: string, widthMm: number, heightMm: number, depthMm: number, extra = {}) =>
-      koshoyPartTitle({ part, widthMm, heightMm, depthMm, color: "ivory", qty: 1, ...extra } as BomLine);
-    assert.equal(title("CEKMECE_ON", 477, 157, 0), "Acıbay Çekmece LAKE BEYAZ 480x160x0 mm", "drawer fronts by nominal size");
-    assert.equal(title("CEKMECE", 960, 320, 480), "Sırgak LAKE BEYAZ 960x320x480 mm");
-    assert.equal(title("TAC", 960, 25, 640), "Tündük LAKE BEYAZ 960x25x640 mm");
-    assert.equal(title("GOVDE", 480, 544, 480, { plinth: false }), "Bakay LAKE BEYAZ 480x544x480 mm (bazasız)");
+      koshoyPartTitle({ part, widthMm, heightMm, depthMm, color: "kumtasi", qty: 1, ...extra } as BomLine);
+    assert.equal(title("CEKMECE_ON", 477, 157, 0), "Acıbay Çekmece KUMTAŞI 480x160x0 mm", "drawer fronts by nominal size");
+    assert.equal(title("CEKMECE", 960, 320, 480), "Sırgak KUMTAŞI 960x320x480 mm");
+    assert.equal(title("TAC", 960, 25, 640), "Tündük KUMTAŞI 960x25x640 mm");
+    assert.equal(title("GOVDE", 480, 544, 480, { plinth: false }), "Bakay KUMTAŞI 480x544x480 mm (bazasız)");
+    assert.equal(title("KULP", 0, 0, 0, { color: "siyah" }), "Kulp SİYAH");
+    assert.equal(title("GOVDE", 960, 2304, 640, { color: "wood" }), "Bakay LAKE BEYAZ 960x2304x640 mm", "old colours price as the default");
   });
 
   it("names fronts by their series and never borrows another series' title", () => {
     const front = (part: string, widthMm: number, heightMm: number, series?: string) =>
-      koshoyPartTitle({ part, widthMm, heightMm, depthMm: 0, color: "ivory", qty: 1, series } as BomLine);
-    assert.equal(front("KAPAK", 477, 2237, "kapak-16"), "Acıbay LAKE BEYAZ 477x2237x0 mm");
-    assert.equal(front("KAPAK", 477, 2237, "kapak-18"), "Aruuke LAKE BEYAZ 477x2237x0 mm");
-    assert.equal(front("CEKMECE_ON", 477, 157, "kapak-18"), "Aruuke Çekmece LAKE BEYAZ 480x160x0 mm");
-    assert.equal(front("KAPAK", 477, 2237), "Acıbay LAKE BEYAZ 477x2237x0 mm", "no series = default series");
+      koshoyPartTitle({ part, widthMm, heightMm, depthMm: 0, color: "kumtasi", qty: 1, series } as BomLine);
+    assert.equal(front("KAPAK", 477, 2237, "kapak-16"), "Acıbay KUMTAŞI 477x2237x0 mm");
+    assert.equal(front("KAPAK", 477, 2237, "kapak-18"), "Aruuke KUMTAŞI 477x2237x0 mm");
+    assert.equal(front("CEKMECE_ON", 477, 157, "kapak-18"), "Aruuke Çekmece KUMTAŞI 480x160x0 mm");
+    assert.equal(front("KAPAK", 477, 2237), "Acıbay KUMTAŞI 477x2237x0 mm", "no series = default series");
     assert.equal(
       front("KAPAK", 477, 2237, "kapak-20"),
-      "Bilinmeyen kapak serisi kapak-20 LAKE BEYAZ 477x2237x0 mm",
+      "Bilinmeyen parça KAPAK kapak-20 KUMTAŞI 477x2237x0 mm",
       "an unknown series stays unresolved ([FİYAT])",
     );
   });
@@ -95,8 +95,6 @@ describe("koshoy cabinet engine contract", () => {
   });
 
   it("mirrors the core vocabularies", () => {
-    assert.deepEqual([...CABIN_COLOR_IDS], ["wood", "ivory", "blue"]);
-    assert.deepEqual(CABIN_COLOR_LABELS, { wood: "Ahşap", ivory: "Kırık beyaz", blue: "Mavi" });
     assert.deepEqual([...CABIN_FIT_KINDS], ["drawer160", "drawer320", "shelf", "hanger"]);
   });
 
@@ -159,18 +157,18 @@ describe("koshoy cabinet engine contract", () => {
       ["drawer320", "drawer320", "drawer160", "hanger"],
     );
     assert.deepEqual(
-      engine.applyEditOp(plan.composition, { action: "set_color", target: "all", color: "wood" }),
+      engine.applyEditOp(plan.composition, { action: "set_color", target: "all", color: "lake-beyaz" }),
       { ok: false, reason: "no_change" },
     );
     const result = engine.applyEditOp(plan.composition, {
       action: "set_color",
       target: "all",
-      color: "blue",
+      color: "kumtasi",
     });
     assert.equal(result.ok, true);
     if (result.ok) {
-      assert.ok(result.composition.units.every((unit) => unit.color === "blue"));
-      assert.equal(plan.composition.units[0].color, "wood", "input is not mutated");
+      assert.ok(result.composition.units.every((unit) => unit.color === "kumtasi"));
+      assert.equal(plan.composition.units[0].color, "lake-beyaz", "input is not mutated");
     }
   });
 
