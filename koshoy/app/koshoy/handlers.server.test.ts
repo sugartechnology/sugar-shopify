@@ -274,7 +274,7 @@ describe("koshoy studio handlers", () => {
     const scene = await planGardirop(ctx, token);
 
     const ok = await handleKoshoyEdit(
-      post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "shelf" } }, { token }),
+      post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "drawer160" } }, { token }),
       ctx,
     );
     const okBody = (await ok.json()) as { ok: boolean; events: PublicEvent[] };
@@ -284,7 +284,7 @@ describe("koshoy studio handlers", () => {
     assert.ok(nextScene.type === "scene" && nextPrice.type === "price" && line.type === "text");
     assert.equal(nextScene.version, 2);
     assert.equal(nextPrice.version, 2);
-    assert.equal(line.text, "Panelden: 2. gövdeye raf eklendi.");
+    assert.equal(line.text, "Panelden: 2. gövdeye küçük çekmece eklendi.");
 
     const stale = await handleKoshoyEdit(
       post("edit", { designId: scene.designId, version: 1, op: { action: "set_depth", depthMm: 480 } }, { token }),
@@ -358,7 +358,8 @@ describe("koshoy studio handlers", () => {
     const loweredText = lowered.events.find((event) => event.type === "text");
     assert.deepEqual(loweredText, {
       type: "text",
-      text: "Panelden: 2. gövdenin yüksekliği 54,4 cm oldu. Sığmayan iç parçalar çıkarıldı. Kapak artık sığmadığından kaldırıldı.",
+      // One 320 drawer stays (front grid 480); its 157 mm door stays too; a low body gets a crown.
+      text: "Panelden: 2. gövdenin yüksekliği 54,4 cm oldu. Sığmayan iç parçalar çıkarıldı. Gövde alçaldığı için üstüne taç eklendi.",
     });
 
     // A valid op that changes nothing is an idempotent success at the same version.
@@ -374,7 +375,8 @@ describe("koshoy studio handlers", () => {
 
     const doorTooShort = (await (
       await handleKoshoyEdit(
-        post("edit", { designId: scene.designId, version: 3, op: { action: "set_door", unit: 1, hasDoor: true } }, { token }),
+        // 320 + 160 mm of drawers fill the 544 body's front grid: no room left for the door.
+        post("edit", { designId: scene.designId, version: 3, op: { action: "add_fitting", unit: 1, kind: "drawer160" } }, { token }),
         ctx,
       )
     ).json()) as { ok: boolean; events: PublicEvent[] };
@@ -382,6 +384,24 @@ describe("koshoy studio handlers", () => {
     assert.deepEqual(doorTooShort.events[0], { type: "error", code: "edit_rejected" });
     assert.ok(!LEAKS.test(JSON.stringify(doorTooShort)));
     assert.ok(!JSON.stringify(doorTooShort).includes("door_too_short"));
+  });
+
+  it("switches the door series and draws it (Mat kapak 18 mm), never naming shop parts", async () => {
+    const ctx = makeCtx();
+    const { session: token } = await openSession(ctx);
+    const scene = await planGardirop(ctx, token);
+    const body = (await (
+      await handleKoshoyEdit(
+        post("edit", { designId: scene.designId, version: 1, op: { action: "set_front_series", series: "kapak-18" } }, { token }),
+        ctx,
+      )
+    ).json()) as { ok: boolean; events: PublicEvent[] };
+    assert.equal(body.ok, true);
+    const [view, , line] = body.events;
+    assert.ok(view.type === "scene" && line.type === "text");
+    assert.equal(view.view.frontSeries, "kapak-18");
+    assert.equal(line.text, "Panelden: Kapaklar mat kapak (18 mm) oldu.");
+    assert.ok(!/Aruuke|Acıbay/.test(JSON.stringify(body)));
   });
 
   it("recomputes the golden cart from the stored design, ignoring browser data", async () => {
@@ -568,7 +588,7 @@ describe("koshoy studio handlers", () => {
     assert.ok(session);
     assert.ok(ctx.busy.acquire(session.id), "simulated running turn");
     const refused = await handleKoshoyEdit(
-      post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "shelf" } }, { token }),
+      post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "drawer160" } }, { token }),
       ctx,
     );
     const body = (await refused.json()) as { ok: boolean; events: PublicEvent[] };
@@ -578,7 +598,7 @@ describe("koshoy studio handlers", () => {
     ctx.busy.release(session.id);
 
     const ok = await handleKoshoyEdit(
-      post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "shelf" } }, { token }),
+      post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "drawer160" } }, { token }),
       ctx,
     );
     assert.equal(((await ok.json()) as { ok: boolean }).ok, true);
@@ -741,7 +761,7 @@ describe("koshoy studio handlers", () => {
     };
     const edit = (await (
       await handleKoshoyEdit(
-        post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "shelf" } }, { token }),
+        post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "drawer160" } }, { token }),
         ctx,
       )
     ).json()) as { ok: boolean };
@@ -754,7 +774,7 @@ describe("koshoy studio handlers", () => {
     assert.equal((await ctx.store.listDesigns(session.id)).length, 2);
     const transcript = session.events.map((event) => (event.type === "text" ? event.text : "")).join("\n");
     assert.match(transcript, /komodin/i, "the turn's reply survived the edit");
-    assert.match(transcript, /Panelden: 2\. gövdeye raf eklendi\./);
+    assert.match(transcript, /Panelden: 2\. gövdeye küçük çekmece eklendi\./);
   });
 
   it("refuses a turn that starts while an edit holds the session", async () => {
@@ -777,7 +797,7 @@ describe("koshoy studio handlers", () => {
     };
     const edit = (await (
       await handleKoshoyEdit(
-        post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "shelf" } }, { token }),
+        post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "drawer160" } }, { token }),
         ctx,
       )
     ).json()) as { ok: boolean };
@@ -799,7 +819,7 @@ describe("koshoy studio handlers", () => {
       if (!raced) {
         raced = true;
         await handleKoshoyEdit(
-          post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "shelf" } }, { token }),
+          post("edit", { designId: scene.designId, version: 1, op: { action: "add_fitting", unit: 1, kind: "drawer160" } }, { token }),
           ctx,
         );
       }
@@ -813,7 +833,7 @@ describe("koshoy studio handlers", () => {
     assert.equal(turned.status, 200);
     const session = await findSession(token, SHOP);
     const transcript = session!.events.map((event) => (event.type === "text" ? event.text : "")).join("\n");
-    assert.match(transcript, /Panelden: 2\. gövdeye raf eklendi\./, "the edit's line survived the turn");
+    assert.match(transcript, /Panelden: 2\. gövdeye küçük çekmece eklendi\./, "the edit's line survived the turn");
   });
 
   it("switches the active design from a tab and returns its scene and price", async () => {

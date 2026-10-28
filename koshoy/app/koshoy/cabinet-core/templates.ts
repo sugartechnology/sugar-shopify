@@ -3,6 +3,7 @@
 
 import { DEFAULT_CABIN_COLOR, isCabinColorId } from "./colors";
 import { nextCabinUnitId, normalizeComposition } from "./composeCabins";
+import { crownByDefault, findFrontSeries } from "./rules";
 import {
   CABIN_GRID_MM,
   CABIN_TOTAL_WIDTH_SAFETY_MM,
@@ -96,6 +97,8 @@ export interface PlanCabinetInput {
   targetWidthMm?: number;
   level?: DesignLevel;
   color?: CabinColorId;
+  /** Front series id (`CABINET_RULES.frontSeries`); unknown or missing = default. */
+  frontSeries?: string;
 }
 
 export interface PlanCabinetResult {
@@ -134,8 +137,11 @@ interface CabinTemplate {
  *   unit takes at most one 160 drawer under a door;
  * - door heights stay on catalog KAPAK sizes (H − drawers is a catalog height);
  * - free shelves spread over a 160 mm grid (kitaplık 1984: 568 / 888 / 1208 /
- *   1528) and a hanger rod hangs 102 mm under the shelf or top panel above it
- *   (vestiyer 2304: 2186), see `layoutFreeFittings`.
+ *   1528) and a hanger rod hangs 101.68 mm under the top panel (vestiyer
+ *   2304: 2186.32), see `layoutFreeFittings`;
+ * - nothing above a hanger and the hanger / shelf counts of rules.ts
+ *   (`interiorRuleIssues`).
+ * Units of a low body (≤ 1344) get a crown (`crownByDefault`).
  */
 const CABIN_TEMPLATES: Record<DesignKind, CabinTemplate> = {
   gardirop: {
@@ -144,14 +150,14 @@ const CABIN_TEMPLATES: Record<DesignKind, CabinTemplate> = {
     depthMm: 640,
     hasPlinth: true,
     levels: {
-      ekonomik: { units: [{ fittings: ["drawer320", "hanger", "shelf"], hasDoor: true }] },
+      ekonomik: { units: [{ fittings: ["drawer320", "hanger"], hasDoor: true }] },
       dengeli: {
-        units: [{ fittings: ["drawer320", "drawer320", "hanger", "shelf"], hasDoor: true }],
+        units: [{ fittings: ["drawer320", "drawer320", "hanger"], hasDoor: true }],
       },
       premium: {
         units: [
           {
-            fittings: ["drawer320", "drawer160", "drawer160", "hanger", "shelf"],
+            fittings: ["drawer320", "drawer160", "drawer160", "hanger"],
             hasDoor: true,
           },
         ],
@@ -237,9 +243,11 @@ const CABIN_TEMPLATES: Record<DesignKind, CabinTemplate> = {
     depthMm: 480,
     hasPlinth: true,
     levels: {
+      // No shelf above the hanger (PnP-3D), so dengeli is the same as ekonomik
+      // until the product team gives it something else.
       ekonomik: { units: [{ fittings: ["hanger"], hasDoor: true }] },
-      dengeli: { units: [{ fittings: ["hanger", "shelf"], hasDoor: true }] },
-      premium: { units: [{ fittings: ["drawer320", "hanger", "shelf"], hasDoor: true }] },
+      dengeli: { units: [{ fittings: ["hanger"], hasDoor: true }] },
+      premium: { units: [{ fittings: ["drawer320", "hanger"], hasDoor: true }] },
     },
   },
   // The four below are sample templates (23 Oct): shelves behind doors.
@@ -320,11 +328,13 @@ export function planCabinet(input: PlanCabinetInput): PlanCabinetResult {
   const units = splitTotalWidthMm(totalMm, widths).map((widthMm, index) =>
     planUnit(index, widthMm, heightMm, spec.units[index % spec.units.length], color),
   );
+  const series = findFrontSeries(input.frontSeries);
   const composition = normalizeComposition({
     units,
     depthMm: template.depthMm,
     hasPlinth: template.hasPlinth,
     color,
+    ...(series ? { frontSeries: series.id } : {}),
   });
   return {
     composition,
@@ -428,7 +438,7 @@ function planUnit(
   interior: UnitInterior,
   color: CabinColorId,
 ): CabinUnit {
-  return {
+  const unit: CabinUnit = {
     id: `cabin-${index + 1}`,
     widthMm,
     heightMm,
@@ -436,6 +446,7 @@ function planUnit(
     hasDoor: interior.hasDoor,
     color,
   };
+  return crownByDefault(heightMm) ? { ...unit, hasCrown: true } : unit;
 }
 
 function formatCm(mm: number): string {

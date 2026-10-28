@@ -12,6 +12,7 @@ import {
   EDIT_ACTIONS,
   PLAN_LEVELS,
 } from "./engine";
+import { CABINET_RULES } from "./cabinet-core";
 import { KOSHOY_ROOM_SET_IDS } from "./room-sets";
 
 export const KOSHOY_TOOL_NAMES = [
@@ -45,7 +46,7 @@ export const KOSHOY_ROOM_TOOL_NAMES: readonly string[] = [
 const EDIT_OP_SCHEMA = {
   type: "object",
   description:
-    "One panel intent. unit = 0-based cabinet index from the left. Sizes are millimetres and snap to the nearest catalog value.",
+    "One panel intent. unit = 0-based cabinet index from the left. Sizes are millimetres and snap to the nearest catalog value; a height with no catalog value near it is refused. set_crown puts the crown (taç, the top cover of low cabinets) on or off a cabinet.",
   properties: {
     action: { type: "string", enum: [...EDIT_ACTIONS] },
     unit: { type: "integer", description: "0-based cabinet index, left to right" },
@@ -58,6 +59,14 @@ const EDIT_OP_SCHEMA = {
     heightMm: { type: "integer", description: `Cabinet height ${CABIN_HEIGHTS_MM.join("/")}` },
     depthMm: { type: "integer", description: CABIN_DEPTHS_MM.join(", ") },
     hasDoor: { type: "boolean" },
+    hasCrown: { type: "boolean" },
+    series: {
+      type: "string",
+      enum: CABINET_RULES.frontSeries.map((series) => series.id),
+      description: `set_front_series, for every door and drawer front of the design: ${CABINET_RULES.frontSeries
+        .map((series) => `${series.id} = ${series.label}`)
+        .join(", ")} (default ${CABINET_RULES.frontSeries[0].id}). Tell the customer only the name, never the id.`,
+    },
     target: { type: "string", enum: ["all", "unit", "door"] },
     color: { type: "string", enum: [...CABIN_COLOR_IDS] },
   },

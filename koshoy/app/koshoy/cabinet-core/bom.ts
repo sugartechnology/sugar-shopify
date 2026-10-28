@@ -11,6 +11,7 @@ import {
   layoutDrawerFronts,
   layoutFittings,
 } from "./fittings";
+import { CABINET_RULES, defaultFrontSeries } from "./rules";
 import type {
   CabinColorId,
   CabinComposition,
@@ -42,7 +43,8 @@ export const BOM_PARTS: readonly BomPart[] = [
 
 /**
  * One catalog part. Sizes follow the catalog record: KAPAK / CEKMECE_ON have
- * depth 0, RAF has height 0, ASKI only carries the unit width.
+ * depth 0, RAF has height 0, ASKI only carries the unit width, TAC is
+ * W × 25 × D (the body's nominal depth; the 20 mm overhang is not in the size).
  */
 export interface BomLine {
   part: BomPart;
@@ -52,6 +54,8 @@ export interface BomLine {
   color: CabinColorId;
   /** GOVDE only. */
   plinth?: boolean;
+  /** KAPAK and CEKMECE_ON only: front series id (`CABINET_RULES.frontSeries`). */
+  series?: string;
   qty: number;
 }
 
@@ -102,9 +106,9 @@ export interface SkuLine {
 
 /**
  * Parts list of a composition. The composition is normalized first and every
- * part comes from the layout the 3D view draws: closing shelf included, doors
- * only when they fit, door leaves per width. TAC is never emitted (no crown in
- * the model yet). Identical lines are merged and sorted.
+ * part comes from the layout the 3D view draws: closing and hanger shelves
+ * included, doors only when they fit, door leaves per width, one TAC per unit
+ * with a crown. Identical lines are merged and sorted.
  */
 export function toBom(composition: CabinComposition): BomLine[] {
   const normalized = normalizeComposition(composition);
@@ -159,14 +163,18 @@ function pushUnitParts(
   };
   const color = normalizeCabinColor(unit.color ?? composition.color);
   const fittings = unit.fittings ?? [];
+  const series = composition.frontSeries ?? defaultFrontSeries().id;
   lines.push(
     part("GOVDE", size.widthMm, size.heightMm, size.depthMm, color, size.hasPlinth),
   );
   if (unit.hasDoor) {
     const doorColor = normalizeCabinColor(unit.doorColor ?? color);
     for (const leaf of layoutDoors(size, fittings)) {
-      lines.push(part("KAPAK", leaf.size.x, leaf.size.y, 0, doorColor));
+      lines.push({ ...part("KAPAK", leaf.size.x, leaf.size.y, 0, doorColor), series });
     }
+  }
+  if (unit.hasCrown) {
+    lines.push(part("TAC", size.widthMm, CABINET_RULES.crownThicknessMm, size.depthMm, color));
   }
   const placed = layoutFittings(size, fittings);
   for (const item of placed) {
@@ -186,9 +194,10 @@ function pushUnitParts(
   for (const front of layoutDrawerFronts(size, fittings)) {
     const fittingId = front.id.replace(/^drawerFront-/, "");
     if (!placedIds.has(fittingId)) continue;
-    lines.push(
-      part("CEKMECE_ON", front.size.x, front.size.y, 0, drawerColor(fittings, fittingId, color)),
-    );
+    lines.push({
+      ...part("CEKMECE_ON", front.size.x, front.size.y, 0, drawerColor(fittings, fittingId, color)),
+      series,
+    });
   }
 }
 
@@ -222,6 +231,7 @@ function lineKey(line: BomLine): string {
     line.depthMm,
     line.color,
     line.plinth === undefined ? "" : String(line.plinth),
+    line.series ?? "",
   ].join("|");
 }
 

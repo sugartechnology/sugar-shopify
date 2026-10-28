@@ -4,6 +4,7 @@
  */
 import {
   CABIN_COLOR_LABELS,
+  CABIN_HEIGHTS_MM,
   CABIN_TOTAL_WIDTH_SAFETY_MM,
   CABIN_WIDTHS_MM,
   DESIGN_KIND_LABELS,
@@ -20,6 +21,7 @@ import {
   type PlanInput,
   type PlanResult,
 } from "./engine";
+import { frontSeriesOf } from "./cabinet-core";
 import { PRICE_PLACEHOLDER, toPublicEvent, type DesignSummary, type PublicEvent } from "./events";
 import { formatTl, type KoshoyPricer, type KoshoyQuote } from "./pricing.server";
 import type {
@@ -65,6 +67,8 @@ const EDIT_REJECT_HINTS: Record<EditRejectReason | "stale", string> = {
   invalid_composition: "Bu değişiklik bu tasarımda yapılamıyor.",
   invalid_unit: "Tasarımda böyle bir gövde yok; gövdeler soldan sağa sayılır.",
   no_room: "Bu gövdede o parça için yer kalmadı.",
+  above_hanger: "Askının üstüne raf konmaz; askının yeri boş kalır. Raf askının altına ya da başka bir gövdeye konabilir.",
+  height_unavailable: `Bu yükseklikte gövde yok; yükseklikler: ${CABIN_HEIGHTS_MM.map(cmText).join(", ")} cm.`,
   door_too_short: `Kapak için yeterli yükseklik kalmıyor; kapak en az ${cmText(DOOR_MIN_HEIGHT_MM)} cm olmalı.`,
   door_size_unavailable:
     "Bu çekmece düzeniyle kapak ölçüsü katalogda yok; farklı bir çekmece seçilebilir ya da kapak kaldırılabilir.",
@@ -82,6 +86,8 @@ const EDIT_WARNING_TEXTS: Record<EditWarning, string> = {
   fittings_trimmed: "Sığmayan iç parçalar çıkarıldı.",
   door_removed: "Kapak artık sığmadığından kaldırıldı.",
   units_removed: "Genişlik küçüldüğü için fazla gövdeler kaldırıldı.",
+  crown_added: "Gövde alçaldığı için üstüne taç eklendi.",
+  crown_removed: "Gövde yükseldiği için üstündeki taç kaldırıldı.",
 };
 
 /**
@@ -170,6 +176,7 @@ export function designForModel(design: KoshoyDesign, active: boolean) {
     depthCm: c.depthMm / 10,
     plinth: c.hasPlinth,
     color: c.color ? CABIN_COLOR_LABELS[c.color] : undefined,
+    fronts: frontSeriesOf(c.frontSeries).label,
     units: c.units.map((unit, index) => ({
       unit: index,
       widthCm: unit.widthMm / 10,
@@ -180,6 +187,7 @@ export function designForModel(design: KoshoyDesign, active: boolean) {
         unit.hasDoor && unit.doorColor && unit.doorColor !== unit.color
           ? CABIN_COLOR_LABELS[unit.doorColor]
           : undefined,
+      crown: unit.hasCrown === true,
       // Bottom → top; drawers always sit at the bottom.
       fittings: unit.fittings.map((item, i) => ({ index: i, name: FITTING_LABELS[item.kind] })),
     })),
@@ -295,6 +303,10 @@ function editActionText(op: EditOp, design: KoshoyDesign): string {
       return `Derinlik ${cmText(c.depthMm)} cm oldu.`;
     case "set_door":
       return op.hasDoor ? `${nth(op.unit)}ye kapak eklendi.` : `${nth(op.unit)}nin kapağı çıkarıldı.`;
+    case "set_crown":
+      return op.hasCrown ? `${nth(op.unit)}ye taç eklendi.` : `${nth(op.unit)}nin tacı çıkarıldı.`;
+    case "set_front_series":
+      return `Kapaklar ${frontSeriesOf(op.series).label.toLocaleLowerCase("tr-TR")} oldu.`;
     case "set_color": {
       const color = CABIN_COLOR_LABELS[op.color].toLocaleLowerCase("tr-TR");
       if (op.target === "all") return `Renk ${color} oldu.`;

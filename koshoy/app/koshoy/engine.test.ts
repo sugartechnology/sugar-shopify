@@ -113,10 +113,17 @@ describe("koshoy cabinet engine contract", () => {
       { ok: false, reason: "total_width_exceeded" },
     );
     const tv = engine.planCabinet({ kind: "tv_unitesi" });
-    // 544 mm high door unit: a 320 drawer leaves less than 320 mm of door.
+    // 544 mm high door unit: 320 + 160 mm of drawers leave no door (a 157 mm door is fine, PnP-3D V22).
+    const big = engine.applyEditOp(tv.composition, { action: "add_fitting", unit: 0, kind: "drawer320" });
+    assert.ok(big.ok);
     assert.deepEqual(
-      engine.applyEditOp(tv.composition, { action: "add_fitting", unit: 0, kind: "drawer320" }),
+      engine.applyEditOp(big.composition, { action: "add_fitting", unit: 0, kind: "drawer160" }),
       { ok: false, reason: "door_too_short" },
+    );
+    // No shelf above the hanger (PnP-3D).
+    assert.deepEqual(
+      engine.applyEditOp(plan.composition, { action: "add_fitting", unit: 0, kind: "shelf" }),
+      { ok: false, reason: "above_hanger" },
     );
     // Off-grid sizes snap to the nearest catalog value instead of failing.
     const snapped = engine.applyEditOp(plan.composition, {
@@ -135,7 +142,7 @@ describe("koshoy cabinet engine contract", () => {
     assert.ok(drawer.ok);
     assert.deepEqual(
       drawer.composition.units[1].fittings.map((item) => item.kind),
-      ["drawer320", "drawer320", "drawer160", "hanger", "shelf"],
+      ["drawer320", "drawer320", "drawer160", "hanger"],
     );
     assert.deepEqual(
       engine.applyEditOp(plan.composition, { action: "set_color", target: "all", color: "wood" }),
@@ -164,7 +171,7 @@ describe("koshoy cabinet engine contract", () => {
         }
       }
     }
-    // The 160 mm shelf grid takes ten free shelves in a kitaplık unit, under the cap.
+    // PnP-3D's shelf count (N − 1) takes eleven shelves in a 1984 kitaplık unit, under the cap.
     let composition = engine.planCabinet({ kind: "kitaplik" }).composition;
     let added = 0;
     for (let i = 0; i < 40; i += 1) {
@@ -176,7 +183,7 @@ describe("koshoy cabinet engine contract", () => {
       composition = result.composition;
       added += 1;
     }
-    assert.equal(composition.units[0].fittings.length, 10);
+    assert.equal(composition.units[0].fittings.length, 11);
     assert.ok(composition.units[0].fittings.length <= KOSHOY_MAX_FITTINGS_PER_UNIT);
     assert.ok(added > 0 && added < 40);
   });

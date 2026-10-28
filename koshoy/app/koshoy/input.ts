@@ -117,6 +117,15 @@ export function parseEditOp(raw: unknown): EditOp | null {
       return unit !== null && typeof row.hasDoor === "boolean"
         ? { action: "set_door", unit, hasDoor: row.hasDoor }
         : null;
+    case "set_crown":
+      return unit !== null && typeof row.hasCrown === "boolean"
+        ? { action: "set_crown", unit, hasCrown: row.hasCrown }
+        : null;
+    case "set_front_series":
+      // The core checks the id against its series table.
+      return typeof row.series === "string" && row.series.length <= 40
+        ? { action: "set_front_series", series: row.series }
+        : null;
     case "set_color": {
       const target = oneOf(row.target, ["all", "unit", "door"] as const);
       const color = oneOf<CabinColorId>(row.color, CABIN_COLOR_IDS);

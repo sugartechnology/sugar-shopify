@@ -569,22 +569,25 @@ describe("koshoy turn loop", () => {
     const { stream, bodies } = scriptedStream([
       [call("call_plan", "plan_cabinet", { kind: "tv_unitesi" })],
       [
+        // 544 − 67 − 320 = 157: a 320 drawer fits under the door, 160 more does not.
         call("call_drawer", "edit_design", { op: { action: "add_fitting", unit: 0, kind: "drawer320" } }),
+        call("call_full", "edit_design", { op: { action: "add_fitting", unit: 0, kind: "drawer160" } }),
         call("call_same", "edit_design", { op: { action: "set_color", target: "all", color: "wood" } }),
         call("call_wide", "edit_design", { op: { action: "set_total_width", widthMm: 30000 } }),
         call("call_shelf", "edit_design", { op: { action: "add_fitting", unit: 0, kind: "shelf" } }),
         call("call_quote", "quote", {}),
       ],
-      [{ event: "text", data: { text: "Kapak en az 32 cm olmalı, toplam en fazla 2000 cm." } }],
+      [{ event: "text", data: { text: "Kapak en az 16 cm olmalı, toplam en fazla 2000 cm." } }],
     ]);
     const events = await turn(ctx, ctx.session, { type: "message", text: "TV ünitesi" }, { stream });
     const results = bodies[2].toolResults as Array<{ id: string; payload: Record<string, unknown> }>;
     const byId = Object.fromEntries(results.map((row) => [row.id, row.payload]));
 
-    assert.deepEqual(byId.call_drawer, {
+    assert.equal(byId.call_drawer.ok, true);
+    assert.deepEqual(byId.call_full, {
       ok: false,
       error: "rejected",
-      hint: "Kapak için yeterli yükseklik kalmıyor; kapak en az 32 cm olmalı.",
+      hint: "Kapak için yeterli yükseklik kalmıyor; kapak en az 16 cm olmalı.",
     });
     assert.equal(byId.call_same.ok, true);
     assert.equal(byId.call_same.changed, false);
@@ -597,14 +600,20 @@ describe("koshoy turn loop", () => {
     assert.equal(byId.call_shelf.ok, true);
     assert.equal(byId.call_shelf.changed, true);
     const design = byId.call_shelf.design as { units: Array<{ fittings: Array<{ name: string }> }> };
-    assert.deepEqual(design.units[0].fittings, [{ index: 0, name: "raf" }]);
+    // The shelf takes the closing shelf's place above the drawer.
+    assert.deepEqual(design.units[0].fittings, [
+      { index: 0, name: "büyük çekmece" },
+      { index: 1, name: "raf" },
+    ]);
     assert.ok(!("version" in (byId.call_shelf.design as object)), "versions stay server-side");
     assert.deepEqual(byId.call_quote.parts, [
       { name: "gövde", qty: 2 },
       { name: "kapak", qty: 2 },
       { name: "raf", qty: 2 },
-      { name: "çekmece", qty: 2 },
-      { name: "çekmece önü", qty: 2 },
+      { name: "çekmece", qty: 3 },
+      { name: "çekmece önü", qty: 3 },
+      // Low bodies (≤ 1344) have a crown.
+      { name: "taç", qty: 2 },
     ]);
     const payloadText = JSON.stringify(results);
     for (const marker of ["door_too_short", "total_width_exceeded", "no_change", "GOVDE", "KAPAK-", "sku"]) {
@@ -613,12 +622,12 @@ describe("koshoy turn loop", () => {
 
     // Hint numbers are server facts, so the reply may repeat them.
     const reply = events.filter((event) => event.type === "text").at(-1);
-    assert.deepEqual(reply, { type: "text", text: "Kapak en az 32 cm olmalı, toplam en fazla 2000 cm." });
+    assert.deepEqual(reply, { type: "text", text: "Kapak en az 16 cm olmalı, toplam en fazla 2000 cm." });
     const scenes = events.filter((event) => event.type === "scene");
     assert.deepEqual(
       scenes.map((event) => (event.type === "scene" ? event.version : 0)),
-      [1, 2],
-      "only the accepted change publishes a new scene",
+      [1, 2, 3],
+      "only the accepted changes publish a new scene",
     );
   });
 
