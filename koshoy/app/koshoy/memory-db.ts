@@ -6,15 +6,18 @@ import type { KoshoyLayoutRow } from "./layout.server";
 import type { KoshoyPhoneLinkDb, KoshoyPhoneLinkRow } from "./phone-link.server";
 import { measureRoom } from "./room-measure.server";
 import type { KoshoyRenderRow, KoshoyRoomDb, KoshoyRoomRow, RoomPlanes } from "./room.server";
+import type { KoshoyRoomSessionsDb } from "./room-sessions.server";
 import type {
   KoshoyDb,
   KoshoyDesignRow,
+  KoshoySessionKeyRow,
   KoshoySessionRow,
 } from "./store.server";
 
 export function createMemoryKoshoyDb(now: () => number = Date.now) {
   const sessions = new Map<string, KoshoySessionRow>();
   const designs = new Map<string, KoshoyDesignRow>();
+  const keys = new Map<string, KoshoySessionKeyRow>();
   let tick = 0;
   // Strictly increasing timestamps keep createdAt ordering deterministic.
   const stamp = () => new Date(now() + (tick += 1) / 1000);
@@ -30,6 +33,10 @@ export function createMemoryKoshoyDb(now: () => number = Date.now) {
         return { ...row };
       },
       async findUnique({ where }) {
+        if ("id" in where) {
+          const row = sessions.get(where.id);
+          return row ? { ...row } : null;
+        }
         for (const row of sessions.values()) {
           if (row.tokenHash === where.tokenHash) return { ...row };
         }
@@ -49,8 +56,37 @@ export function createMemoryKoshoyDb(now: () => number = Date.now) {
             for (const [designId, design] of designs) {
               if (design.sessionId === id) designs.delete(designId);
             }
+            for (const [hash, key] of keys) {
+              if (key.sessionId === id) keys.delete(hash);
+            }
             count += 1;
           }
+        }
+        return { count };
+      },
+    },
+    koshoySessionKey: {
+      async findUnique({ where }) {
+        const row = keys.get(where.tokenHash);
+        return row ? { ...row } : null;
+      },
+      async create({ data }) {
+        if (keys.has(data.tokenHash)) throw new Error("unique tokenHash");
+        if (!sessions.has(data.sessionId)) throw new Error("foreign key");
+        const row: KoshoySessionKeyRow = { ...data, createdAt: stamp() };
+        keys.set(row.tokenHash, row);
+        return { ...row };
+      },
+      async findMany({ where }) {
+        return [...keys.values()]
+          .filter((row) => row.sessionId === where.sessionId)
+          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+          .map((row) => ({ ...row }));
+      },
+      async deleteMany({ where }) {
+        let count = 0;
+        for (const hash of where.tokenHash.in) {
+          if (keys.delete(hash)) count += 1;
         }
         return { count };
       },
@@ -89,7 +125,7 @@ export function createMemoryKoshoyDb(now: () => number = Date.now) {
     },
   };
 
-  return { db, sessions, designs };
+  return { db, sessions, designs, keys };
 }
 
 /**
@@ -147,6 +183,78 @@ export function createMemoryRoomDb(now: () => number = Date.now) {
   const koshoyRender = table<KoshoyRenderRow>();
   const db: KoshoyRoomDb = { koshoyRoom, koshoyRender, koshoyLayout };
   return { db, rooms: koshoyRoom.rows, renders: koshoyRender.rows, layouts };
+}
+
+/**
+ * The room list / delete slice over the in-memory session, design, room and
+ * render tables (findMany with the id-or-customer OR, delete with cascade).
+ */
+export function createMemoryRoomSessionsDb(
+  koshoy: ReturnType<typeof createMemoryKoshoyDb>,
+  rooms: ReturnType<typeof createMemoryRoomDb> = createMemoryRoomDb(),
+): KoshoyRoomSessionsDb {
+  const { sessions, designs, keys } = koshoy;
+  const bySession = <Row extends { sessionId: string }>(table: Map<string, Row>, sessionId: string) =>
+    [...table.entries()].filter(([, row]) => row.sessionId === sessionId);
+  return {
+    koshoySession: {
+      async findMany({ where, orderBy, take }) {
+        void orderBy;
+        return [...sessions.values()]
+          .filter(
+            (row) =>
+              row.shop === where.shop &&
+              row.expiresAt.getTime() > where.expiresAt.gt.getTime() &&
+              where.OR.some((match) =>
+                "customerId" in match ? row.customerId === match.customerId : match.id.in.includes(row.id),
+              ),
+          )
+          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+          .slice(0, take)
+          .map((row) => ({ ...row }));
+      },
+      async findFirst({ where }) {
+        const row = sessions.get(where.id);
+        const match =
+          row &&
+          row.shop === where.shop &&
+          row.customerId === where.customerId &&
+          row.expiresAt.getTime() > where.expiresAt.gt.getTime();
+        return match ? { ...row } : null;
+      },
+      async delete({ where }) {
+        if (!sessions.delete(where.id)) throw new Error("record not found");
+        for (const [id] of bySession(designs, where.id)) designs.delete(id);
+        for (const [hash] of bySession(keys, where.id)) keys.delete(hash);
+        rooms.layouts.delete(where.id);
+      },
+    },
+    koshoyDesign: {
+      async count({ where }) {
+        return bySession(designs, where.sessionId).length;
+      },
+    },
+    koshoyRoom: {
+      async findMany({ where }) {
+        return bySession(rooms.rooms, where.sessionId).map(([, row]) => ({ ...row }));
+      },
+      async deleteMany({ where }) {
+        const gone = bySession(rooms.rooms, where.sessionId);
+        for (const [id] of gone) rooms.rooms.delete(id);
+        return { count: gone.length };
+      },
+    },
+    koshoyRender: {
+      async findMany({ where }) {
+        return bySession(rooms.renders, where.sessionId).map(([, row]) => ({ ...row }));
+      },
+      async deleteMany({ where }) {
+        const gone = bySession(rooms.renders, where.sessionId);
+        for (const [id] of gone) rooms.renders.delete(id);
+        return { count: gone.length };
+      },
+    },
+  };
 }
 
 /**

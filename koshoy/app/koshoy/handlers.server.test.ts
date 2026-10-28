@@ -12,9 +12,10 @@ import {
   koshoyTurnError,
   type KoshoyRequestContext,
 } from "./handlers.server";
-import { createMemoryKoshoyDb } from "./memory-db";
+import { createMemoryKoshoyDb, createMemoryRoomSessionsDb } from "./memory-db";
 import { createKoshoyPricer, createMockSkuResolver } from "./pricing.server";
 import { createBusyLock, createRateLimiter } from "./rate-limit.server";
+import { handleKoshoySessionDelete, handleKoshoySessions } from "./room-sessions-handlers.server";
 import { createKoshoyStore } from "./store.server";
 import type { KoshoyStreamFn } from "./turn.server";
 
@@ -43,7 +44,8 @@ const GOLDEN: CabinComposition = {
 };
 
 function makeCtx(overrides: Partial<KoshoyRequestContext> = {}): KoshoyRequestContext {
-  const store = createKoshoyStore(createMemoryKoshoyDb().db);
+  const koshoyDb = createMemoryKoshoyDb();
+  const store = createKoshoyStore(koshoyDb.db);
   const loose = () => createRateLimiter({ limit: 100, windowMs: 60_000 });
   return {
     shop: SHOP,
@@ -66,11 +68,13 @@ function makeCtx(overrides: Partial<KoshoyRequestContext> = {}): KoshoyRequestCo
       render: loose(),
       roomRead: loose(),
       layout: loose(),
+      rooms: loose(),
     },
     busy: createBusyLock(),
     chatConfig: async () => ({ apiKey: "", mock: true }),
     journeyData: async () => KOSHOY_DATA_DEFAULTS,
     customerId: "c1",
+    roomSessions: createMemoryRoomSessionsDb(koshoyDb),
     ...overrides,
   };
 }
@@ -110,7 +114,7 @@ async function openSession(ctx: KoshoyRequestContext) {
 
 /** The customer approved every design as it is now; the cart takes approved products only. */
 async function approveAll(ctx: KoshoyRequestContext, token: string) {
-  const session = await ctx.store.findSession(token, SHOP);
+  const session = await ctx.store.findSession(token, SHOP, ctx.customerId);
   assert.ok(session);
   for (const design of await ctx.store.listDesigns(session.id)) {
     session.journey.approvals[design.id] = { status: "approved", version: design.version };
@@ -425,7 +429,7 @@ describe("koshoy studio handlers", () => {
   it("shows the product card again when a panel edit changes an approved product", async () => {
     const ctx = makeCtx();
     const { session: token } = await openSession(ctx);
-    const session = await ctx.store.findSession(token, SHOP);
+    const session = await ctx.store.findSession(token, SHOP, ctx.customerId);
     assert.ok(session);
     const design = await ctx.store.createDesign(session.id, {
       kind: "kitaplik",
@@ -452,7 +456,7 @@ describe("koshoy studio handlers", () => {
   it("takes only an approved product, as it is now, into the cart (ClickUp z8qu5d7rdv)", async () => {
     const ctx = makeCtx({ pricer: createKoshoyPricer(cabinetEngine, createMockSkuResolver()) });
     const { session: token } = await openSession(ctx);
-    const session = await ctx.store.findSession(token, SHOP);
+    const session = await ctx.store.findSession(token, SHOP, ctx.customerId);
     assert.ok(session);
     const design = await ctx.store.createDesign(session.id, { kind: "gardirop", label: "Gardırop 192 cm", composition: GOLDEN });
     const cart = async () =>
@@ -472,7 +476,7 @@ describe("koshoy studio handlers", () => {
   it("recomputes the golden cart from the stored design, ignoring browser data", async () => {
     const ctx = makeCtx({ pricer: createKoshoyPricer(cabinetEngine, createMockSkuResolver()) });
     const { session: token } = await openSession(ctx);
-    const session = await ctx.store.findSession(token, SHOP);
+    const session = await ctx.store.findSession(token, SHOP, ctx.customerId);
     assert.ok(session);
     const design = await ctx.store.createDesign(session.id, {
       kind: "gardirop",
@@ -650,7 +654,7 @@ describe("koshoy studio handlers", () => {
     const ctx = makeCtx();
     const { session: token } = await openSession(ctx);
     const scene = await planGardirop(ctx, token);
-    const session = await ctx.store.findSession(token, SHOP);
+    const session = await ctx.store.findSession(token, SHOP, ctx.customerId);
     assert.ok(session);
     assert.ok(ctx.busy.acquire(session.id), "simulated running turn");
     const refused = await handleKoshoyEdit(
@@ -722,7 +726,7 @@ describe("koshoy studio handlers", () => {
     }
     assert.ok(rejected > 0, "the cap refused further shelves");
 
-    const session = await ctx.store.findSession(token, SHOP);
+    const session = await ctx.store.findSession(token, SHOP, ctx.customerId);
     const design = await ctx.store.getDesign(session!.id, scene.designId);
     assert.ok(design);
     assert.deepEqual(
@@ -751,7 +755,7 @@ describe("koshoy studio handlers", () => {
   it("refuses a cart for a stored design the scene cannot carry in full", async () => {
     const ctx = makeCtx();
     const { session: token } = await openSession(ctx);
-    const session = await ctx.store.findSession(token, SHOP);
+    const session = await ctx.store.findSession(token, SHOP, ctx.customerId);
     const shelves = Array.from({ length: 24 }, (_, i) => ({ id: `fit-${i + 1}`, kind: "shelf" as const }));
     const design = await ctx.store.createDesign(session!.id, {
       kind: "kitaplik",
@@ -812,8 +816,8 @@ describe("koshoy studio handlers", () => {
     let raced = false;
     let turnStatus = 0;
     // The edit's first read happens, then a whole turn runs before it gets the lock.
-    ctx.store.findSession = async (presented, shop) => {
-      const copy = await findSession(presented, shop);
+    ctx.store.findSession = async (presented, shop, customerId) => {
+      const copy = await findSession(presented, shop, customerId);
       if (!raced) {
         raced = true;
         const turned = await handleKoshoyTurn(
@@ -834,7 +838,7 @@ describe("koshoy studio handlers", () => {
     assert.equal(turnStatus, 200);
     assert.equal(edit.ok, true);
 
-    const session = await findSession(token, SHOP);
+    const session = await findSession(token, SHOP, ctx.customerId);
     assert.ok(session);
     assert.equal((await ctx.store.listDesigns(session.id)).length, 2);
     const transcript = session.events.map((event) => (event.type === "text" ? event.text : "")).join("\n");
@@ -869,7 +873,7 @@ describe("koshoy studio handlers", () => {
     ctx.store.getDesign = getDesign;
     assert.equal(edit.ok, true);
     assert.equal(turnStatus, 429, "the turn waits for the edit instead of racing it");
-    const session = await ctx.store.findSession(token, SHOP);
+    const session = await ctx.store.findSession(token, SHOP, ctx.customerId);
     assert.equal((await ctx.store.listDesigns(session!.id)).length, 1);
   });
 
@@ -879,8 +883,8 @@ describe("koshoy studio handlers", () => {
     const scene = await planGardirop(ctx, token);
     const findSession = ctx.store.findSession.bind(ctx.store);
     let raced = false;
-    ctx.store.findSession = async (presented, shop) => {
-      const copy = await findSession(presented, shop);
+    ctx.store.findSession = async (presented, shop, customerId) => {
+      const copy = await findSession(presented, shop, customerId);
       if (!raced) {
         raced = true;
         await handleKoshoyEdit(
@@ -896,7 +900,7 @@ describe("koshoy studio handlers", () => {
     );
     ctx.store.findSession = findSession;
     assert.equal(turned.status, 200);
-    const session = await findSession(token, SHOP);
+    const session = await findSession(token, SHOP, ctx.customerId);
     const transcript = session!.events.map((event) => (event.type === "text" ? event.text : "")).join("\n");
     assert.match(transcript, /Panelden: 2\. gövdeye küçük çekmece eklendi\./, "the edit's line survived the turn");
   });
@@ -905,7 +909,7 @@ describe("koshoy studio handlers", () => {
     const ctx = makeCtx();
     const { session: token } = await openSession(ctx);
     const wardrobe = await planGardirop(ctx, token);
-    const session = await ctx.store.findSession(token, SHOP);
+    const session = await ctx.store.findSession(token, SHOP, ctx.customerId);
     assert.ok(session);
     const plan = cabinetEngine.planCabinet({ kind: "kitaplik" });
     const shelf = await ctx.store.createDesign(session.id, {
@@ -929,7 +933,7 @@ describe("koshoy studio handlers", () => {
     );
     assert.equal(scene.designId, shelf.id);
     assert.deepEqual(scene.unitWidthsMm, [320, 480, 640]);
-    assert.equal((await ctx.store.findSession(token, SHOP))?.activeDesignId, shelf.id);
+    assert.equal((await ctx.store.findSession(token, SHOP, ctx.customerId))?.activeDesignId, shelf.id);
     assert.ok(!LEAKS.test(JSON.stringify(body)));
 
     const unknown = await handleKoshoySelect(post("select", { designId: "nope" }, { token }), ctx);
@@ -944,13 +948,13 @@ describe("koshoy studio handlers", () => {
     const busy = await handleKoshoySelect(post("select", { designId: wardrobe.designId }, { token }), ctx);
     assert.equal(busy.status, 429);
     ctx.busy.release(session.id);
-    assert.equal((await ctx.store.findSession(token, SHOP))?.activeDesignId, shelf.id);
+    assert.equal((await ctx.store.findSession(token, SHOP, ctx.customerId))?.activeDesignId, shelf.id);
   });
 
   it("applies the kind's size rules to panel edits", async () => {
     const ctx = makeCtx();
     const { session: token } = await openSession(ctx);
-    const session = await ctx.store.findSession(token, SHOP);
+    const session = await ctx.store.findSession(token, SHOP, ctx.customerId);
     assert.ok(session);
     const plan = cabinetEngine.planCabinet({ kind: "kitaplik" });
     const shelf = await ctx.store.createDesign(session.id, {
@@ -969,5 +973,80 @@ describe("koshoy studio handlers", () => {
     const body = (await wide.json()) as { ok: boolean; events: PublicEvent[] };
     assert.equal(body.ok, false);
     assert.equal(body.events[0].type, "error");
+  });
+});
+
+describe("room sessions endpoints (CONTRACT §2.8)", () => {
+  type RoomList = { rooms: Array<{ ref: string; key?: string; name: string }>; account: boolean; max: number };
+  const listRooms = async (ctx: KoshoyRequestContext, keys: string[]) =>
+    (await (await handleKoshoySessions(post("sessions", { keys }), ctx)).json()) as RoomList;
+
+  it("joins a guest's room to the account on sign-in and hides it after sign-out", async () => {
+    const tracked: string[] = [];
+    const guest = makeCtx({ customerId: null });
+    const { session: token } = await openSession(guest);
+    const signedIn: KoshoyRequestContext = { ...guest, customerId: "c1", track: (_id, name) => tracked.push(name) };
+    const same = (await (await handleKoshoySession(post("session", {}, { token }), signedIn)).json()) as { session: string };
+    assert.equal(same.session, token, "the same room goes on");
+    assert.deepEqual(tracked, ["signed_in"]);
+
+    const signedOut = (await (await handleKoshoySession(post("session", {}, { token }), guest)).json()) as { session: string };
+    assert.notEqual(signedOut.session, token, "a new room starts");
+    const turn = await handleKoshoyTurn(
+      post("turn", { input: { type: "message", text: "Merhaba" } }, { token, accept: "application/json" }),
+      guest,
+    );
+    assert.equal(turn.status, 401);
+    assert.deepEqual((await listRooms(guest, [token])).rooms, []);
+  });
+
+  it("opens an account room on another device with a token of its own", async () => {
+    const ctx = makeCtx();
+    const { session: token } = await openSession(ctx);
+    // A used room: an unused one shows only in the browser that opened it.
+    await handleKoshoyTurn(
+      post("turn", { input: { type: "message", text: "Merhaba" } }, { token, accept: "application/json" }),
+      ctx,
+    );
+    const list = await listRooms(ctx, []);
+    assert.deepEqual([list.account, list.max, list.rooms.length], [true, 10, 1]);
+    assert.equal(list.rooms[0].key, undefined, "not this device's room yet");
+
+    const opened = (await (await handleKoshoySession(post("session", { open: list.rooms[0].ref }), ctx)).json()) as {
+      session: string;
+    };
+    assert.ok(opened.session);
+    assert.notEqual(opened.session, token);
+    assert.equal((await listRooms(ctx, [opened.session])).rooms[0].key, opened.session);
+
+    const guest = await handleKoshoySession(post("session", { open: list.rooms[0].ref }), { ...ctx, customerId: null });
+    assert.equal(guest.status, 401);
+    const unknown = await handleKoshoySession(post("session", { open: "no-such-room" }), ctx);
+    assert.equal(unknown.status, 401);
+  });
+
+  it("lists this browser's rooms and deletes one with its token", async () => {
+    const ctx = makeCtx({ customerId: null });
+    const first = (await openSession(ctx)).session;
+    const second = (
+      (await (await handleKoshoySession(post("session", { reset: true }, { token: first }), ctx)).json()) as {
+        session: string;
+      }
+    ).session;
+    const list = await listRooms(ctx, [first, second, "not-a-token"]);
+    assert.deepEqual(list.rooms.map((room) => [room.name, room.key]).sort(), [
+      ["Yeni oda", first],
+      ["Yeni oda 2", second],
+    ].sort());
+    assert.equal(list.account, false);
+
+    const ref = list.rooms.find((room) => room.key === first)!.ref;
+    const deleted = await handleKoshoySessionDelete(post("session-delete", { ref, key: first }), ctx);
+    assert.deepEqual(await deleted.json(), { ok: true });
+    assert.deepEqual((await listRooms(ctx, [first, second])).rooms.map((room) => room.key), [second]);
+    const again = await handleKoshoySessionDelete(post("session-delete", { ref, key: first }), ctx);
+    assert.equal(again.status, 401);
+    const bad = await handleKoshoySessionDelete(post("session-delete", { ref: "../x" }), ctx);
+    assert.equal(bad.status, 400);
   });
 });

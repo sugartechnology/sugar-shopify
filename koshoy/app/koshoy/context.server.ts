@@ -21,6 +21,7 @@ import {
 import type { KoshoyPhoneDeps, KoshoyPhoneLinkDb } from "./phone-link.server";
 import { createBusyLock, createRateLimiter, KOSHOY_LIMITS } from "./rate-limit.server";
 import type { KoshoyRoomDb, KoshoyRoomDeps } from "./room.server";
+import type { KoshoyRoomSessionsDb } from "./room-sessions.server";
 import { createKoshoyStore, type KoshoyDb } from "./store.server";
 import { koshoyData } from "./data.server";
 import { deviceFromUserAgent, recordKoshoyEvent, type KoshoyEventDb } from "./journey-events.server";
@@ -38,6 +39,7 @@ const limits = {
   render: createRateLimiter(KOSHOY_LIMITS.render),
   roomRead: createRateLimiter(KOSHOY_LIMITS.roomRead),
   layout: createRateLimiter(KOSHOY_LIMITS.layout),
+  rooms: createRateLimiter(KOSHOY_LIMITS.rooms),
 };
 const phoneLimits: KoshoyPhoneDeps["limits"] = {
   create: createRateLimiter(KOSHOY_LIMITS.phoneLink),
@@ -159,6 +161,7 @@ export async function koshoyContextFromProxy(
     },
     journeyData: () => koshoyData().snapshot(),
     customerId,
+    roomSessions: prisma as unknown as KoshoyRoomSessionsDb,
     track(sessionId, name, props) {
       void recordKoshoyEvent(prisma as unknown as KoshoyEventDb, { sessionId, name, device, props });
     },

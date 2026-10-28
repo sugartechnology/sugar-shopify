@@ -137,6 +137,7 @@ describe("koshoy session store", () => {
       shop: SHOP,
       activeDesignId: null,
       roomId: null,
+      customerId: null,
       modelSessionId: "m",
       brief: { room: "", style: "", level: "" as const, color: "" as const, notes: "" },
       events: [],

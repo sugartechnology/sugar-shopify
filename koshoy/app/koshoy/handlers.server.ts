@@ -21,6 +21,7 @@ import {
   parseDesignImage,
   parseDesignRef,
   parseEditOp,
+  parseOpaqueId,
 } from "./input";
 import {
   hitAll,
@@ -44,6 +45,7 @@ import {
 import { runKoshoyTurn, type KoshoyStreamFn } from "./turn.server";
 import { roomView, type KoshoyRoomDeps, type RoomView } from "./room.server";
 import type { KoshoyPhoneDeps } from "./phone-link.server";
+import type { KoshoyRoomSessionsDb } from "./room-sessions.server";
 import { approvalOf } from "./journey";
 import { journeyView, stageCards, type KoshoyJourneyData } from "./journey.server";
 import type { KoshoyJourneyEvent } from "./journey-events.server";
@@ -89,6 +91,8 @@ export interface KoshoyRequestContext extends KoshoyDesignDeps {
     roomRead: KoshoyRateLimiter;
     /** layout writes, keyed by session id */
     layout: KoshoyRateLimiter;
+    /** room list reads and room deletes, keyed by koshoyClientKey */
+    rooms: KoshoyRateLimiter;
   };
   busy: KoshoyBusyLock;
   /** Loaded lazily (shop metafields) only when a turn actually runs. */
@@ -104,6 +108,8 @@ export interface KoshoyRequestContext extends KoshoyDesignDeps {
   journeyData(): Promise<KoshoyJourneyData>;
   /** Signed-in shop customer from the App Proxy request; null for guests. */
   customerId: string | null;
+  /** Room list and room delete (room-sessions-handlers.server.ts). */
+  roomSessions: KoshoyRoomSessionsDb;
   /** Journey measurement for this request's session (journey-events.server.ts). */
   track?: (sessionId: string, name: KoshoyJourneyEvent, props?: Record<string, string | number>) => void;
 }
@@ -216,7 +222,7 @@ export async function loadSession(
   body: Record<string, unknown>,
 ): Promise<KoshoySessionState | null> {
   const token = presentedToken(request, body);
-  return token ? ctx.store.findSession(token, ctx.shop) : null;
+  return token ? ctx.store.findSession(token, ctx.shop, ctx.customerId) : null;
 }
 
 /**
@@ -315,22 +321,36 @@ export async function handleKoshoySession(
     }
     const body = await readJson(request);
     const presented = presentedToken(request, body);
+    // Every new session or device key is a DB row and a fresh per-session turn budget.
+    const newSessionAllowed = () =>
+      hitAll([
+        [ctx.limits.shopSession, ctx.shop],
+        [ctx.limits.session, koshoyClientKey(ctx.shop, request)],
+      ]);
     let token = presented;
-    let session =
-      body.reset !== true && presented ? await ctx.store.findSession(presented, ctx.shop) : null;
+    let session: KoshoySessionState | null = null;
+    if (body.open !== undefined) {
+      // A room of the signed-in customer's account, opened on this device (CONTRACT §2.8).
+      const ref = parseOpaqueId(body.open);
+      if (!ref || !ctx.customerId) return koshoyErrorResponse("session_expired");
+      if (!newSessionAllowed()) return koshoyErrorResponse("rate_limited");
+      const opened = await ctx.store.openOnDevice(ref, ctx.shop, ctx.customerId);
+      if (!opened) return koshoyErrorResponse("session_expired");
+      session = opened.session;
+      token = opened.token;
+    } else if (body.reset !== true && presented) {
+      session = await ctx.store.findSession(presented, ctx.shop, ctx.customerId);
+    }
     if (!session) {
-      // Every new session is a DB row and a fresh per-session turn budget.
-      if (
-        !hitAll([
-          [ctx.limits.shopSession, ctx.shop],
-          [ctx.limits.session, koshoyClientKey(ctx.shop, request)],
-        ])
-      ) {
-        return koshoyErrorResponse("rate_limited");
-      }
-      const created = await ctx.store.createSession(ctx.shop);
+      if (!newSessionAllowed()) return koshoyErrorResponse("rate_limited");
+      // Signed in: the new room belongs to the account at once.
+      const created = await ctx.store.createSession(ctx.shop, ctx.customerId);
       session = created.session;
       token = created.token;
+    } else if (ctx.customerId && !session.customerId) {
+      // The customer signed in: this browser's room joins their account.
+      await ctx.store.attachCustomer(session, ctx.customerId);
+      ctx.track?.(session.id, "signed_in");
     }
 
     const designs = await ctx.store.listDesigns(session.id);

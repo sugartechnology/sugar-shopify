@@ -1,9 +1,10 @@
 /**
  * Sugar S3 for Koshoy Studio files: room photos, render inputs and results.
  * Objects are private (no ACL); the storefront gets them through our own
- * routes, decor-ai through short-lived signed GET links. Nothing is deleted.
+ * routes, decor-ai through short-lived signed GET links. Files are deleted
+ * only when the customer deletes the room they belong to (room-sessions.server.ts).
  */
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export interface KoshoyFile {
@@ -18,6 +19,8 @@ export interface KoshoyFileStore {
   get(key: string): Promise<KoshoyFile | null>;
   /** Signed GET link, valid for `seconds`. */
   signedUrl(key: string, seconds: number): Promise<string>;
+  /** Removes the object; a key that is already gone is not an error. */
+  delete(key: string): Promise<void>;
 }
 
 interface S3Settings {
@@ -100,6 +103,10 @@ export function createKoshoyS3(): KoshoyFileStore | null {
       return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), {
         expiresIn: seconds,
       });
+    },
+
+    async delete(key) {
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
     },
   };
 }

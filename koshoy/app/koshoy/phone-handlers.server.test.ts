@@ -5,7 +5,7 @@ import type { KoshoyTagService, RoomAnalysisJob } from "../services/tag-service.
 import { KOSHOY_DATA_DEFAULTS } from "./data.server";
 import { cabinetEngine } from "./engine";
 import { handleKoshoySession, type KoshoyRequestContext } from "./handlers.server";
-import { createMemoryKoshoyDb, createMemoryPhoneDb, createMemoryRoomDb } from "./memory-db";
+import { createMemoryKoshoyDb, createMemoryPhoneDb, createMemoryRoomDb, createMemoryRoomSessionsDb } from "./memory-db";
 import {
   handleKoshoyPhoneCheck,
   handleKoshoyPhoneLink,
@@ -58,6 +58,9 @@ function setup(options: { failUpload?: boolean } = {}) {
     async get(key) {
       return objects.get(key) ?? null;
     },
+    async delete(key) {
+      objects.delete(key);
+    },
     async signedUrl(key) {
       return `https://cdn.sugartech.s3.amazonaws.com/${key}`;
     },
@@ -81,10 +84,11 @@ function setup(options: { failUpload?: boolean } = {}) {
     now,
   };
   const loose = () => createRateLimiter({ limit: 100, windowMs: 60_000 });
+  const koshoyDb = createMemoryKoshoyDb();
   const ctx: KoshoyRequestContext = {
     shop: SHOP,
     enabled: true,
-    store: createKoshoyStore(createMemoryKoshoyDb().db),
+    store: createKoshoyStore(koshoyDb.db),
     engine: cabinetEngine,
     pricer: createKoshoyPricer(cabinetEngine, createMockSkuResolver([{ pattern: "*", price: "100.00" }])),
     limits: {
@@ -99,11 +103,13 @@ function setup(options: { failUpload?: boolean } = {}) {
       render: loose(),
       roomRead: loose(),
       layout: loose(),
+      rooms: loose(),
     },
     busy: createBusyLock(),
     chatConfig: async () => ({ apiKey: "", mock: true }),
     journeyData: async () => KOSHOY_DATA_DEFAULTS,
     customerId: "c1",
+    roomSessions: createMemoryRoomSessionsDb(koshoyDb, roomDb),
     room,
     phone,
   };
@@ -267,7 +273,7 @@ describe("phone photo", () => {
     assert.equal(phone.status, "sent");
     const roomRow = t.roomDb.rooms.get(phone.roomId);
     assert.ok(roomRow);
-    const sessionRow = await t.ctx.store.findSession(session, SHOP);
+    const sessionRow = await t.ctx.store.findSession(session, SHOP, t.ctx.customerId);
     assert.equal(roomRow.sessionId, sessionRow?.id);
     assert.ok(roomRow.consentAt, "consent is recorded like a desktop photo");
 

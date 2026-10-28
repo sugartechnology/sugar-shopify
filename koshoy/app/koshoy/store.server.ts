@@ -1,5 +1,6 @@
 /**
- * Persistent Koshoy sessions and designs (Prisma: KoshoySession, KoshoyDesign).
+ * Persistent Koshoy sessions and designs (Prisma: KoshoySession, KoshoyDesign,
+ * KoshoySessionKey). One session is one room the customer opens (rooms.server.ts).
  *
  * The store codes against KoshoyDb — the small slice of the Prisma client it
  * uses — so tests can pass an in-memory implementation and the app passes
@@ -19,6 +20,7 @@ import {
   hashKoshoyToken,
   issueKoshoyToken,
   isWellFormedKoshoyToken,
+  KOSHOY_ACCOUNT_SESSION_TTL_MS,
   KOSHOY_FRESH_SESSION_TTL_MS,
   KOSHOY_SESSION_TTL_MS,
   randomOpaqueId,
@@ -26,6 +28,8 @@ import {
 
 const MAX_TRANSCRIPT_EVENTS = 60;
 const PRUNE_EVERY_MS = 10 * 60 * 1000;
+/** Devices an account room can be opened on besides the first; the oldest key goes. */
+const MAX_DEVICE_KEYS = 5;
 
 export interface KoshoySessionRow {
   id: string;
@@ -34,9 +38,17 @@ export interface KoshoySessionRow {
   state: string;
   activeDesignId: string | null;
   roomId: string | null;
+  customerId: string | null;
   createdAt: Date;
   updatedAt: Date;
   expiresAt: Date;
+}
+
+/** Another device's token for a session (an account room opened there). */
+export interface KoshoySessionKeyRow {
+  tokenHash: string;
+  sessionId: string;
+  createdAt: Date;
 }
 
 export interface KoshoyDesignRow {
@@ -55,15 +67,28 @@ export interface KoshoyDb {
     create(args: {
       data: Pick<
         KoshoySessionRow,
-        "id" | "shop" | "tokenHash" | "state" | "activeDesignId" | "expiresAt"
+        "id" | "shop" | "tokenHash" | "state" | "activeDesignId" | "customerId" | "expiresAt"
       >;
     }): Promise<KoshoySessionRow>;
-    findUnique(args: { where: { tokenHash: string } }): Promise<KoshoySessionRow | null>;
+    findUnique(args: {
+      where: { tokenHash: string } | { id: string };
+    }): Promise<KoshoySessionRow | null>;
     update(args: {
       where: { id: string };
-      data: Partial<Pick<KoshoySessionRow, "state" | "activeDesignId" | "expiresAt" | "roomId">>;
+      data: Partial<
+        Pick<KoshoySessionRow, "state" | "activeDesignId" | "expiresAt" | "roomId" | "customerId">
+      >;
     }): Promise<KoshoySessionRow>;
     deleteMany(args: { where: { expiresAt: { lt: Date } } }): Promise<{ count: number }>;
+  };
+  koshoySessionKey: {
+    findUnique(args: { where: { tokenHash: string } }): Promise<KoshoySessionKeyRow | null>;
+    create(args: { data: Pick<KoshoySessionKeyRow, "tokenHash" | "sessionId"> }): Promise<KoshoySessionKeyRow>;
+    findMany(args: {
+      where: { sessionId: string };
+      orderBy: { createdAt: "asc" };
+    }): Promise<KoshoySessionKeyRow[]>;
+    deleteMany(args: { where: { tokenHash: { in: string[] } } }): Promise<{ count: number }>;
   };
   koshoyDesign: {
     create(args: {
@@ -126,6 +151,8 @@ export interface KoshoySessionState {
   activeDesignId: string | null;
   /** Latest analysed room (room-status sets it); read-only for turns. */
   roomId: string | null;
+  /** Shopify customer the room belongs to; null = only the browsers holding its token. */
+  customerId: string | null;
   /** Model conversation id; rotated when a hop left unmatched tool calls. */
   modelSessionId: string;
   brief: KoshoyBrief;
@@ -150,8 +177,32 @@ export interface KoshoyDesign {
 }
 
 export interface KoshoyStore {
-  createSession(shop: string): Promise<{ session: KoshoySessionState; token: string }>;
-  findSession(token: string, shop: string): Promise<KoshoySessionState | null>;
+  /** A signed-in customer's new session belongs to their account at once. */
+  createSession(
+    shop: string,
+    customerId?: string | null,
+  ): Promise<{ session: KoshoySessionState; token: string }>;
+  /**
+   * The session of a token (its first one or a device key). An account
+   * session opens only for its own customer: signed out or someone else, it
+   * is as if the token were unknown.
+   */
+  findSession(
+    token: string,
+    shop: string,
+    customerId?: string | null,
+  ): Promise<KoshoySessionState | null>;
+  /** The signed-in customer takes an ownerless session into their account. */
+  attachCustomer(session: KoshoySessionState, customerId: string): Promise<void>;
+  /**
+   * A new token on this device for one of the customer's account sessions
+   * (`ref` is the session id the room list shows); null when it is not theirs.
+   */
+  openOnDevice(
+    ref: string,
+    shop: string,
+    customerId: string,
+  ): Promise<{ session: KoshoySessionState; token: string } | null>;
   saveSession(session: KoshoySessionState): Promise<void>;
   /**
    * Records the session's latest analysed room. Separate from saveSession,
@@ -281,12 +332,25 @@ function toDesign(row: KoshoyDesignRow): KoshoyDesign | null {
   };
 }
 
+/** A session row as the handlers see it (also the room list, room-sessions.server.ts). */
+export function toSessionState(row: KoshoySessionRow): KoshoySessionState {
+  return {
+    id: row.id,
+    shop: row.shop,
+    activeDesignId: row.activeDesignId,
+    roomId: row.roomId ?? null,
+    customerId: row.customerId ?? null,
+    ...parseState(row.state),
+  };
+}
+
 export function createKoshoyStore(
   db: KoshoyDb,
-  options: { now?: () => number; ttlMs?: number; freshTtlMs?: number } = {},
+  options: { now?: () => number; ttlMs?: number; freshTtlMs?: number; accountTtlMs?: number } = {},
 ): KoshoyStore {
   const now = options.now ?? Date.now;
   const ttlMs = options.ttlMs ?? KOSHOY_SESSION_TTL_MS;
+  const accountTtlMs = options.accountTtlMs ?? KOSHOY_ACCOUNT_SESSION_TTL_MS;
   // Page views create sessions; only a saved (used) session gets the full TTL.
   const freshTtlMs = Math.min(options.freshTtlMs ?? KOSHOY_FRESH_SESSION_TTL_MS, ttlMs);
   let lastPrune = 0;
@@ -299,7 +363,7 @@ export function createKoshoyStore(
   };
 
   return {
-    async createSession(shop) {
+    async createSession(shop, customerId = null) {
       await pruneExpired();
       const { token, hash } = issueKoshoyToken();
       const session: KoshoySessionState = {
@@ -307,6 +371,7 @@ export function createKoshoyStore(
         shop,
         activeDesignId: null,
         roomId: null,
+        customerId,
         modelSessionId: randomUUID(),
         brief: { ...EMPTY_KOSHOY_BRIEF },
         events: [],
@@ -322,26 +387,26 @@ export function createKoshoyStore(
           tokenHash: hash,
           state: serializeState(session),
           activeDesignId: null,
+          customerId,
           expiresAt: new Date(now() + freshTtlMs),
         },
       });
       return { session, token };
     },
 
-    async findSession(token, shop) {
+    async findSession(token, shop, customerId = null) {
       if (!isWellFormedKoshoyToken(token)) return null;
-      const row = await db.koshoySession.findUnique({
-        where: { tokenHash: hashKoshoyToken(token) },
-      });
+      const tokenHash = hashKoshoyToken(token);
+      let row = await db.koshoySession.findUnique({ where: { tokenHash } });
+      if (!row) {
+        // A device key: the room was opened on this device from the customer's account.
+        const key = await db.koshoySessionKey.findUnique({ where: { tokenHash } });
+        row = key ? await db.koshoySession.findUnique({ where: { id: key.sessionId } }) : null;
+      }
       if (!row || row.shop !== shop) return null;
       if (row.expiresAt.getTime() <= now()) return null;
-      return {
-        id: row.id,
-        shop: row.shop,
-        activeDesignId: row.activeDesignId,
-        roomId: row.roomId ?? null,
-        ...parseState(row.state),
-      };
+      if (row.customerId && row.customerId !== customerId) return null;
+      return toSessionState(row);
     },
 
     async saveSession(session) {
@@ -350,9 +415,38 @@ export function createKoshoyStore(
         data: {
           state: serializeState(session),
           activeDesignId: session.activeDesignId,
-          expiresAt: new Date(now() + ttlMs),
+          expiresAt: new Date(now() + (session.customerId ? accountTtlMs : ttlMs)),
         },
       });
+    },
+
+    async attachCustomer(session, customerId) {
+      session.customerId = customerId;
+      // An unused session (page view only) keeps its short life until its first save.
+      const used = session.events.length > 0;
+      await db.koshoySession.update({
+        where: { id: session.id },
+        data: { customerId, ...(used ? { expiresAt: new Date(now() + accountTtlMs) } : {}) },
+      });
+    },
+
+    async openOnDevice(ref, shop, customerId) {
+      const row = ref ? await db.koshoySession.findUnique({ where: { id: ref } }) : null;
+      if (!row || row.shop !== shop || row.customerId !== customerId) return null;
+      if (row.expiresAt.getTime() <= now()) return null;
+      const { token, hash } = issueKoshoyToken();
+      await db.koshoySessionKey.create({ data: { tokenHash: hash, sessionId: row.id } });
+      const keys = await db.koshoySessionKey.findMany({
+        where: { sessionId: row.id },
+        orderBy: { createdAt: "asc" },
+      });
+      const extra = keys.slice(0, Math.max(0, keys.length - MAX_DEVICE_KEYS));
+      if (extra.length) {
+        await db.koshoySessionKey.deleteMany({
+          where: { tokenHash: { in: extra.map((key) => key.tokenHash) } },
+        });
+      }
+      return { session: toSessionState(row), token };
     },
 
     async setRoom(sessionId, roomId) {
