@@ -163,6 +163,9 @@ function setup(options: { cleanLimit?: number } = {}) {
     async delete(key) {
       objects.delete(key);
     },
+    async deleteFolder(prefix) {
+      for (const key of [...objects.keys()]) if (key.startsWith(prefix)) objects.delete(key);
+    },
     async signedUrl(key, seconds) {
       return `https://cdn.sugartech.s3.eu-central-1.amazonaws.com/${key}?X-Amz-Expires=${seconds}`;
     },

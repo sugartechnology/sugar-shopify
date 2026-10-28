@@ -4,7 +4,13 @@
  * routes, decor-ai through short-lived signed GET links. Files are deleted
  * only when the customer deletes the room they belong to (room-sessions.server.ts).
  */
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export interface KoshoyFile {
@@ -21,6 +27,19 @@ export interface KoshoyFileStore {
   signedUrl(key: string, seconds: number): Promise<string>;
   /** Removes the object; a key that is already gone is not an error. */
   delete(key: string): Promise<void>;
+  /**
+   * Removes every object under a folder key such as "room-analysis/clean/<job>/".
+   * Refuses anything shorter than three folder levels, so a bad id can never
+   * empty a whole folder of the bucket.
+   */
+  deleteFolder(prefix: string): Promise<void>;
+}
+
+/** "a/b/c/": three or more folder levels, no empty, "." or ".." parts. */
+export function isDeletableFolder(prefix: string): boolean {
+  if (!prefix.endsWith("/")) return false;
+  const parts = prefix.slice(0, -1).split("/");
+  return parts.length >= 3 && parts.every((part) => part !== "" && part !== "." && part !== "..");
 }
 
 interface S3Settings {
@@ -107,6 +126,20 @@ export function createKoshoyS3(): KoshoyFileStore | null {
 
     async delete(key) {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    },
+
+    async deleteFolder(prefix) {
+      if (!isDeletableFolder(prefix)) throw new Error(`refused to delete folder "${prefix}"`);
+      let token: string | undefined;
+      do {
+        const page = await client.send(
+          new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }),
+        );
+        for (const item of page.Contents ?? []) {
+          if (item.Key) await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: item.Key }));
+        }
+        token = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (token);
     },
   };
 }

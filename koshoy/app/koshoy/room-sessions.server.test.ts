@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { KoshoyFileStore } from "../services/s3.server";
+import { isDeletableFolder, type KoshoyFileStore } from "../services/s3.server";
 import { cabinetEngine } from "./engine";
 import { createMemoryKoshoyDb, createMemoryRoomDb, createMemoryRoomSessionsDb, sampleReadyRoom } from "./memory-db";
 import {
+  cleanJobFolder,
   deleteRoomSession,
   listRoomSessions,
   numberRoomNames,
@@ -24,12 +25,16 @@ function setup() {
   const rooms = createMemoryRoomDb(() => now);
   const store = createKoshoyStore(koshoy.db, { now: () => now });
   const deleted: string[] = [];
+  const deletedFolders: string[] = [];
   const files: KoshoyFileStore = {
     put: async (name) => name,
     get: async () => null,
     signedUrl: async (key) => key,
     delete: async (key) => {
       deleted.push(key);
+    },
+    deleteFolder: async (prefix) => {
+      deletedFolders.push(prefix);
     },
   };
   const deps: KoshoyRoomSessionsDeps = {
@@ -49,7 +54,7 @@ function setup() {
     await store.createDesign(session.id, { kind: "gardirop", label: plan.label, composition: plan.composition });
     return { session, token };
   };
-  return { koshoy, rooms, store, deps, deleted, usedRoom, advance: (ms: number) => (now += ms) };
+  return { koshoy, rooms, store, deps, deleted, deletedFolders, usedRoom, advance: (ms: number) => (now += ms) };
 }
 
 describe("room names", () => {
@@ -231,6 +236,51 @@ describe("room delete", () => {
     assert.equal(rooms.rooms.size, 0);
     assert.equal(rooms.renders.size, 0);
     assert.ok(koshoy.sessions.has(keep.session.id), "other room untouched");
+  });
+
+  it("deletes the furniture-removal folder of every clean job, and nothing else", async () => {
+    const { deps, rooms, usedRoom, deletedFolders } = setup();
+    const { session, token } = await usedRoom("salon");
+    const room = sampleReadyRoom("room1", session.id);
+    rooms.rooms.set(room.id, room);
+    const clean = (id: string, jobId: string | null) => ({
+      id,
+      roomId: room.id,
+      sessionId: session.id,
+      shop: SHOP,
+      objectIds: "[]",
+      parts: "[]",
+      status: "ready",
+      error: null,
+      jobId,
+      photoUrl: null,
+      depthUrl: null,
+      furnitureUrl: null,
+      measures: null,
+      method: null,
+      model: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    rooms.cleans.set("c1", clean("c1", "0b6f1c2e-6a49-4c2b-9d1e-3f5a7b8c9d01"));
+    rooms.cleans.set("c2", clean("c2", null));
+    rooms.cleans.set("c3", clean("c3", "../designs"));
+
+    assert.equal(await deleteRoomSession(deps, { shop: SHOP, customerId: null, ref: session.id, key: token }), true);
+    assert.deepEqual(deletedFolders, ["room-analysis/clean/0b6f1c2e-6a49-4c2b-9d1e-3f5a7b8c9d01/"]);
+    assert.equal(rooms.cleans.size, 0, "clean rows go with their room");
+  });
+
+  it("only ever deletes a decor-ai clean job folder", () => {
+    assert.equal(cleanJobFolder("job-1"), "room-analysis/clean/job-1/");
+    assert.equal(cleanJobFolder(""), null);
+    assert.equal(cleanJobFolder("a/b"), null);
+    assert.equal(cleanJobFolder("../x"), null);
+    assert.equal(isDeletableFolder("room-analysis/clean/job-1/"), true);
+    assert.equal(isDeletableFolder("room-analysis/clean/"), false);
+    assert.equal(isDeletableFolder("room-analysis/clean/job-1"), false);
+    assert.equal(isDeletableFolder("room-analysis/../designs/"), false);
+    assert.equal(isDeletableFolder("room-analysis//x/"), false);
   });
 
   it("deletes an account room without its token only for its customer", async () => {

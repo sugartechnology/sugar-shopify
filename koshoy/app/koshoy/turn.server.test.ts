@@ -699,7 +699,7 @@ describe("koshoy turn loop", () => {
     const rooms = createMemoryRoomDb();
     const room: KoshoyRoomDeps = {
       db: rooms.db,
-      files: { put: async (name) => name, get: async () => null, signedUrl: async (key) => key, delete: async () => {} },
+      files: { put: async (name) => name, get: async () => null, signedUrl: async (key) => key, delete: async () => {}, deleteFolder: async () => {} },
       tagService: async () => {
         throw new Error("no upstream in this test");
       },
@@ -773,7 +773,7 @@ describe("koshoy turn loop", () => {
     const rooms = createMemoryRoomDb();
     const room: KoshoyRoomDeps = {
       db: rooms.db,
-      files: { put: async (name) => name, get: async () => null, signedUrl: async (key) => key, delete: async () => {} },
+      files: { put: async (name) => name, get: async () => null, signedUrl: async (key) => key, delete: async () => {}, deleteFolder: async () => {} },
       tagService: async () => {
         throw new Error("no upstream in this test");
       },

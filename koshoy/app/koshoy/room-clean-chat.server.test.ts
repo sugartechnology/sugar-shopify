@@ -41,6 +41,7 @@ async function setup(options: { withRoom?: boolean; objects?: boolean } = {}) {
       put: async (name) => name,
       get: async (key) => (key.endsWith("photo.jpg") ? { bytes: PHOTO, contentType: "image/jpeg" } : null),
       delete: async () => {},
+      deleteFolder: async () => {},
       signedUrl: async (key) => key,
     },
     tagService: async () => {
