@@ -69,6 +69,7 @@ export {
 export {
   CABINET_RULES,
   crownByDefault,
+  crownRequired,
   defaultFrontSeries,
   findFrontSeries,
   frontSeriesOf,

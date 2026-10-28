@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { KOSHOY_DATA_DEFAULTS } from "./data.server";
+import type { ClientInput } from "./input";
 import { cabinetEngine } from "./engine";
 import type { LayoutItemView, PublicEvent } from "./events";
 import { readLayout } from "./layout.server";
@@ -61,7 +63,7 @@ async function turn(t: Setup, text: string, hops: Hop[], session?: KoshoySession
   await runKoshoyTurn({
     client: { type: "message", text },
     session: session ?? (await t.fresh()),
-    deps: { store: t.store, engine: cabinetEngine, pricer: t.pricer, apiKey: "k", mock: false, stream, room: t.room },
+    deps: { store: t.store, engine: cabinetEngine, pricer: t.pricer, apiKey: "k", mock: false, stream, room: t.room, data: KOSHOY_DATA_DEFAULTS },
     emit: (event) => events.push(event),
   });
   return { events, bodies };
@@ -141,14 +143,46 @@ describe("koshoy room tools in the chat", () => {
     assert.match(instructions, /Oda \(sistem bilgisi, ölçüler yaklaşık\)/);
   });
 
-  it("says 'yaklaşık' or drops a room number from the reply", async () => {
+  it("never says a room size, not even 'yaklaşık' (ClickUp z8qu5d7rdp)", async () => {
     const t = await setup();
     await design(t, 1920);
-    const { events } = await turn(t, "Sığar mı?", [
-      [{ event: "text", data: { text: "Duvar 370 cm. Duvar yaklaşık 3,7 m görünüyor; rahatça sığar." } }],
+    const { events, bodies } = await turn(t, "Sığar mı?", [
+      [{ event: "text", data: { text: "Duvar 370 cm. Duvar yaklaşık 3,7 m görünüyor. Gardırop rahatça sığar." } }],
     ]);
     const text = events.filter((event) => event.type === "text").map((event) => (event.type === "text" ? event.text : ""));
-    assert.deepEqual(text, ["Duvar yaklaşık 3,7 m görünüyor; rahatça sığar."]);
+    assert.deepEqual(text, ["Gardırop rahatça sığar."]);
+    assert.doesNotMatch(String(bodies[0].instructions), /"yaklaşık" diyerek/);
+  });
+
+  it("asks for the first realistic picture by itself when the room summary comes, once", async () => {
+    const t = await setup();
+    await design(t);
+    const session = await t.fresh();
+    session.brief.room = "Yatak odası";
+    Object.assign(session.journey.style, { level: "en_iyisi", panel: "ivory", front: "kapak-18", crown: "on" });
+    // The colour pick ends the style decisions: the room summary comes, with the picture request.
+    session.journey.style.panel = "";
+    session.pendingAskUser = {
+      id: "s1",
+      question: "Renk?",
+      options: [{ id: "opt_1", label: "Kırık beyaz", value: "style:panel:ivory" }],
+    };
+    const { stream } = scripted([[{ event: "text", data: { text: "Özetin ekranda." } }], [{ event: "text", data: { text: "Tamam." } }]]);
+    const run = async (client: ClientInput) => {
+      const events: PublicEvent[] = [];
+      await runKoshoyTurn({
+        client,
+        session,
+        deps: { store: t.store, engine: cabinetEngine, pricer: t.pricer, apiKey: "k", mock: false, stream, room: t.room, data: KOSHOY_DATA_DEFAULTS },
+        emit: (event) => events.push(event),
+      });
+      return events;
+    };
+    const first = await run({ type: "choice", selected: "opt_1" });
+    assert.ok(first.some((event) => event.type === "room_summary"));
+    assert.equal(first.filter((event) => event.type === "render_request").length, 1);
+    const second = await run({ type: "journey", action: "change_room" });
+    assert.equal(second.filter((event) => event.type === "render_request").length, 0, "only once");
   });
 
   it("does not offer to show the room when the room is already there", async () => {
@@ -272,7 +306,7 @@ describe("koshoy room tools in the chat", () => {
     await runKoshoyTurn({
       client: { type: "message", text: "Merhaba" },
       session: await late.fresh(),
-      deps: { store: late.store, engine: cabinetEngine, pricer: late.pricer, apiKey: "k", mock: false, stream: stalled, room: late.room, timeoutMs: 10 },
+      deps: { store: late.store, engine: cabinetEngine, pricer: late.pricer, apiKey: "k", mock: false, stream: stalled, room: late.room, timeoutMs: 10, data: KOSHOY_DATA_DEFAULTS },
       emit: () => {},
     });
     assert.ok(bodies[0].image);

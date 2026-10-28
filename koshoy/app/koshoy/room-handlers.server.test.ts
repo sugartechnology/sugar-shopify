@@ -8,6 +8,7 @@ import type {
   RoomAnalysisJob,
   StartResult,
 } from "../services/tag-service.server";
+import { KOSHOY_DATA_DEFAULTS } from "./data.server";
 import { cabinetEngine, type CabinComposition } from "./engine";
 import { handleKoshoyEdit, handleKoshoySession, type KoshoyRequestContext } from "./handlers.server";
 import { createMemoryKoshoyDb, createMemoryRoomDb, sampleReadyRoom } from "./memory-db";
@@ -165,6 +166,8 @@ function setup(
     },
     busy: createBusyLock(),
     chatConfig: async () => ({ apiKey: "", mock: true }),
+    journeyData: async () => KOSHOY_DATA_DEFAULTS,
+    customerId: "c1",
     room,
   };
   return { ctx, room, tag, storage, memory, downloads };

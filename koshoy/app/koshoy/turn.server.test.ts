@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { KOSHOY_DATA_DEFAULTS } from "./data.server";
 import { KOSHOY_MAX_DESIGNS } from "./design-ops.server";
 import { cabinetEngine } from "./engine";
 import type { PublicEvent } from "./events";
@@ -45,6 +46,7 @@ async function turn(
     signal?: AbortSignal;
     timeoutMs?: number;
     room?: KoshoyRoomDeps;
+    customerId?: string | null;
   } = {},
 ) {
   const events: PublicEvent[] = [];
@@ -58,6 +60,8 @@ async function turn(
       apiKey: "shop-key",
       mock: options.mock ?? false,
       stream: options.stream,
+      data: KOSHOY_DATA_DEFAULTS,
+      customerId: options.customerId === undefined ? "c1" : options.customerId,
       signal: options.signal,
       timeoutMs: options.timeoutMs,
       room: options.room,
@@ -139,7 +143,7 @@ describe("koshoy turn loop", () => {
     assert.ok(String(first.instructions).includes(KOSHOY_RULES[0].text));
     assert.deepEqual(
       (first.tools as Array<{ name: string }>).map((tool) => tool.name),
-      ["set_brief", "ask_user", "plan_cabinet", "plan_room", "edit_design", "quote", "switch_design", "show_doors"],
+      ["set_brief", "ask_user", "ask_style", "plan_cabinet", "plan_room", "edit_design", "quote", "switch_design", "show_doors"],
       "room tools only when the room feature is on",
     );
     assert.equal(second.message, undefined);
@@ -836,7 +840,12 @@ describe("koshoy turn loop", () => {
     ]);
     await turn(ctx, ctx.session, { type: "message", text: "Salona iki kitaplık" }, { stream: custom.stream, room });
     const after = await ctx.store.listDesigns(ctx.session.id);
-    assert.deepEqual(after.slice(4).map((design) => design.kind), ["kitaplik", "kitaplik"], "named items win; unknown kinds are dropped");
+    // Bookcases stand together on one wall: two of them are one piece with equal bodies (Akın: 3 × 64).
+    assert.deepEqual(after.slice(4).map((design) => design.kind), ["kitaplik"], "named items win; unknown kinds are dropped");
+    const single = cabinetEngine.planCabinet({ kind: "kitaplik" }).composition.units.reduce((sum, unit) => sum + unit.widthMm, 0);
+    const joined = after[4].composition.units;
+    assert.equal(joined.reduce((sum, unit) => sum + unit.widthMm, 0), 2 * single);
+    assert.ok(joined.every((unit) => unit.widthMm === joined[0].widthMm), "equal bodies");
   });
 
   it("recolours every design with allDesigns, only for colour changes", async () => {
@@ -973,5 +982,267 @@ describe("koshoy turn loop", () => {
     const results = komodin.bodies[2].toolResults as Array<{ name: string; payload: Record<string, unknown> }>;
     assert.equal(results[0].payload.ok, false);
     assert.equal(typeof results[0].payload.hint, "string");
+  });
+});
+
+describe("koshoy journey: room first, then product by product, then the cart", () => {
+  beforeEach(() => {
+    mock.method(console, "error", () => {});
+    mock.method(console, "warn", () => {});
+  });
+  afterEach(() => mock.restoreAll());
+
+  const say = (text: string): Hop => [{ event: "text", data: { text } }];
+  const tool = (name: string, args: Record<string, unknown>): Hop => [
+    { event: "tool_call", data: { callId: `call_${name}`, name, arguments: JSON.stringify(args) } },
+  ];
+  const cards = (events: PublicEvent[]) =>
+    events.filter((event) =>
+      ["structure", "room_summary", "product_card", "cart_summary", "login_required"].includes(event.type),
+    );
+
+  it("walks a bedroom from the set to the cart summary", async () => {
+    const ctx = await setup();
+    const tracked: string[] = [];
+    const run = async (client: ClientInput, hops: Hop[], customerId: string | null = "c1") => {
+      const { stream } = scriptedStream(hops);
+      const events: PublicEvent[] = [];
+      await runKoshoyTurn({
+        client,
+        session: ctx.session,
+        deps: {
+          store: ctx.store,
+          engine: cabinetEngine,
+          pricer: ctx.pricer,
+          apiKey: "k",
+          mock: false,
+          stream,
+          data: KOSHOY_DATA_DEFAULTS,
+          customerId,
+          track: (name) => tracked.push(name),
+        },
+        emit: (event) => events.push(event),
+      });
+      return events;
+    };
+
+    // 3 · what room: the set is planned; 4 · the structure card follows.
+    const planned = await run({ type: "message", text: "Yatak odamı döşeyelim", intent: "room", card: "yatak" }, [
+      tool("plan_room", { room: "yatak_odasi" }),
+      say("Yatak odan için seti hazırladım."),
+    ]);
+    assert.deepEqual(cards(planned), [{ type: "structure", photo: false }]);
+    assert.ok(tracked.includes("card_clicked") && tracked.includes("set_planned"));
+
+    // Going on without measurements; style is asked next (level first).
+    const skipped = await run({ type: "journey", action: "structure_skip" }, [tool("ask_style", { decision: "level" })]);
+    assert.equal(ctx.session.journey.structure, "skip");
+    const level = skipped.find((event) => event.type === "choice");
+    assert.ok(level?.type === "choice");
+    assert.equal(level.options.length, 2);
+    assert.ok(level.options.every((option) => /TL$|\[FİYAT\]/.test(option.price ?? "")), "each level shows the room's total");
+
+    // "En iyisi olsun": crown and the matte front come by themselves; only the colour is left.
+    const best = level.options.find((option) => option.label === "En iyisi olsun");
+    assert.ok(best);
+    await run({ type: "choice", selected: best.id }, [tool("ask_style", { decision: "panel" })]);
+    assert.deepEqual(
+      { level: ctx.session.journey.style.level, front: ctx.session.journey.style.front, crown: ctx.session.journey.style.crown },
+      { level: "en_iyisi", front: "kapak-18", crown: "on" },
+    );
+    let designs = await ctx.store.listDesigns(ctx.session.id);
+    assert.ok(designs.every((design) => design.composition.frontSeries === "kapak-18"));
+    const wardrobe = designs.find((design) => design.kind === "gardirop");
+    assert.ok(wardrobe?.composition.units.every((unit) => unit.hasCrown), "tall wardrobe crowned");
+
+    // The colour pick completes the style: the room summary appears.
+    const panel = ctx.session.pendingAskUser?.options.find((option) => option.value === "style:panel:ivory");
+    assert.ok(panel);
+    const summary = await run({ type: "choice", selected: panel.id }, [say("Oda özetin ekranda.")]);
+    const room = cards(summary).find((event) => event.type === "room_summary");
+    assert.ok(room?.type === "room_summary");
+    assert.equal(room.items.length, 4);
+    assert.equal(room.approved, false);
+
+    // 6 · approving without signing in asks to save the room first; the model is not called.
+    const guest = await run({ type: "journey", action: "approve_room" }, [], null);
+    assert.deepEqual(cards(guest), [{ type: "login_required" }]);
+    assert.equal(ctx.session.journey.roomApprovedAt, null);
+
+    // Signed in: approved; the first product's card comes up.
+    const approved = await run({ type: "journey", action: "approve_room" }, [say("Şimdi ürünlere tek tek bakalım.")]);
+    assert.notEqual(ctx.session.journey.roomApprovedAt, null);
+    const first = cards(approved).find((event) => event.type === "product_card");
+    assert.ok(first?.type === "product_card");
+    assert.equal(first.index, 1);
+    assert.equal(first.count, 4);
+
+    // 7 · product by product: approve, both bedside tables at once, the chest of drawers later.
+    designs = await ctx.store.listDesigns(ctx.session.id);
+    await run({ type: "journey", action: "approve", designId: designs[0].id }, [say("Tamam.")]);
+    const bedside = designs.find((design) => design.kind === "komodin");
+    assert.ok(bedside);
+    const pair = await run({ type: "journey", action: "approve_same", designId: bedside.id }, [say("İkisi de tamam.")]);
+    const chest = cards(pair).find((event) => event.type === "product_card");
+    assert.ok(chest?.type === "product_card");
+    assert.equal(chest.approvedCount, 3);
+    const later = await run({ type: "journey", action: "later", designId: chest.designId }, [say("Sonra bakarız.")]);
+
+    // 8 · the cart summary: approved ones go, the "later" one is reminded, with the custom-made warning.
+    const cart = cards(later).find((event) => event.type === "cart_summary");
+    assert.ok(cart?.type === "cart_summary");
+    assert.equal(cart.approved.length, 3);
+    assert.deepEqual(cart.later.map((item) => item.designId), [chest.designId]);
+    assert.equal(cart.warning, KOSHOY_DATA_DEFAULTS.texts.customMadeWarning);
+    assert.ok(tracked.includes("room_approved") && tracked.includes("product_later"));
+  });
+
+  it("asks a changed product again, and takes a removed one out of the room", async () => {
+    const ctx = await setup();
+    const komodin = await ctx.store.createDesign(ctx.session.id, {
+      kind: "komodin",
+      label: "Komodin",
+      composition: cabinetEngine.planCabinet({ kind: "komodin" }).composition,
+    });
+    const tv = await ctx.store.createDesign(ctx.session.id, {
+      kind: "tv_unitesi",
+      label: "TV ünitesi",
+      composition: cabinetEngine.planCabinet({ kind: "tv_unitesi" }).composition,
+    });
+    Object.assign(ctx.session.journey, { structure: "skip", roomApprovedAt: 1 });
+    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "ivory", front: "kapak-18" });
+    ctx.session.brief.room = "Salon";
+    ctx.session.journey.approvals[komodin.id] = { status: "approved", version: komodin.version };
+
+    // A later change (a panel edit) bumps the version: the product waits for a new approval.
+    const changed = cabinetEngine.applyEditOp(komodin.composition, { action: "add_fitting", unit: 0, kind: "shelf" }, "komodin");
+    if (changed.ok) await ctx.store.updateDesign(ctx.session.id, komodin, { label: komodin.label, composition: changed.composition });
+    const events = await turn(ctx, ctx.session, { type: "journey", action: "remove", designId: tv.id }, {
+      stream: scriptedStream([[{ event: "text", data: { text: "Çıkardım." } }]]).stream,
+    });
+    assert.equal(await ctx.store.getDesign(ctx.session.id, tv.id), null, "the removed product is gone");
+    const card = events.find((event) => event.type === "product_card");
+    assert.ok(card?.type === "product_card");
+    assert.equal(card.designId, komodin.id);
+    assert.equal(card.status, "pending", "changed after approval → decided again");
+  });
+
+  it("lets the one-product buyer approve product and room topics in one step", async () => {
+    const ctx = await setup();
+    const { stream } = scriptedStream([[
+      { event: "tool_call", data: { callId: "c1", name: "plan_cabinet", arguments: JSON.stringify({ kind: "vestiyer" }) } },
+    ], [{ event: "text", data: { text: "Vestiyerin hazır." } }]]);
+    await turn(ctx, ctx.session, { type: "message", text: "Sadece bir vestiyer", intent: "single" }, { stream });
+    assert.equal(ctx.session.journey.kind, "single");
+    Object.assign(ctx.session.journey, { structure: "skip" });
+    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "wood", front: "kapak-18", crown: "on" });
+    const events = await turn(ctx, ctx.session, { type: "journey", action: "approve_room" }, {
+      stream: scriptedStream([[{ event: "text", data: { text: "Onaylandı." } }]]).stream,
+    });
+    const [design] = await ctx.store.listDesigns(ctx.session.id);
+    assert.equal(ctx.session.journey.approvals[design.id]?.status, "approved");
+    assert.ok(events.some((event) => event.type === "cart_summary"));
+  });
+
+  it("does not ask a style decision again unless the customer changes it", async () => {
+    const ctx = await setup();
+    await ctx.store.createDesign(ctx.session.id, {
+      kind: "gardirop",
+      label: "Gardırop",
+      composition: cabinetEngine.planCabinet({ kind: "gardirop" }).composition,
+    });
+    Object.assign(ctx.session.journey, { structure: "skip" });
+    Object.assign(ctx.session.journey.style, { level: "en_iyisi", front: "kapak-18", crown: "on" });
+    const ask = (args: Record<string, unknown>) =>
+      scriptedStream([
+        [{ event: "tool_call", data: { callId: "s1", name: "ask_style", arguments: JSON.stringify(args) } }],
+        [{ event: "text", data: { text: "Tamam." } }],
+      ]);
+    const again = ask({ decision: "front" });
+    const events = await turn(ctx, ctx.session, { type: "message", text: "Devam" }, { stream: again.stream });
+    const [refused] = again.bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>;
+    assert.equal(refused.payload.error, "already_decided");
+    assert.ok(!events.some((event) => event.type === "choice"));
+    const change = ask({ decision: "front", change: true });
+    const changed = await turn(ctx, ctx.session, { type: "message", text: "Kapağı değiştirmek istiyorum" }, { stream: change.stream });
+    assert.ok(changed.some((event) => event.type === "choice"), "asked again on the customer's wish");
+  });
+
+  it("gives the model the customer's style pick as the ask_style result", async () => {
+    const ctx = await setup();
+    await ctx.store.createDesign(ctx.session.id, {
+      kind: "gardirop",
+      label: "Gardırop",
+      composition: cabinetEngine.planCabinet({ kind: "gardirop" }).composition,
+    });
+    ctx.session.journey.structure = "skip";
+    const asked = scriptedStream([[{ event: "tool_call", data: { callId: "s1", name: "ask_style", arguments: JSON.stringify({ decision: "panel" }) } }]]);
+    const events = await turn(ctx, ctx.session, { type: "message", text: "Renk seçelim" }, { stream: asked.stream });
+    const choice = events.find((event) => event.type === "choice");
+    assert.ok(choice?.type === "choice");
+    const answer = scriptedStream([[{ event: "text", data: { text: "Güzel seçim." } }]]);
+    await turn(ctx, ctx.session, { type: "choice", selected: choice.options[1].id }, { stream: answer.stream });
+    const [result] = answer.bodies[0].toolResults as Array<{ id: string; name: string; payload: Record<string, unknown> }>;
+    assert.deepEqual([result.id, result.name, result.payload.selected], ["s1", "ask_style", "style:panel:ivory"]);
+    assert.equal(answer.bodies[0].message, undefined, "the pick is the tool result, not a later message");
+  });
+
+  it("brings a 'later' product back, and never offers a product already in the cart again", async () => {
+    const ctx = await setup();
+    const make = (kind: "komodin" | "sifonyer") =>
+      ctx.store.createDesign(ctx.session.id, { kind, label: kind, composition: cabinetEngine.planCabinet({ kind }).composition });
+    const komodin = await make("komodin");
+    const sifonyer = await make("sifonyer");
+    ctx.session.brief.room = "Yatak odası";
+    Object.assign(ctx.session.journey, { structure: "skip", roomApprovedAt: 1, shownStage: "cart" });
+    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "ivory", front: "kapak-18" });
+    ctx.session.journey.approvals[komodin.id] = { status: "approved", version: komodin.version };
+    ctx.session.journey.approvals[sifonyer.id] = { status: "later", version: sifonyer.version };
+    const say = (text: string) => scriptedStream([[{ event: "text", data: { text } }]]).stream;
+
+    // The komodin goes to the cart: the next summary no longer offers it.
+    const sent = await turn(ctx, ctx.session, { type: "add_cart_result", ok: true, designIds: [komodin.id] }, { stream: say("Eklendi.") });
+    const summary = sent.find((event) => event.type === "cart_summary");
+    assert.ok(summary?.type === "cart_summary");
+    assert.deepEqual(summary.approved, []);
+    assert.deepEqual(summary.inCart.map((item) => item.designId), [komodin.id]);
+
+    // "Şimdi karar ver" on the şifonyer: its card comes back.
+    const back = await turn(ctx, ctx.session, { type: "journey", action: "revisit", designId: sifonyer.id }, { stream: say("Bakalım.") });
+    const card = back.find((event) => event.type === "product_card");
+    assert.ok(card?.type === "product_card");
+    assert.equal(card.designId, sifonyer.id);
+    assert.equal(card.status, "pending");
+  });
+
+  it("asks front and crown again when the level changes from 'en iyisi' to one that asks", async () => {
+    const ctx = await setup();
+    await ctx.store.createDesign(ctx.session.id, {
+      kind: "gardirop",
+      label: "Gardırop",
+      composition: cabinetEngine.planCabinet({ kind: "gardirop" }).composition,
+    });
+    Object.assign(ctx.session.journey.style, { level: "en_iyisi", panel: "ivory", front: "kapak-18", crown: "on" });
+    const { applyStyleDecision } = await import("./journey.server");
+    const deps = { store: ctx.store, engine: cabinetEngine, pricer: ctx.pricer };
+    await applyStyleDecision(deps, ctx.session, KOSHOY_DATA_DEFAULTS, "level", "fiyatina_bakarak");
+    assert.deepEqual([ctx.session.journey.style.front, ctx.session.journey.style.crown], ["", ""]);
+  });
+
+  it("never lets a low cabinet lose its crown", async () => {
+    const ctx = await setup();
+    const komodin = await ctx.store.createDesign(ctx.session.id, {
+      kind: "komodin",
+      label: "Komodin",
+      composition: cabinetEngine.planCabinet({ kind: "komodin" }).composition,
+    });
+    const { stream, bodies } = scriptedStream([
+      [{ event: "tool_call", data: { callId: "c1", name: "edit_design", arguments: JSON.stringify({ designId: komodin.id, op: { action: "set_crown", unit: 0, hasCrown: false } }) } }],
+      [{ event: "text", data: { text: "Alçak dolaplarda taç kalır." } }],
+    ]);
+    await turn(ctx, ctx.session, { type: "message", text: "Komodinin tacını kaldır" }, { stream });
+    const [result] = bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>;
+    assert.equal(result.payload.ok, false);
+    assert.match(String(result.payload.hint), /taç/);
   });
 });

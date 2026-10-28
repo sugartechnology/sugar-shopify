@@ -78,7 +78,15 @@ export function maxShelves(heightMm: number, drawerSteps: number): number {
   return Math.max(0, drawerSteps === 0 ? steps - 1 : steps - drawerSteps);
 }
 
-/** New low bodies get a crown; the customer may take it off. */
+/** New low bodies get a crown. */
 export function crownByDefault(heightMm: number): boolean {
+  return heightMm <= CABINET_RULES.crownMaxBodyHeightMm;
+}
+
+/**
+ * A low body always keeps its crown; on a tall body it is the customer's
+ * choice (Akın, ClickUp z8qu5d7rdq).
+ */
+export function crownRequired(heightMm: number): boolean {
   return heightMm <= CABINET_RULES.crownMaxBodyHeightMm;
 }

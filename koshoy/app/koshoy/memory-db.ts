@@ -80,6 +80,12 @@ export function createMemoryKoshoyDb(now: () => number = Date.now) {
         Object.assign(row, data, { updatedAt: stamp() });
         return { count: 1 };
       },
+      async deleteMany({ where }) {
+        const row = designs.get(where.id);
+        if (!row || row.sessionId !== where.sessionId) return { count: 0 };
+        designs.delete(where.id);
+        return { count: 1 };
+      },
     },
   };
 

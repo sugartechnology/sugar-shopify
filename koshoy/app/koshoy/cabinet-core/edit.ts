@@ -38,7 +38,7 @@ import {
   nearestHeight,
   nearestWidth,
 } from "./grid";
-import { crownByDefault, findFrontSeries } from "./rules";
+import { crownRequired, findFrontSeries } from "./rules";
 import { splitUnitsForKind, unitWidthsForKind, type DesignKind } from "./templates";
 import type {
   CabinColorId,
@@ -89,6 +89,8 @@ export type EditRejectReason =
   | "fitting_not_found"
   /** Door color on a unit (or design) without a door. */
   | "no_door"
+  /** A low body keeps its crown (`crownRequired`). */
+  | "crown_required"
   /** Total width would pass the 20 m safety bound (not a product limit). */
   | "total_width_exceeded"
   /** Total width under the smallest unit (320 mm). */
@@ -362,8 +364,9 @@ function unitWidthOp(
 /**
  * A height is taken within half a grid step of a catalog height (2000 →
  * 1984); further off it is refused rather than rounded away (1824 has no
- * catalog body, 1664 would be 16 cm less than asked). The crown follows the
- * new height (`crownByDefault`).
+ * catalog body, 1664 would be 16 cm less than asked). A body that becomes
+ * low gets the crown it needs; one that grows tall from low loses it; from
+ * tall to tall the customer's choice stays.
  */
 function unitHeightOp(
   c: CabinComposition,
@@ -376,8 +379,10 @@ function unitHeightOp(
   const heightMm = nearestHeight(value);
   if (Math.abs(heightMm - value) >= CABIN_GRID_MM / 2) return "height_unavailable";
   if (heightMm === unit.heightMm) return c;
+  const keepCrown =
+    crownRequired(heightMm) || (!crownRequired(unit.heightMm) && unit.hasCrown === true);
   const units = setUnitHeight(c.units, unit.id, heightMm).map((item) =>
-    item.id === unit.id ? withCrown(item, crownByDefault(heightMm)) : item,
+    item.id === unit.id ? withCrown(item, keepCrown) : item,
   );
   return { ...c, units };
 }
@@ -425,6 +430,7 @@ function crownOp(
   const unit = unitAt(c, index);
   if (!unit) return "invalid_unit";
   if (typeof hasCrown !== "boolean") return "invalid_value";
+  if (!hasCrown && crownRequired(unit.heightMm)) return "crown_required";
   return withUnit(c, unit, withCrown(unit, hasCrown));
 }
 

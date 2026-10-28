@@ -13,8 +13,8 @@ import {
   CABIN_COLOR_LABELS,
   DESIGN_KIND_LABELS,
   DESIGN_KINDS,
-  PLAN_LEVELS,
   type CabinColorId,
+  type DesignKind,
 } from "./engine";
 import {
   errorEvent,
@@ -23,13 +23,11 @@ import {
   type ChoiceOption,
   type PublicEvent,
 } from "./events";
-import { parseEditOp, type ClientInput } from "./input";
+import { parseEditOp, type ClientInput, type JourneyAction } from "./input";
 import { koshoyInstructions, koshoyModelContext } from "./instructions";
 import {
   checkReply,
   classifyScope,
-  roomNumbersIn,
-  type RoomNumbers,
   kindFromText,
   kindsInText,
   meansWholeSet,
@@ -39,7 +37,6 @@ import {
 } from "./rules";
 import { isKoshoyToolName, KOSHOY_ROOM_TOOL_NAMES, KOSHOY_TOOL_NAMES, koshoyTools } from "./tools";
 import type { KoshoyRoomDeps } from "./room.server";
-import { KOSHOY_ROOM_SET_IDS, roomSet, setKinds, type KoshoyRoomSetItem } from "./room-sets";
 import {
   addNewDesignToRoom,
   addSetToLayout,
@@ -71,6 +68,21 @@ import {
   type KoshoyPendingTool,
   type KoshoySessionState,
 } from "./store.server";
+import { approvalOf, nextPendingDesign, type JourneyStage, type StyleDecision } from "./journey";
+import type { KoshoyJourneyEvent } from "./journey-events.server";
+import {
+  applyStyleDecision,
+  journeyView,
+  NO_HANDLES,
+  parseStyleValue,
+  focusDesign,
+  stageCards,
+  stageNote,
+  styleChoices,
+  styleDesign,
+  type JourneyOptions,
+  type KoshoyJourneyData,
+} from "./journey.server";
 
 export const KOSHOY_MAX_HOPS = 16;
 export const KOSHOY_CHAT_TAG = "koshoy-chat";
@@ -99,6 +111,14 @@ export interface KoshoyTurnDeps extends KoshoyDesignDeps {
   timeoutMs?: number;
   /** Room photo feature (Sugar S3 + gateway configured): the room tools and blocks are on. */
   room?: KoshoyRoomDeps;
+  /** Akın's journey data (data.server.ts snapshot): rooms, questions, levels, texts, pictures. */
+  data: KoshoyJourneyData;
+  /** Handle colours of the shop (none yet: the shop has no handle products). */
+  handles?: JourneyOptions;
+  /** Signed-in shop customer (App Proxy); the room approval needs one ("Odanı kaydedelim"). */
+  customerId?: string | null;
+  /** Journey measurement (journey-events.server.ts); never throws. */
+  track?: (name: KoshoyJourneyEvent, props?: Record<string, string | number>) => void;
 }
 
 export interface KoshoyToolCall {
@@ -114,8 +134,6 @@ interface TurnContext {
   allowed: Set<string>;
   /** Amounts the reply may quote with a currency: price texts from tools only. */
   prices: Set<string>;
-  /** With a ready room: room measurements by unit, quoted only as "yaklaşık" (rules.ts). */
-  roomNumbers: RoomNumbers | null;
   designIds: Set<string>;
   /** The design on screen when the customer wrote (a tab sets it); edits go there, see editTarget. */
   openDesignId: string | null;
@@ -131,6 +149,11 @@ interface TurnContext {
   askMissed: boolean;
   /** Server-side one-line summary of what this turn's tools did. */
   summary: string;
+  /** Designs, style or approvals changed this turn: the stage card is shown again. */
+  journeyChanged: boolean;
+  stageAtStart: JourneyStage | null;
+  /** Stage cards already sent this turn (by content), so none is sent twice. */
+  cardsShown: Set<string>;
   publish(raw: unknown): void;
 }
 
@@ -284,9 +307,24 @@ function isMissingToolOutput(data: unknown): boolean {
 
 /* ---------------- pending ask_user ---------------- */
 
+/** What a journey button says, before the server has run it (runJourneyAction). */
+const JOURNEY_ACTION_TEXTS: Record<JourneyAction, string> = {
+  structure_skip: "Ölçü vermeden devam edelim.",
+  measure: "Ölçümü yazdım.",
+  approve_room: "Odamı onaylıyorum.",
+  change_room: "Odada değişiklik istiyorum.",
+  approve: "Bu ürünü onaylıyorum.",
+  approve_same: "Aynı ürünleri birlikte onaylıyorum.",
+  change: "Bu üründe değişiklik istiyorum.",
+  later: "Bu ürüne sonra karar vereceğim.",
+  remove: "Bu ürünü istemiyorum.",
+  revisit: "Bu ürüne şimdi karar vereyim.",
+};
+
 function clientText(input: ClientInput): string {
   if (input.type === "message") return input.text;
   if (input.type === "choice") return input.label || input.selected;
+  if (input.type === "journey") return JOURNEY_ACTION_TEXTS[input.action];
   // The screen already shows the cart outcome; the model must not invent a
   // cause or a fix (it used to suggest reloading the page).
   return input.ok
@@ -296,12 +334,15 @@ function clientText(input: ClientInput): string {
         "birazdan tekrar deneyebileceğini söyle.";
 }
 
+/** Tools that show choices and wait for the customer; their result is the customer's answer. */
+const QUESTION_TOOLS: ReadonlySet<string> = new Set(["ask_user", "ask_style"]);
+
 export function completePendingTools(
   pendingTools: KoshoyPendingTool[],
   client: ClientInput,
 ): KoshoyPendingTool[] {
   return pendingTools.map((tool) => {
-    if (tool.name !== "ask_user") {
+    if (!QUESTION_TOOLS.has(tool.name)) {
       return { id: tool.id, name: tool.name, payload: tool.payload };
     }
     const question = tool.payload.question ?? "";
@@ -312,17 +353,17 @@ export function completePendingTools(
         payload: { question, selected: client.selected, label: client.label || client.selected },
       };
     }
-    if (client.type === "message") {
+    if (client.type === "add_cart_result") {
       return {
         id: tool.id,
         name: tool.name,
-        payload: { question, selected: "free_text", label: client.text },
+        payload: { question, selected: client.ok ? "cart_ok" : "cart_error", label: clientText(client) },
       };
     }
     return {
       id: tool.id,
       name: tool.name,
-      payload: { question, selected: client.ok ? "cart_ok" : "cart_error", label: clientText(client) },
+      payload: { question, selected: "free_text", label: clientText(client) },
     };
   });
 }
@@ -346,7 +387,7 @@ export function startKoshoyHop(
   client: ClientInput,
 ): { message?: string; toolResults?: KoshoyPendingTool[]; followUp?: string } {
   if (session.pendingTools.length) {
-    const asked = session.pendingTools.some((tool) => tool.name === "ask_user");
+    const asked = session.pendingTools.some((tool) => QUESTION_TOOLS.has(tool.name));
     const toolResults = completePendingTools(session.pendingTools, client);
     session.pendingTools = [];
     session.pendingAskUser = null;
@@ -359,7 +400,7 @@ export function startKoshoyHop(
       [
         {
           id: session.pendingAskUser.id,
-          name: "ask_user",
+          name: session.pendingAskUser.tool ?? "ask_user",
           payload: { question: session.pendingAskUser.question },
         },
       ],
@@ -417,6 +458,68 @@ function openDesignNote(label: string): string {
   return `Müşteri ekranda ${label} tasarımına bakıyor; değişiklik yalnız ona uygulandı.`;
 }
 
+const STYLE_DECISIONS: readonly StyleDecision[] = ["level", "panel", "front", "crown", "handle"];
+
+const STYLE_BEFORE_SET_HINT = "Tarz kararları ürünler kurulduktan sonra sorulur; önce odanın setini kur.";
+
+const ALREADY_DECIDED_HINT =
+  "Bu karar zaten verildi; tekrar sorma. Müşteri bunu değiştirmek isterse ask_style'ı change: true ile çağır.";
+
+interface PlannedItem {
+  kind: DesignKind;
+  count: number;
+  widthMm?: number;
+}
+
+function widthMmFrom(cm: unknown): number | undefined {
+  const value = Number(cm);
+  return Number.isFinite(value) && value > 0 ? Math.round(value * 10) : undefined;
+}
+
+/**
+ * One planned design per product. Kinds that stand together on one wall
+ * (joinSameKind, e.g. kitaplık) become one design as wide as all of them,
+ * so the core splits it into equal bodies: 2 kitaplık → 3 × 64 cm.
+ */
+function designsToPlan(ctx: TurnContext, items: ReadonlyArray<PlannedItem>): Array<{ kind: DesignKind; widthMm?: number }> {
+  const out: Array<{ kind: DesignKind; widthMm?: number }> = [];
+  for (const item of items) {
+    const join = ctx.deps.data.kinds.find((row) => row.kind === item.kind)?.joinSameKind === true;
+    if (join && item.count > 1) {
+      const single = item.widthMm ?? totalWidthMm(ctx.deps.engine.planCabinet({ kind: item.kind }).composition);
+      out.push({ kind: item.kind, widthMm: single * item.count });
+      continue;
+    }
+    for (let i = 0; i < Math.max(0, item.count); i += 1) out.push({ kind: item.kind, widthMm: item.widthMm });
+  }
+  return out;
+}
+
+function totalWidthMm(composition: { units: ReadonlyArray<{ widthMm: number }> }): number {
+  return composition.units.reduce((sum, unit) => sum + unit.widthMm, 0);
+}
+
+/** A new design in the room's style (colour, front, crown), counted as this turn's. */
+async function planStyledDesign(
+  ctx: TurnContext,
+  kind: DesignKind,
+  targetWidthMm: number | undefined,
+  color: CabinColorId | undefined,
+) {
+  const { session, deps } = ctx;
+  const created = await createPlannedDesign(deps, session, {
+    kind,
+    targetWidthMm,
+    color: color ?? (session.journey.style.panel || session.brief.color || undefined),
+  });
+  if (!created) return null;
+  const design = await styleDesign(deps, session.id, created.design, { ...session.journey.style, panel: "" });
+  ctx.designIds.add(design.id);
+  ctx.createdIds.add(design.id);
+  ctx.journeyChanged = true;
+  return { design, plan: created.plan };
+}
+
 export async function executeKoshoyTool(
   call: KoshoyToolCall,
   ctx: TurnContext,
@@ -429,17 +532,55 @@ export async function executeKoshoyTool(
   }
 
   if (call.name === "set_brief") {
-    const level = oneOf(args.level, PLAN_LEVELS);
     const color = oneOf(args.color, CABIN_COLOR_IDS);
+    const room = briefText(args.room, BRIEF_FIELD_MAX.room);
     // The brief is replayed to the model on every hop: keep it short and flat.
     session.brief = {
-      room: briefText(args.room, BRIEF_FIELD_MAX.room) || session.brief.room,
+      room: room || session.brief.room,
       style: briefText(args.style, BRIEF_FIELD_MAX.style) || session.brief.style,
-      level: level ?? session.brief.level,
+      level: session.brief.level,
       color: color ?? session.brief.color,
       notes: briefText(args.notes, BRIEF_FIELD_MAX.notes) || session.brief.notes,
     };
+    const designs = await deps.store.listDesigns(session.id);
+    // The one-product buyer is decided before anything is planned.
+    if (args.single === true && !designs.length) session.journey.kind = "single";
+    if (room) deps.track?.("room_chosen", { room: session.brief.room });
+    // A colour the customer named is the room's panel colour: it is not asked again.
+    if (color && color !== session.journey.style.panel) {
+      const applied = await applyStyleDecision(deps, session, deps.data, "panel", color, deps.handles);
+      if (applied.designs.length) await publishDesigns(ctx, applied.designs);
+      ctx.journeyChanged = true;
+    }
     return { payload: { ok: true } };
+  }
+
+  if (call.name === "ask_style") {
+    const decision = oneOf(args.decision, STYLE_DECISIONS);
+    if (!decision) return { payload: { ok: false, error: "invalid_decision" } };
+    const designs = await deps.store.listDesigns(session.id);
+    if (!designs.length) return { payload: { ok: false, error: "no_designs", hint: STYLE_BEFORE_SET_HINT } };
+    // A decision already taken is asked again only when the customer wants to change it.
+    const view = await journeyView(deps, session, deps.data, deps.handles);
+    if (!view.missingStyle.includes(decision) && args.change !== true) {
+      return { payload: { ok: false, error: "already_decided", hint: `${ALREADY_DECIDED_HINT} ${stageNote(view, session, deps.data)}` } };
+    }
+    const choice = await styleChoices(deps, designs, deps.data, decision, deps.handles);
+    if (choice.options.length < 2) return { payload: { ok: false, error: "no_choice" } };
+    session.pendingAskUser = { id: call.id, tool: "ask_style", question: choice.question, options: choice.options };
+    ctx.publish({
+      type: "choice",
+      question: choice.question,
+      options: choice.options.map(({ value: _value, ...option }) => option),
+    });
+    return {
+      payload: {
+        ok: true,
+        question: choice.question,
+        options: choice.options.map((option) => ({ label: option.label, ...(option.price ? { price: option.price } : {}) })),
+      },
+      askedUser: true,
+    };
   }
 
   if (call.name === "ask_user") {
@@ -453,14 +594,14 @@ export async function executeKoshoyTool(
         (option) =>
           /^[A-Za-z0-9_-]{1,64}$/.test(option.id) &&
           option.label &&
-          !checkReply(option.label, ctx.allowed, ctx.prices, ctx.roomNumbers ?? undefined).issues.length,
+          !checkReply(option.label, ctx.allowed, ctx.prices).issues.length,
       )
       .slice(0, 4);
     if (options.length < 2) {
       ctx.askMissed = true;
       return { payload: { ok: false, error: "need 2-4 options in product language, no numbers" } };
     }
-    const asked = checkReply(str(args.question), ctx.allowed, ctx.prices, ctx.roomNumbers ?? undefined);
+    const asked = checkReply(str(args.question), ctx.allowed, ctx.prices);
     const question = asked.text && !asked.issues.length ? asked.text : "Hangisini seçersin?";
     // Model-chosen ids stay here; the storefront only sees opt_1..opt_4.
     const pending: KoshoyPendingOption[] = options.map((option, index) => ({
@@ -480,19 +621,14 @@ export async function executeKoshoyTool(
   if (call.name === "plan_cabinet") {
     const kind = oneOf(args.kind, DESIGN_KINDS);
     if (!kind) return { payload: { ok: false, error: "unsupported_kind" } };
-    const widthCm = Number(args.targetWidthCm);
     ctx.publish({ type: "status", key: "placing" });
-    const created = await createPlannedDesign(deps, session, {
-      kind,
-      targetWidthMm: Number.isFinite(widthCm) && widthCm > 0 ? Math.round(widthCm * 10) : undefined,
-      level: oneOf(args.level, PLAN_LEVELS) ?? (session.brief.level || undefined),
-      color: oneOf(args.color, CABIN_COLOR_IDS) ?? (session.brief.color || undefined),
-    });
+    const created = await planStyledDesign(ctx, kind, widthMmFrom(args.targetWidthCm), oneOf(args.color, CABIN_COLOR_IDS));
     if (!created) return { payload: { ok: false, error: "design_limit", hint: DESIGN_LIMIT_HINT } };
     const { design, plan } = created;
     ctx.designIds.add(design.id);
     ctx.createdIds.add(design.id);
     ctx.summary = [`Senin için ${design.label} hazırladım.`, ...plan.notes.map((note) => `${note}.`)].join(" ");
+    deps.track?.("set_planned", { kind, count: 1 });
     const quote = await quoteAndPublish(ctx, design, true);
     ctx.publish(designsEvent(await deps.store.listDesigns(session.id), session.activeDesignId));
     // With a ready room the new design walks in on its own when there is space.
@@ -510,33 +646,33 @@ export async function executeKoshoyTool(
   }
 
   if (call.name === "plan_room") {
-    const set = roomSet(oneOf(args.room, KOSHOY_ROOM_SET_IDS) ?? "");
+    const wanted = str(args.room).toLocaleLowerCase("tr-TR");
+    const set = deps.data.rooms.find(
+      (room) => room.id === wanted || room.label.toLocaleLowerCase("tr-TR") === wanted,
+    );
     if (!set) return { payload: { ok: false, error: "unsupported_room" } };
-    const asked: KoshoyRoomSetItem[] = (Array.isArray(args.items) ? args.items : []).flatMap((raw) => {
+    const asked: PlannedItem[] = (Array.isArray(args.items) ? args.items : []).flatMap((raw) => {
       const row = asRecord(raw);
       const kind = oneOf(row.kind, DESIGN_KINDS);
       const count = Number.isInteger(row.count) ? Math.min(Math.max(Number(row.count), 1), 4) : 1;
-      return kind ? [{ kind, count }] : [];
+      return kind ? [{ kind, count, widthMm: widthMmFrom(row.widthCm) }] : [];
     });
     // The set is planned once; later the model changes it or adds named products.
     if (!asked.length && (await deps.store.listDesigns(session.id)).length) {
       return { payload: { ok: false, error: "set_exists", hint: SET_EXISTS_HINT } };
     }
-    const color = oneOf(args.color, CABIN_COLOR_IDS) ?? (session.brief.color || undefined);
-    const level = oneOf(args.level, PLAN_LEVELS) ?? (session.brief.level || undefined);
-    session.brief = { ...session.brief, room: session.brief.room || set.label, color: color ?? session.brief.color };
+    const color = oneOf(args.color, CABIN_COLOR_IDS);
+    session.brief = { ...session.brief, room: session.brief.room || set.label };
     ctx.publish({ type: "status", key: "placing" });
     const planned: KoshoyDesign[] = [];
     const notes: string[] = [];
-    for (const kind of setKinds(asked.length ? asked : set.items)) {
-      const created = await createPlannedDesign(deps, session, { kind, level, color });
+    for (const item of designsToPlan(ctx, asked.length ? asked : set.items)) {
+      const created = await planStyledDesign(ctx, item.kind, item.widthMm, color);
       if (!created) {
         notes.push(DESIGN_LIMIT_HINT);
         break;
       }
       planned.push(created.design);
-      ctx.designIds.add(created.design.id);
-      ctx.createdIds.add(created.design.id);
       notes.push(...created.plan.notes);
     }
     if (!planned.length) return { payload: { ok: false, error: "design_limit", hint: DESIGN_LIMIT_HINT } };
@@ -552,6 +688,7 @@ export async function executeKoshoyTool(
     const placeNote = room ? await addSetToLayout(room, planned) : null;
     if (placeNote) notes.push(placeNote);
     ctx.summary = `${set.label} için ${planned.map((design) => design.label).join(", ")} hazırladım.`;
+    deps.track?.("set_planned", { room: set.id, count: planned.length });
     return {
       payload: {
         ok: true,
@@ -579,6 +716,7 @@ export async function executeKoshoyTool(
       const result = await applyDesignEdit(deps, session.id, design, op);
       if (!result.ok || !result.changed) continue;
       changed += 1;
+      ctx.journeyChanged = true;
       if (room) await settleRoomAfterEdit(room, design, result.design);
       await quoteAndPublish(ctx, result.design, true);
     }
@@ -599,7 +737,10 @@ export async function executeKoshoyTool(
       return { payload: { ok: false, error: "rejected", hint: editRejectHint(result.reason) } };
     }
     const switched = session.activeDesignId !== result.design.id;
-    if (result.changed) ctx.summary = `${result.design.label} tasarımını güncelledim.`;
+    if (result.changed) {
+      ctx.summary = `${result.design.label} tasarımını güncelledim.`;
+      ctx.journeyChanged = true;
+    }
     const room = roomToolContext(ctx);
     if (room && result.changed) await settleRoomAfterEdit(room, design, result.design);
     session.activeDesignId = result.design.id;
@@ -663,7 +804,7 @@ export async function executeKoshoyTool(
 }
 
 /** Tools whose payloads are server facts; their numbers may appear in replies. */
-const FACT_TOOLS = new Set(["plan_cabinet", "plan_room", "edit_design", "quote", "switch_design"]);
+const FACT_TOOLS = new Set(["plan_cabinet", "plan_room", "edit_design", "quote", "switch_design", "ask_style"]);
 
 async function runTool(call: KoshoyToolCall, ctx: TurnContext) {
   const result = isKoshoyToolName(call.name)
@@ -673,10 +814,8 @@ async function runTool(call: KoshoyToolCall, ctx: TurnContext) {
     numbersIn(result.payload, ctx.allowed);
     pricesIn(result.payload, ctx.prices);
   }
-  // Positions in the room come from measurements: quoted only as "yaklaşık".
-  if (KOSHOY_ROOM_TOOL_NAMES.includes(call.name) && ctx.roomNumbers) {
-    roomNumbersIn(result.payload, ctx.roomNumbers);
-  }
+  // Room tools' lengths come from the room's measurements: never said to the
+  // customer (ClickUp z8qu5d7rdp), so they never become allowed numbers.
   return result;
 }
 
@@ -693,7 +832,7 @@ function publishText(ctx: TurnContext, raw: string) {
   for (const id of ctx.designIds) text = text.split(id).join("");
   text = text.trim();
   if (!text) return;
-  const result = checkReply(text, ctx.allowed, ctx.prices, ctx.roomNumbers ?? undefined);
+  const result = checkReply(text, ctx.allowed, ctx.prices);
   if (result.issues.length) console.warn("[koshoy] reply guarded", result.issues);
   if (!result.text) return;
   ctx.publish({ type: "text", text: (ctx.textSent ? "\n\n" : "") + result.text });
@@ -761,6 +900,7 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
     for (const design of designs) ctx.designIds.add(design.id);
     const roomContext = roomToolContext(ctx);
     const hopRoom = roomContext ? await roomHopContext(roomContext, designs, Boolean(message)) : null;
+    const view = await journeyView(deps, session, deps.data, deps.handles);
     const instructionInput = {
       brief: session.brief,
       designs,
@@ -769,15 +909,13 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
       roomReady: hopRoom?.roomReady ?? false,
       room: hopRoom?.room ?? null,
       layout: hopRoom?.layout ?? null,
+      data: deps.data,
+      journey: session.journey,
+      stage: stageNote(view, session, deps.data),
     };
     // Design facts only; the brief holds customer words, not system numbers.
+    // Room sizes are never allowed: they are not said to the customer.
     numbersIn(koshoyModelContext(instructionInput).designs, ctx.allowed);
-    // Room lengths, by unit, only with a ready room (v2.1-9); without one the old room rules hold.
-    if (hopRoom?.roomReady) {
-      ctx.roomNumbers ??= { cm: new Set<string>(), m: new Set<string>() };
-      roomNumbersIn(hopRoom.room, ctx.roomNumbers);
-      roomNumbersIn(hopRoom.layout, ctx.roomNumbers);
-    }
 
     const body: Record<string, unknown> = {
       sessionId: session.modelSessionId,
@@ -865,9 +1003,10 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
     // A question goes in a turn of its own. Asked next to other tools, the
     // customer's next words would reach the model beside those results, and it
     // answered the results instead of the customer (ClickUp z8qu5d6gzx).
-    const askAlone = unique.length > 1 && unique.some((call) => call.name === "ask_user");
+    const asks = (name: string) => name === "ask_user" || name === "ask_style";
+    const askAlone = unique.length > 1 && unique.some((call) => asks(call.name));
     for (const call of unique) {
-      if (askAlone && call.name === "ask_user") {
+      if (askAlone && asks(call.name)) {
         ctx.askMissed = true;
         results.push({ id: call.id, name: call.name, payload: { ok: false, error: "ask_alone", hint: ASK_ALONE_HINT } });
         continue;
@@ -983,7 +1122,7 @@ async function runMockTurn(ctx: TurnContext, client: ClientInput) {
     return;
   }
 
-  let text = client.type === "message" ? client.text : client.label || client.selected;
+  let text = clientText(client);
   if (client.type === "choice") {
     session.pendingAskUser = null;
     session.pendingTools = [];
@@ -1036,6 +1175,210 @@ async function runMockTurn(ctx: TurnContext, client: ClientInput) {
   );
 }
 
+/* ---------------- journey buttons and cards ---------------- */
+
+/**
+ * Runs a journey button (journey.ts) and returns what the model is told,
+ * in the customer's words; null when the model is not asked (the screen
+ * already has the answer, e.g. the sign-in card).
+ */
+async function runJourneyAction(
+  ctx: TurnContext,
+  input: Extract<ClientInput, { type: "journey" }>,
+): Promise<string | null> {
+  const { session, deps } = ctx;
+  const journey = session.journey;
+  const designs = await deps.store.listDesigns(session.id);
+
+  if (input.action === "structure_skip") {
+    journey.structure = "skip";
+    ctx.journeyChanged = true;
+    deps.track?.("structure_skipped");
+    return "Ölçü vermeden devam edelim.";
+  }
+  if (input.action === "measure" && input.wallCm) {
+    journey.structure = "measure";
+    journey.measure = { wallCm: input.wallCm, ceilingCm: input.ceilingCm ?? null };
+    ctx.journeyChanged = true;
+    deps.track?.("structure_measure");
+    return "[Sistem notu] Müşteri kendi duvar ölçüsünü yazdı (oda bilgisinde). Ürünler sığmıyorsa küçült; ölçüyü müşteriye söyleme.";
+  }
+  if (input.action === "approve_room") {
+    const view = await journeyView(deps, session, deps.data, deps.handles);
+    if (view.stage !== "room_approval") return `[Sistem notu] Müşteri onaylamak istedi ama henüz erken. ${stageNote(view, session, deps.data)}`;
+    if (!deps.customerId) {
+      // "Odanı kaydedelim" comes right before the approval (ClickUp z8qu5d7rdt).
+      ctx.publish({ type: "login_required" });
+      return null;
+    }
+    journey.roomApprovedAt = Date.now();
+    journey.roomApproval = {
+      designs: designs.map((design) => ({ id: design.id, label: design.label, version: design.version })),
+      style: { ...journey.style },
+    };
+    // The one-product buyer approves the product together with its room topics.
+    if (journey.kind === "single") {
+      for (const design of designs) journey.approvals[design.id] = { status: "approved", version: design.version };
+    }
+    ctx.journeyChanged = true;
+    deps.track?.("room_approved", { count: designs.length });
+    return journey.kind === "single" ? "Ürünü ve seçimlerimi onaylıyorum." : "Odamı onaylıyorum.";
+  }
+  if (input.action === "change_room") return "Odada değişiklik istiyorum.";
+
+  const design = designs.find((item) => item.id === input.designId);
+  if (!design) return "[Sistem notu] Müşterinin seçtiği ürün artık yok.";
+  if (journey.roomApprovedAt === null) {
+    return "[Sistem notu] Müşteri bir ürüne karar vermek istedi ama oda henüz onaylanmadı; önce oda onayına götür.";
+  }
+  if (input.action === "change") {
+    session.activeDesignId = design.id;
+    deps.track?.("product_changed", { kind: design.kind });
+    return `${design.label} ürününde değişiklik istiyorum.`;
+  }
+  if (input.action === "approve" || input.action === "approve_same") {
+    const same =
+      input.action === "approve_same"
+        ? designs.filter((item) => item.kind === design.kind && approvalOf(journey, item) === "pending")
+        : [design];
+    for (const item of [design, ...same]) journey.approvals[item.id] = { status: "approved", version: item.version };
+    ctx.journeyChanged = true;
+    deps.track?.("product_approved", { kind: design.kind, count: new Set([design, ...same]).size });
+    return input.action === "approve_same" ? `Bütün ${design.label} ürünlerini onaylıyorum.` : `${design.label} onaylıyorum.`;
+  }
+  if (input.action === "revisit") {
+    // A product left for later is decided after all: it is pending again.
+    delete journey.approvals[design.id];
+    session.activeDesignId = design.id;
+    ctx.journeyChanged = true;
+    return `${design.label} için şimdi karar vereyim.`;
+  }
+  if (input.action === "later") {
+    journey.approvals[design.id] = { status: "later", version: design.version };
+    ctx.journeyChanged = true;
+    deps.track?.("product_later", { kind: design.kind });
+    return `${design.label} için sonra karar vereceğim.`;
+  }
+  // remove: the product leaves the room and the conversation.
+  const room = roomToolContext(ctx);
+  if (room) await runRoomTool(room, "remove_from_room", { designId: design.id });
+  await deps.store.deleteDesign(session.id, design.id);
+  delete journey.approvals[design.id];
+  const left = designs.filter((item) => item.id !== design.id);
+  if (session.activeDesignId === design.id) {
+    session.activeDesignId = left[0]?.id ?? null;
+    if (left[0]) await quoteAndPublish(ctx, left[0], true);
+  }
+  ctx.publish(designsEvent(left, session.activeDesignId));
+  ctx.journeyChanged = true;
+  deps.track?.("product_removed", { kind: design.kind });
+  return `${design.label} istemiyorum; odadan çıkar.`;
+}
+
+/**
+ * Shows the card of the stage the customer is in: when the stage changed in
+ * this turn, or when the turn changed designs, style or approvals. In the
+ * product stage the screen moves to the product being decided on.
+ */
+async function publishStageCards(ctx: TurnContext) {
+  const { session, deps } = ctx;
+  await applyOnlyLevel(ctx);
+  const view = await journeyView(deps, session, deps.data, deps.handles);
+  // Compared with the stage shown last, so a change made outside a turn (a panel edit) is caught too.
+  if (view.stage === session.journey.shownStage && !ctx.journeyChanged) return;
+  if (ctx.stageAtStart === "room_style" && view.stage !== "room_style") deps.track?.("style_done");
+  if (view.stage === "product_approval") {
+    const design = focusDesign(session, view);
+    if (design && design.id !== session.activeDesignId) {
+      session.activeDesignId = design.id;
+      ctx.publish(designsEvent(view.designs, design.id));
+      await quoteAndPublish(ctx, design, true);
+    }
+  }
+  // With a room photo, the room approval shows the first realistic picture by itself, once (map v1.1 stage 6).
+  const room = roomToolContext(ctx);
+  if (view.stage === "room_approval" && room && session.roomId && session.journey.autoRenderAt === null) {
+    const render = await runRoomTool(room, "render_room", { designId: session.activeDesignId ?? view.designs[0]?.id });
+    if (render.ok === true) session.journey.autoRenderAt = Date.now();
+  }
+  const cards = await stageCards(deps, session, view, deps.data, {
+    photo: Boolean(deps.room),
+    handles: (deps.handles ?? NO_HANDLES).handles,
+  });
+  for (const card of cards) {
+    const key = JSON.stringify(card);
+    if (ctx.cardsShown.has(key)) continue;
+    ctx.cardsShown.add(key);
+    ctx.publish(card);
+  }
+  ctx.stageAtStart = view.stage;
+  session.journey.shownStage = view.stage;
+  ctx.journeyChanged = false;
+}
+
+/** Every design's scene and price (a room-wide style change), the active one last so it stays on screen. */
+async function publishDesigns(ctx: TurnContext, designs: readonly KoshoyDesign[]) {
+  const active = ctx.session.activeDesignId;
+  const ordered = [...designs.filter((design) => design.id !== active), ...designs.filter((design) => design.id === active)];
+  for (const design of ordered) await quoteAndPublish(ctx, design, true);
+  ctx.publish(designsEvent(await ctx.deps.store.listDesigns(ctx.session.id), active));
+}
+
+/** With a single budget level in the data there is nothing to ask: it applies by itself. */
+async function applyOnlyLevel(ctx: TurnContext) {
+  const { session, deps } = ctx;
+  const [only, ...rest] = deps.data.levels;
+  if (!only || rest.length || session.journey.style.level) return;
+  const applied = await applyStyleDecision(deps, session, deps.data, "level", only.id, deps.handles);
+  if (!applied.designs.length) {
+    session.journey.style.level = "";
+    return;
+  }
+  await publishDesigns(ctx, applied.designs);
+  ctx.journeyChanged = true;
+}
+
+/**
+ * Before the model runs: a card's intent, a journey button, or a style
+ * choice is applied by the server itself. Returns the input the model gets
+ * (null: no model this turn).
+ */
+async function applyClientToJourney(ctx: TurnContext, client: ClientInput): Promise<ClientInput | null> {
+  const { session, deps } = ctx;
+  if (client.type === "message") {
+    if (client.card) deps.track?.("card_clicked", { card: client.card });
+    if (!session.events.length) deps.track?.("first_message");
+    if (client.intent && !(await deps.store.listDesigns(session.id)).length) session.journey.kind = client.intent;
+    return client;
+  }
+  if (client.type === "choice") {
+    const style = parseStyleValue(client.selected);
+    if (style) {
+      const applied = await applyStyleDecision(deps, session, deps.data, style.decision, style.value, deps.handles);
+      if (applied.ok) {
+        ctx.journeyChanged = true;
+        await publishDesigns(ctx, applied.designs);
+        publishText(ctx, applied.summary);
+      }
+    }
+    return client;
+  }
+  if (client.type === "add_cart_result") {
+    if (client.ok) deps.track?.("cart_sent", { count: client.designIds?.length ?? 0 });
+    for (const design of await deps.store.listDesigns(session.id)) {
+      const approval = session.journey.approvals[design.id];
+      if (client.designIds?.includes(design.id) && approval?.status === "approved" && approval.version === design.version) {
+        approval.sentVersion = design.version;
+        ctx.journeyChanged = true;
+      }
+    }
+    return client;
+  }
+  const note = await runJourneyAction(ctx, client);
+  await publishStageCards(ctx);
+  return note === null ? null : { type: "message", text: note };
+}
+
 /* ---------------- entry ---------------- */
 
 /**
@@ -1055,7 +1398,6 @@ export async function runKoshoyTurn(input: {
     deps: input.deps,
     allowed: new Set<string>(),
     prices: new Set<string>(),
-    roomNumbers: null,
     designIds: new Set<string>(),
     openDesignId: session.activeDesignId,
     customerText: "",
@@ -1065,6 +1407,9 @@ export async function runKoshoyTurn(input: {
     shown: new Set<string>(),
     askMissed: false,
     summary: "",
+    journeyChanged: false,
+    stageAtStart: null,
+    cardsShown: new Set<string>(),
     publish(raw) {
       const event = toPublicEvent(raw);
       if (!event || doneSent) return;
@@ -1076,15 +1421,22 @@ export async function runKoshoyTurn(input: {
   };
 
   try {
-    const client = resolveKoshoyChoice(session, input.client);
-    ctx.customerText = clientText(client);
-    if (client.type === "message" && classifyScope(client.text) === "out") {
+    ctx.stageAtStart = (await journeyView(input.deps, session, input.deps.data, input.deps.handles)).stage;
+    const resolved = resolveKoshoyChoice(session, input.client);
+    ctx.customerText = clientText(resolved);
+    const client = await applyClientToJourney(ctx, resolved);
+    if (!client) {
+      // Nothing for the model: the screen already shows the answer.
+    } else if (client.type === "message" && classifyScope(client.text) === "out") {
       ctx.publish(errorEvent("out_of_scope"));
+    } else if (input.deps.mock && resolved.type === "journey") {
+      publishText(ctx, "Tamam.");
     } else if (input.deps.mock) {
       await runMockTurn(ctx, client);
     } else {
       await runModelTurn(ctx, client);
     }
+    await publishStageCards(ctx);
   } catch (error) {
     if (error instanceof KoshoyTurnStopped) {
       // Timed out: tell the customer. Client gone: nobody is listening.

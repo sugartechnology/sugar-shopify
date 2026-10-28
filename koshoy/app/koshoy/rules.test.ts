@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { KOSHOY_DATA_DEFAULTS } from "./data.server";
+import { emptyJourney } from "./journey";
 import { koshoyInstructions } from "./instructions";
 import { EMPTY_KOSHOY_BRIEF } from "./store.server";
 import {
@@ -21,6 +23,9 @@ describe("koshoy rules single source", () => {
       brief: EMPTY_KOSHOY_BRIEF,
       designs: [],
       activeDesignId: null,
+      data: KOSHOY_DATA_DEFAULTS,
+      journey: emptyJourney(),
+      stage: "Aşama: oda.",
     });
     for (const rule of KOSHOY_RULES) assert.ok(text.includes(rule.text), rule.id);
     assert.match(text, /Gardırop/);

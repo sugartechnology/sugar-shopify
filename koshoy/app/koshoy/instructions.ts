@@ -3,10 +3,10 @@
  * read from rules.ts so the prompt and the output guard never drift apart.
  */
 import { PRICE_PLACEHOLDER } from "./events";
-import { KOSHOY_SCOPE, koshoyRules } from "./rules";
+import { koshoyRules } from "./rules";
 import { designBriefForModel, designForModel } from "./design-ops.server";
-import { CABIN_COLOR_LABELS } from "./engine";
-import { roomSetsForModel } from "./room-sets";
+import type { KoshoyJourney } from "./journey";
+import type { KoshoyJourneyData } from "./journey.server";
 import type { KoshoyBrief, KoshoyDesign } from "./store.server";
 
 export interface KoshoyInstructionInput {
@@ -21,6 +21,11 @@ export interface KoshoyInstructionInput {
   room?: Record<string, unknown> | null;
   /** Where the designs stand (layout.server.ts). */
   layout?: Record<string, unknown> | null;
+  /** Akın's data: rooms, kinds, scope, texts (data.server.ts). */
+  data: KoshoyJourneyData;
+  journey: KoshoyJourney;
+  /** Where the customer is and what comes next (journey.server.ts stageNote). */
+  stage: string;
 }
 
 /**
@@ -44,7 +49,7 @@ const ROOM_TOOL_LINES = [
   "- Tasarımı odaya (ya da fotoğraf yoksa stüdyodaki duvarın önüne) yerleştirmek ya da yerini değiştirmek için place_in_room, odadan çıkarmak için remove_from_room çağır. Odada en çok 8 tasarım durabilir.",
   "- Müşteri fotoğraftaki bir şeye göre yer söylerse (\"pencerenin soluna\") fotoğrafta o şeyin kenarını bul, yatay yerini 0 (sol kenar) ile 1 (sağ kenar) arasında photoX olarak ver: at photo_x, dolabın sağ kenarı oraya gelecekse align right_edge, sol kenarı gelecekse left_edge.",
   "- Odadaki tasarımı fotoğrafın üstünde göstermek için show_in_room, gerçekçi görsel için render_room çağır.",
-  "- Oda ölçüleri yaklaşıktır; ölçü söylerken oda bilgisindeki yuvarlanmış değeri \"yaklaşık\" diyerek kullan.",
+  "- Oda bilgisini yerleşim ve ölçü seçimi için kullan; müşteriye oda ya da duvar ölçüsü hiç söyleme, yalnız ürün ölçüsü söyle.",
 ];
 
 /** With a ready room the designs already stand in the customer's room on screen. */
@@ -52,31 +57,53 @@ const READY_ROOM_LINES = [
   "- Müşterinin hazır bir oda fotoğrafı var; tasarımlar ekranda zaten odasında görünebilir. \"Tasarımı odanın içinde görmek ister misin?\" gibi sorular sorma; müşteri odada görmek isterse show_in_room çağır.",
 ];
 
+/** Products the core can plan, with Akın's names and other words for them. */
+function kindsForModel(data: KoshoyJourneyData) {
+  return data.kinds.map((row) => ({ kind: row.kind, label: row.label, ...(row.synonyms?.length ? { synonyms: row.synonyms } : {}) }));
+}
+
+function roomsForModel(data: KoshoyJourneyData) {
+  return data.rooms.map((room) => ({
+    room: room.id,
+    label: room.label,
+    items: room.items.map((item) => ({ kind: item.kind, count: item.count })),
+  }));
+}
+
 export function koshoyInstructions(input: KoshoyInstructionInput): string {
   const context = koshoyModelContext(input);
-  const inScope = KOSHOY_SCOPE.inScope.map((item) => item.label).join(", ");
-  const outOfScope = KOSHOY_SCOPE.outOfScope.join(", ");
+  const { data, journey } = input;
+  const inScope = data.kinds.map((row) => row.label).join(", ");
+  const outOfScope = data.scope.outOfScope.join(", ");
+  const measure = journey.measure
+    ? `Müşterinin kendi ölçüsü (yalnız ürünleri sığdırmak için; müşteriye söyleme): duvar ${journey.measure.wallCm} cm${
+        journey.measure.ceilingCm ? `, tavan ${journey.measure.ceilingCm} cm` : ""
+      }.`
+    : "";
   return [
     "Sen Koshoy'un tasarım asistanısın. Koshoy panelden yapılan, kutu gibi modüler mobilyalar satar.",
     "Müşteriyle kısa ve sıcak bir sohbetle ihtiyacını anlar, tasarımı araçlarla oluşturur, fiyatı sistemden alırsın.",
     "",
     "Kurallar (her zaman geçerli):",
     ...koshoyRules(Boolean(input.roomReady)).map((rule) => `- ${rule.text}`),
+    `- Teslim, kurulum, garanti ya da ödeme sorulursa yalnız şunu söylersin: "${data.texts.promiseLine}"`,
+    ...(data.scope.unsaid.length ? [`- Şunlardan hiç söz etmezsin (ne söz ne uyarı): ${data.scope.unsaid.join(", ")}.`] : []),
     "",
     "Kapsam:",
     `- Tasarlayabildiklerin: ${inScope}. Her ürün ayrı bir tasarımdır; komodin gardıroba eklenmez.`,
-    "- Panelden yapılan her dolap kapsamdadır. Listede adı geçmeyen bir dolabı en yakın türle kur (ör. çamaşır ya da süpürge dolabı → çok amaçlı dolap); müşteriye \"bu ürünümüz yok\" deme.",
+    "- Panelden yapılan her dolap kapsamdadır. Listede adı geçmeyen bir dolap istenirse (ör. dresuar) önce ihtiyacını sor (genişlik, yükseklik, çekmece mi raf mı), sonra çok amaçlı dolabı o ölçülerle kur; müşteriye \"bu ürünümüz yok\" deme.",
     `- Kapsam dışı yalnız: ${outOfScope} ve panelden yapılmayan eşyalar. Bunlarda araç çağırmadan kibarca reddet ve bir dolap öner; yapabildiklerini sayma, yalnız yapamadığını söyle.`,
     "",
-    "Akış (bütünden parçaya):",
-    "- Müşteri ne döşeyeceğini söylemediyse önce hangi odayı döşediğini sor: ask_user ile 2–4 oda seçeneği.",
-    `- Oda belli olunca temel rengi bir kez sor (müşteri söylediyse sorma) ve set_brief'e yaz. Renkleri müşteriye yalnız Türkçe adıyla yaz: ${Object.values(CABIN_COLOR_LABELS).join(", ")}.`,
-    "- Sonra plan_room ile odanın setini tek seferde oluştur; set aşağıdaki oda bilgisinden gelir. Müşteri başka ürün ya da adet söylediyse items ile ver. Setteki ürünleri tek cümleyle say; toplam fiyat ekranda görünür.",
-    "- Müşteri doğrudan tek bir ürün isterse plan_cabinet ile onu oluştur, sonra odanın diğer ürünlerini kısaca öner; zorlama.",
-    "- Set üzerinde anlaşmadan iç düzen, çekmece, raf gibi ayrıntılara girme; müşteri kendisi isterse yap.",
-    "- plan_room yalnız odanın ilk seti içindir; var olan seti değiştirmek için asla yeniden çağırma. Renk bütün set için değişecekse edit_design'ı allDesigns: true ile çağır.",
-    "- Set tamamsa ürünleri sırayla gez: aktif ürünün ayrıntısını tek kısa soruyla sor (iç düzen, kapak, çekmece); bitince switch_design ile sıradakine geç.",
-    "- En sonda sepete eklemeyi öner; ekrandaki \"Hepsini sepete ekle\" düğmesi bütün seti ekler.",
+    "Akış (bütünden parçaya: önce oda, sonra ürün ürün, sonra sepet):",
+    "- 1) Oda: hangi oda, içinde hangi ürünler ve kaç tane. Sonra plan_room ile seti kur. Müşteri yalnız tek bir ürün istiyorsa set_brief single: true, sonra plan_cabinet; oda seti önerme.",
+    "- 2) Yapı: set kurulunca ekranda fotoğraf / ölçü / ölçüsüz devam kartı çıkar; müşterinin seçimini bekle.",
+    "- 3) Tarz: odanın kararlarını ask_style ile tek tek sor (sistem sırayı söyler). Seçim sistem tarafından bütün ürünlere uygulanır; edit_design ile tekrar uygulama.",
+    "- 4) Oda onayı: ekranda oda özeti çıkar; müşteri onaylar. Onaydan önce müşteriden odasını kaydetmesi (giriş) istenir; bunu ekran yapar.",
+    "- 5) Ürün ürün: ekranda sırayla ürün kartı çıkar; müşteri onaylar, değiştirir, sonraya bırakır ya da çıkarır. İç düzen sorusunu (aşama notunda) karttaki ürün için sor; cevaba göre edit_design.",
+    "- 6) Sepet: sepete yalnız onaylı ürünler gider; ekrandaki sepet özetinden gönderilir. \"Sonra\" denen ürünleri hatırlat.",
+    "- Müşterinin cevapladığı bir soruyu tekrar sorma; aşama kendiliğinden ilerler.",
+    "- plan_room yalnız odanın ilk seti içindir; var olan seti değiştirmek için asla yeniden çağırma. Renk bütün set için değişecekse ask_style panel kullan.",
+    `- ŞU AN: ${input.stage}`,
     "",
     "Araç kullanımı:",
     "- Müşteri oda tipi, stil, seviye ya da renk söylediğinde set_brief çağır.",
@@ -97,7 +124,9 @@ export function koshoyInstructions(input: KoshoyInstructionInput): string {
     "",
     "Yanıtların Türkçe, kısa (en fazla 3 cümle) ve ürün dilinde olsun.",
     "",
-    `Odalar ve setleri (sistem bilgisi): ${JSON.stringify(roomSetsForModel())}`,
+    `Odalar ve setleri (sistem bilgisi): ${JSON.stringify(roomsForModel(data))}`,
+    `Ürün türleri (sistem bilgisi): ${JSON.stringify(kindsForModel(data))}`,
+    ...(measure ? [measure] : []),
     `Tasarımlar (sistem bilgisi): ${JSON.stringify(context.designs)}`,
     ...(input.roomTools && input.layout ? [`Yerleşim (sistem bilgisi, soldan sağa): ${JSON.stringify(input.layout)}`] : []),
     ...(input.roomTools && input.room

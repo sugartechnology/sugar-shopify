@@ -10,14 +10,13 @@ import {
   CABIN_WIDTHS_MM,
   DESIGN_KINDS,
   EDIT_ACTIONS,
-  PLAN_LEVELS,
 } from "./engine";
 import { CABINET_RULES } from "./cabinet-core";
-import { KOSHOY_ROOM_SET_IDS } from "./room-sets";
 
 export const KOSHOY_TOOL_NAMES = [
   "set_brief",
   "ask_user",
+  "ask_style",
   "plan_cabinet",
   "plan_room",
   "edit_design",
@@ -78,16 +77,16 @@ export const KOSHOY_TOOLS = [
   {
     name: "set_brief",
     description:
-      "Store what the customer told you: room type, style, budget level, colour, free notes. Never store room measurements.",
+      "Store what the customer told you: room type, style words, colour, free notes, and single when the customer wants only one product (no room set). Never store room measurements. A colour given here is the room's colour and is not asked again.",
     strict: false,
     parameters: {
       type: "object",
       properties: {
         room: { type: "string", description: "Room type, e.g. yatak odası, salon, antre" },
         style: { type: "string" },
-        level: { type: "string", enum: [...PLAN_LEVELS] },
         color: { type: "string", enum: [...CABIN_COLOR_IDS] },
         notes: { type: "string" },
+        single: { type: "boolean", description: "The customer wants one product only, not a room" },
       },
       additionalProperties: false,
     },
@@ -118,6 +117,25 @@ export const KOSHOY_TOOLS = [
     },
   },
   {
+    name: "ask_style",
+    description:
+      "Ask one room-level style decision. The server builds the choices (with pictures and each choice's total price) and applies the customer's pick to every product of the room by itself; never apply it again with edit_design. Call it alone, like ask_user.",
+    strict: false,
+    parameters: {
+      type: "object",
+      properties: {
+        decision: {
+          type: "string",
+          enum: ["level", "panel", "front", "crown", "handle"],
+          description: "level: how to choose (budget); panel: colour; front: door series; crown: crown on tall cabinets; handle: handle colour",
+        },
+        change: { type: "boolean", description: "The customer wants to change a decision already taken" },
+      },
+      required: ["decision"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "plan_cabinet",
     description:
       "Create a NEW design for one product. The server picks sizes and interior from templates and snaps to the catalog; never invent sizes. Returns the design summary, snapping notes and the price text.",
@@ -127,7 +145,6 @@ export const KOSHOY_TOOLS = [
       properties: {
         kind: { type: "string", enum: [...DESIGN_KINDS] },
         targetWidthCm: { type: "number", description: "Wanted total width in cm, if the customer gave one" },
-        level: { type: "string", enum: [...PLAN_LEVELS] },
         color: { type: "string", enum: [...CABIN_COLOR_IDS] },
       },
       required: ["kind"],
@@ -137,12 +154,12 @@ export const KOSHOY_TOOLS = [
   {
     name: "plan_room",
     description:
-      "Create the whole set for a room at once: one NEW design per product, all in the same colour, standing together (in the room photo, or in front of the studio wall without one). Without items the room's set from the system facts is used; pass items when the customer named other products or counts. Sizes and interior are the templates' defaults; details come later, product by product.",
+      "Create the whole set for a room at once: one NEW design per product, in the room's colour and style, standing together (in the room photo, or in front of the studio wall without one). Without items the room's set from the system facts is used; pass items when the customer named other products or counts, and widthCm when a room-level question decided a product's width. Interior details come later, product by product.",
     strict: false,
     parameters: {
       type: "object",
       properties: {
-        room: { type: "string", enum: [...KOSHOY_ROOM_SET_IDS] },
+        room: { type: "string", description: "Room id from the system facts" },
         items: {
           type: "array",
           maxItems: 6,
@@ -151,12 +168,12 @@ export const KOSHOY_TOOLS = [
             properties: {
               kind: { type: "string", enum: [...DESIGN_KINDS] },
               count: { type: "integer", minimum: 1, maximum: 4 },
+              widthCm: { type: "number", description: "Total width of one such product, from the customer's answer" },
             },
             required: ["kind"],
             additionalProperties: false,
           },
         },
-        level: { type: "string", enum: [...PLAN_LEVELS] },
         color: { type: "string", enum: [...CABIN_COLOR_IDS] },
       },
       required: ["room"],

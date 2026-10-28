@@ -167,3 +167,42 @@ model KoshoyPhoneLink {
   @@index([sessionId])
   @@index([expiresAt])
 }
+
+/// Journey data the store team edits through the data API (data.server.ts):
+/// rooms | kinds | levels | scope | texts | images. One row per document.
+model KoshoyDataDoc {
+  key       String   @id
+  /// Bumped on every save
+  version   Int
+  /// JSON: the validated document
+  json      String
+  updatedAt DateTime @updatedAt
+}
+
+/// Every saved version of a data document, kept for looking back.
+model KoshoyDataHistory {
+  id        String   @id
+  key       String
+  version   Int
+  json      String
+  createdAt DateTime @default(now())
+
+  @@index([key])
+}
+
+/// One journey step a customer reached (journey-events.server.ts). No relation to
+/// KoshoySession: events outlive sessions and are pruned after 180 days.
+model KoshoyEvent {
+  id        String   @id
+  at        DateTime @default(now())
+  sessionId String
+  /// KOSHOY_JOURNEY_EVENTS name
+  name      String
+  /// phone | desktop
+  device    String
+  /// JSON: small flat props, never personal data
+  props     String?
+
+  @@index([at])
+  @@index([name])
+}
