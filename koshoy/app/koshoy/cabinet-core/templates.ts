@@ -79,12 +79,11 @@ export const DESIGN_KIND_RULES: Record<DesignKind, DesignKindRules> = {
   // wider bookcase is split into more units.
   kitaplik: { unitWidthsMm: [320, 480, 640] },
   vestiyer: {},
-  // Shelved cupboards behind doors: 48 cm units (96 = 48 + 48), one door
-  // each. Sample sizes (23 Oct); the product team corrects them.
-  kiler: { unitWidthsMm: [320, 480] },
-  ayakkabilik: { unitWidthsMm: [320, 480] },
-  banyo_dolabi: { unitWidthsMm: [320, 480] },
-  cok_amacli_dolap: { unitWidthsMm: [320, 480] },
+  // No unit width limit (Akın, 26 Oct): the template sizes below are defaults only.
+  kiler: {},
+  ayakkabilik: {},
+  banyo_dolabi: {},
+  cok_amacli_dolap: {},
 };
 
 export function unitWidthsForKind(kind: DesignKind): readonly number[] {

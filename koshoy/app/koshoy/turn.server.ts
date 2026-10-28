@@ -125,6 +125,10 @@ interface TurnContext {
   createdIds: Set<string>;
   stop: TurnStop;
   textSent: boolean;
+  /** Public event types sent this turn ("choice", "scene", …). */
+  shown: Set<string>;
+  /** An ask_user call was sent back to the model (asked beside other tools, or unusable options). */
+  askMissed: boolean;
   /** Server-side one-line summary of what this turn's tools did. */
   summary: string;
   publish(raw: unknown): void;
@@ -380,6 +384,12 @@ function rotateModelSession(session: KoshoySessionState) {
 const ASK_ALONE_HINT =
   "Soru gösterilmedi. Diğer araçların sonucunu müşteriye kısaca yaz, sonra soruyu ask_user ile tek başına (aynı yanıtta başka araç olmadan) sor.";
 
+const ASK_AGAIN_NUDGE =
+  "[Sistem notu] Müşteriye seçenek gösterilmedi; ekranda tıklayabileceği bir şey yok. Soruyu şimdi ask_user ile tek başına sor.";
+
+const SILENT_TURN_NUDGE =
+  "[Sistem notu] Bu turda müşteriye hiçbir şey gösterilmedi. Müşterinin son cevabına göre devam et: gereken aracı çağır ya da kısa bir cevap yaz.";
+
 const SET_EXISTS_HINT =
   "Bu sohbette tasarımlar zaten var. Rengi bütün sette değiştirmek için edit_design'ı allDesigns: true ile çağır; yeni ürün eklemek için plan_room'a items ver ya da plan_cabinet kullan.";
 
@@ -447,6 +457,7 @@ export async function executeKoshoyTool(
       )
       .slice(0, 4);
     if (options.length < 2) {
+      ctx.askMissed = true;
       return { payload: { ok: false, error: "need 2-4 options in product language, no numbers" } };
     }
     const asked = checkReply(str(args.question), ctx.allowed, ctx.prices, ctx.roomNumbers ?? undefined);
@@ -692,6 +703,19 @@ function publishText(ctx: TurnContext, raw: string) {
 /* ---------------- model turn ---------------- */
 
 /**
+ * A turn must not leave the customer stuck (ClickUp z8qu5d671e): a question
+ * that never reached the screen, a sentence that announces choices
+ * ("…rengi seçebilirsin:") without them, or nothing at all. The model gets
+ * one more hop to put it right.
+ */
+function deadEndNudge(ctx: TurnContext, lastText: string): string | null {
+  if (ctx.shown.has("choice")) return null;
+  if (ctx.askMissed || /:\s*$/.test(lastText)) return ASK_AGAIN_NUDGE;
+  if (!ctx.textSent && !ctx.shown.has("scene")) return SILENT_TURN_NUDGE;
+  return null;
+}
+
+/**
  * With more than one design the customer's message says which one is on
  * screen: the customer may have switched with a tab since the model last spoke.
  */
@@ -726,6 +750,7 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
   let toolResults = first.toolResults;
   let followUp = first.followUp;
   let recovered = false;
+  let nudged = false;
 
   for (let hop = 0; hop < KOSHOY_MAX_HOPS; hop += 1) {
     if (!message && !toolResults) break;
@@ -816,11 +841,23 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
 
     const unique = dedupeToolCalls(calls);
     if (!unique.length) {
-      if (!followUp) return;
-      message = followUp;
-      toolResults = undefined;
-      followUp = undefined;
-      continue;
+      if (followUp) {
+        message = followUp;
+        toolResults = undefined;
+        followUp = undefined;
+        continue;
+      }
+      const nudge = nudged ? null : deadEndNudge(ctx, buffer);
+      if (nudge) {
+        nudged = true;
+        message = nudge;
+        toolResults = undefined;
+        continue;
+      }
+      if (!ctx.textSent && !ctx.shown.has("choice") && !ctx.shown.has("scene")) {
+        publishText(ctx, KOSHOY_SAFE_STOPPED_REPLY);
+      }
+      return;
     }
 
     const results: KoshoyPendingTool[] = [];
@@ -831,6 +868,7 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
     const askAlone = unique.length > 1 && unique.some((call) => call.name === "ask_user");
     for (const call of unique) {
       if (askAlone && call.name === "ask_user") {
+        ctx.askMissed = true;
         results.push({ id: call.id, name: call.name, payload: { ok: false, error: "ask_alone", hint: ASK_ALONE_HINT } });
         continue;
       }
@@ -1024,11 +1062,14 @@ export async function runKoshoyTurn(input: {
     createdIds: new Set<string>(),
     stop,
     textSent: false,
+    shown: new Set<string>(),
+    askMissed: false,
     summary: "",
     publish(raw) {
       const event = toPublicEvent(raw);
       if (!event || doneSent) return;
       if (event.type === "done") doneSent = true;
+      ctx.shown.add(event.type);
       appendTranscriptEvent(session, event);
       input.emit(event);
     },
