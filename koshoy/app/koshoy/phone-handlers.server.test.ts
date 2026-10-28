@@ -67,6 +67,9 @@ function setup(options: { failUpload?: boolean } = {}) {
     async delete(key) {
       objects.delete(key);
     },
+    async deleteFolder(prefix) {
+      for (const key of [...objects.keys()]) if (key.startsWith(prefix)) objects.delete(key);
+    },
     async signedUrl(key) {
       return `https://cdn.sugartech.s3.amazonaws.com/${key}`;
     },

@@ -41,6 +41,7 @@ async function setup(options: { withRoom?: boolean } = {}) {
       get: async (key) => (key.endsWith("photo.jpg") ? { bytes: PHOTO, contentType: "image/jpeg" } : null),
       signedUrl: async (key) => key,
       delete: async () => {},
+      deleteFolder: async () => {},
     },
     tagService: async () => {
       throw new Error("no upstream here");

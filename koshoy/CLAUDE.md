@@ -72,7 +72,8 @@ Bir oda = bir `KoshoySession` (ClickUp z8qu5d7pzv, sözleşme §2.8). Tarayıcı
 tutar; giriş yapan müşterinin odaları hesabına bağlanır (`KoshoySession.customerId`, App Proxy
 `logged_in_customer_id`). Hesaba bağlı oda yalnız o müşteri girişliyken açılır (`store.findSession`).
 Liste, başka cihazda açma (`KoshoySessionKey`) ve silme `room-sessions.server.ts`; "Sil" oturumu,
-tasarımları, yerleşimi ve oda fotoğrafı ile görsellerin S3 dosyalarını siler. En çok 10 oda (tema
+tasarımları, yerleşimi, oda fotoğrafı ile görsellerin S3 dosyalarını ve eşya kaldırma klasörlerini
+(`room-analysis/clean/<jobId>/`, decor-ai ile aynı bucket; `cleanJobFolder`) siler. En çok 10 oda (tema
 uygular), girişsiz 30 gün, hesaplı 180 gün.
 
 ## Değişmez kurallar

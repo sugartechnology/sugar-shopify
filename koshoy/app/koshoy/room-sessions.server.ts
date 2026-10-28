@@ -5,10 +5,12 @@
  * (KoshoySession.customerId) and show on every device.
  *
  * Decisions (Fatih, 28 Oct): at most 10 rooms; "Sil" deletes everything,
- * the room photo and the pictures in Sugar S3 too.
+ * the room photo and the pictures in Sugar S3 too, and the furniture-removal
+ * (clean) files that decor-ai wrote into the same bucket.
  */
 import type { KoshoyFileStore } from "../services/s3.server";
 import type { KoshoyDataRoom } from "./data.server";
+import type { KoshoyRoomCleanRow } from "./room-clean.server";
 import type { KoshoyRenderRow, KoshoyRoomRow } from "./room.server";
 import { toSessionState, type KoshoySessionRow, type KoshoyStore } from "./store.server";
 
@@ -46,6 +48,19 @@ export interface KoshoyRoomSessionsDb {
     }): Promise<Array<Pick<KoshoyRenderRow, "compositeKey" | "cabinetKey" | "resultKey">>>;
     deleteMany(args: { where: { sessionId: string } }): Promise<{ count: number }>;
   };
+  /** Rows go with their KoshoyRoom (cascade); only the job ids are read here. */
+  koshoyRoomClean: {
+    findMany(args: { where: { sessionId: string } }): Promise<Array<Pick<KoshoyRoomCleanRow, "jobId">>>;
+  };
+}
+
+/**
+ * decor-ai writes every file of one furniture removal (the cleaned photo, its
+ * depth and masks, and a copy of the customer's photo) under this folder.
+ * null for a job id that is not decor-ai's (a UUID), so nothing else is touched.
+ */
+export function cleanJobFolder(jobId: string | null): string | null {
+  return jobId && /^[A-Za-z0-9-]{1,64}$/.test(jobId) ? `room-analysis/clean/${jobId}/` : null;
 }
 
 export interface KoshoyRoomSessionsDeps {
@@ -179,8 +194,9 @@ export async function listRoomSessions(
 
 /**
  * Deletes a room: allowed with the room's own token (`key`) or when the room
- * is in the signed-in customer's account. Files go first: if S3 fails the
- * rows stay, so the customer can try again and nothing is left behind.
+ * is in the signed-in customer's account. Files go first (room photo, render
+ * files, furniture-removal folders): if S3 fails the rows stay, so the
+ * customer can try again and nothing is left behind.
  * Returns false when there is no such room for this caller.
  */
 export async function deleteRoomSession(
@@ -205,17 +221,22 @@ export async function deleteRoomSession(
   }
   if (!sessionId) return false;
 
-  const [rooms, renders] = await Promise.all([
+  const [rooms, renders, cleans] = await Promise.all([
     deps.db.koshoyRoom.findMany({ where: { sessionId } }),
     deps.db.koshoyRender.findMany({ where: { sessionId } }),
+    deps.db.koshoyRoomClean.findMany({ where: { sessionId } }),
   ]);
   const fileKeys = [
     ...rooms.map((room) => room.photoKey),
     ...renders.flatMap((render) => [render.compositeKey, render.cabinetKey, render.resultKey]),
   ].filter((key): key is string => Boolean(key));
-  if (fileKeys.length) {
+  const cleanFolders = cleans
+    .map((clean) => cleanJobFolder(clean.jobId))
+    .filter((folder): folder is string => folder !== null);
+  if (fileKeys.length || cleanFolders.length) {
     if (!deps.files) throw new Error("room files cannot be deleted: Sugar S3 is not configured");
     for (const key of fileKeys) await deps.files.delete(key);
+    for (const folder of cleanFolders) await deps.files.deleteFolder(folder);
   }
   await deps.db.koshoyRender.deleteMany({ where: { sessionId } });
   await deps.db.koshoyRoom.deleteMany({ where: { sessionId } });

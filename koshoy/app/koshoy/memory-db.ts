@@ -263,7 +263,11 @@ export function createMemoryRoomSessionsDb(
       },
       async deleteMany({ where }) {
         const gone = bySession(rooms.rooms, where.sessionId);
-        for (const [id] of gone) rooms.rooms.delete(id);
+        for (const [id] of gone) {
+          rooms.rooms.delete(id);
+          // KoshoyRoomClean.roomId → KoshoyRoom, onDelete: Cascade
+          for (const [cleanId, clean] of rooms.cleans) if (clean.roomId === id) rooms.cleans.delete(cleanId);
+        }
         return { count: gone.length };
       },
     },
@@ -275,6 +279,11 @@ export function createMemoryRoomSessionsDb(
         const gone = bySession(rooms.renders, where.sessionId);
         for (const [id] of gone) rooms.renders.delete(id);
         return { count: gone.length };
+      },
+    },
+    koshoyRoomClean: {
+      async findMany({ where }) {
+        return bySession(rooms.cleans, where.sessionId).map(([, row]) => ({ ...row }));
       },
     },
   };
