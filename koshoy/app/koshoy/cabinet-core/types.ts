@@ -6,7 +6,9 @@ export type CabinPanelRole =
   | "rightSide"
   | "top"
   | "bottom"
+  /** The whole back, or its left half when the body is split (≥ 640 mm). */
   | "back"
+  | "backRight"
   | "frontPlinth"
   | "rearPlinth";
 
@@ -64,6 +66,8 @@ export interface CabinUnit {
   doorOpen?: boolean;
   color?: CabinColorId;
   doorColor?: CabinColorId;
+  /** Crown (TAC) on top of the body. */
+  hasCrown?: boolean;
 }
 
 export interface CabinComposition {
@@ -71,6 +75,8 @@ export interface CabinComposition {
   depthMm: number;
   hasPlinth: boolean;
   color?: CabinColorId;
+  /** Door / drawer-front series id (`CABINET_RULES.frontSeries`); missing = default. */
+  frontSeries?: string;
   widestUnits?: CabinUnit[];
 }
 

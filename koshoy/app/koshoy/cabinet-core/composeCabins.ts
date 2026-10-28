@@ -52,6 +52,7 @@ export function cloneCabinComposition(
     depthMm: composition.depthMm,
     hasPlinth: composition.hasPlinth,
     color: normalizeCabinColor(composition.color),
+    ...(composition.frontSeries !== undefined ? { frontSeries: composition.frontSeries } : {}),
     widestUnits: cloneCabinUnits(composition.widestUnits ?? units),
   };
 }
@@ -332,6 +333,7 @@ export function setFittingOpen(
 
 export function unitInteriorStructureEqual(a: CabinUnit, b: CabinUnit): boolean {
   if ((a.hasDoor ?? false) !== (b.hasDoor ?? false)) return false;
+  if ((a.hasCrown ?? false) !== (b.hasCrown ?? false)) return false;
   const left = a.fittings ?? [];
   const right = b.fittings ?? [];
   if (left.length !== right.length) return false;

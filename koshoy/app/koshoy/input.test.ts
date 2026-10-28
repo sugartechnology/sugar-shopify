@@ -47,6 +47,18 @@ describe("koshoy client input", () => {
     assert.equal(parseEditOp({ action: "add_fitting", unit: -1, kind: "shelf" }), null);
     assert.equal(parseEditOp({ action: "add_fitting", unit: 0, kind: "sofa" }), null);
     assert.equal(parseEditOp({ action: "set_door", unit: 0, hasDoor: "yes" }), null);
+    assert.deepEqual(parseEditOp({ action: "set_crown", unit: 0, hasCrown: false }), {
+      action: "set_crown",
+      unit: 0,
+      hasCrown: false,
+    });
+    assert.equal(parseEditOp({ action: "set_crown", unit: 0 }), null);
+    // Any short id parses; the core checks it against its series table.
+    assert.deepEqual(parseEditOp({ action: "set_front_series", series: "aruuke" }), {
+      action: "set_front_series",
+      series: "aruuke",
+    });
+    assert.equal(parseEditOp({ action: "set_front_series", series: 18 }), null);
     assert.equal(parseEditOp({ action: "delete_everything" }), null);
   });
 

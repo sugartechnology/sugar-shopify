@@ -92,6 +92,8 @@ export const EDIT_ACTIONS = [
   "set_total_width",
   "set_depth",
   "set_door",
+  "set_crown",
+  "set_front_series",
   "set_color",
 ] as const satisfies readonly EditOp["action"][];
 

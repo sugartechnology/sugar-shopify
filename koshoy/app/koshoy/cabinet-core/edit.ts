@@ -20,15 +20,17 @@ import {
   cloneFittings,
   doorClearHeightMm,
   drawerPrefix,
+  interiorRuleExcess,
+  isAutoShelfId,
   isDrawerKind,
   nextFittingId,
   trimFittings,
-  CLOSING_SHELF_ID,
   DOOR_MIN_HEIGHT_MM,
   DOOR_OVERLAY_H_MM,
 } from "./fittings";
 import {
   CABIN_DEPTHS_MM,
+  CABIN_GRID_MM,
   CABIN_HEIGHTS_MM,
   CABIN_TOTAL_WIDTH_SAFETY_MM,
   CABIN_WIDTHS_MM,
@@ -36,6 +38,7 @@ import {
   nearestHeight,
   nearestWidth,
 } from "./grid";
+import { crownByDefault, findFrontSeries } from "./rules";
 import { splitUnitsForKind, unitWidthsForKind, type DesignKind } from "./templates";
 import type {
   CabinColorId,
@@ -55,6 +58,9 @@ export type EditOp =
   | { action: "set_total_width"; widthMm: number }
   | { action: "set_depth"; depthMm: number }
   | { action: "set_door"; unit: number; hasDoor: boolean }
+  | { action: "set_crown"; unit: number; hasCrown: boolean }
+  /** Door / drawer-front series of the whole design (`CABINET_RULES.frontSeries`). */
+  | { action: "set_front_series"; series: string }
   | {
       action: "set_color";
       target: "all" | "unit" | "door";
@@ -70,9 +76,13 @@ export type EditRejectReason =
   | "invalid_unit"
   /** Bad size, kind, color, target or flag. */
   | "invalid_value"
-  /** Not enough interior height left for the fitting. */
+  /** Not enough interior height left, or past the hanger / shelf count (`CABINET_RULES`). */
   | "no_room"
-  /** Door zone would be under 320 mm (leaf under 317 mm). */
+  /** A shelf above a hanger: the hanger zone stays free (PnP-3D). */
+  | "above_hanger"
+  /** Height is not in the catalog (e.g. 1824: grid 11 is missing). */
+  | "height_unavailable"
+  /** Door zone would be under 160 mm (leaf under 157 mm). */
   | "door_too_short"
   /** Door height has no catalog KAPAK (H − drawers is not a catalog height). */
   | "door_size_unavailable"
@@ -91,7 +101,13 @@ export type EditRejectReason =
   | "invalid_composition";
 
 /** Side effects of an accepted op that the caller may want to mention. */
-export type EditWarning = "fittings_trimmed" | "door_removed" | "units_removed";
+export type EditWarning =
+  | "fittings_trimmed"
+  | "door_removed"
+  | "units_removed"
+  /** A height change put a crown on a low unit, or took it off a tall one. */
+  | "crown_added"
+  | "crown_removed";
 
 export type EditResult =
   | { ok: true; composition: CabinComposition; warnings?: EditWarning[] }
@@ -105,6 +121,9 @@ const FIT_KINDS: readonly CabinFitKind[] = ["drawer160", "drawer320", "shelf", "
  * ignored. The op may come straight from untrusted JSON. The input is never
  * mutated; an accepted result is normalized and passes `compositionIssues`.
  * With `kind`, width ops also follow that kind's rules (`DESIGN_KIND_RULES`).
+ * An op may not take the design further past the capacity rules
+ * (`interiorRuleExcess`); a stored design already past them stays editable
+ * and is fixed by removing parts.
  */
 export function applyEditOp(
   composition: CabinComposition,
@@ -130,6 +149,7 @@ export function applyEditOp(
   if (compositionIssues(normalized).length > 0) {
     return { ok: false, reason: "invalid_composition" };
   }
+  if (ruleExcess(normalized) > ruleExcess(base)) return { ok: false, reason: "no_room" };
   if (sameComposition(base, normalized)) return { ok: false, reason: "no_change" };
   const warnings = editWarnings(base, normalized, op);
   return warnings.length > 0
@@ -164,6 +184,9 @@ export function compositionIssues(composition: CabinComposition): string[] {
   if (composition.color !== undefined && !isCabinColorId(composition.color)) {
     issues.push("invalid composition color");
   }
+  if (composition.frontSeries !== undefined && !findFrontSeries(composition.frontSeries)) {
+    issues.push(`unknown front series ${String(composition.frontSeries)}`);
+  }
   issues.push(...identityIssues(units));
   units.forEach((unit, index) => {
     for (const issue of unitIssues(unit, composition)) {
@@ -173,7 +196,7 @@ export function compositionIssues(composition: CabinComposition): string[] {
   return issues;
 }
 
-/** Duplicate unit / fitting ids and fittings using the closing-shelf id. */
+/** Duplicate unit / fitting ids and fittings using an auto-shelf id. */
 function identityIssues(units: readonly CabinUnit[]): string[] {
   const issues: string[] = [];
   const unitIds = new Set<string>();
@@ -182,8 +205,8 @@ function identityIssues(units: readonly CabinUnit[]): string[] {
     unitIds.add(unit.id);
     const fittingIds = new Set<string>();
     for (const item of unit.fittings ?? []) {
-      if (item.id === CLOSING_SHELF_ID) {
-        issues.push(`unit ${index}: reserved fitting id ${CLOSING_SHELF_ID}`);
+      if (isAutoShelfId(item.id)) {
+        issues.push(`unit ${index}: reserved fitting id ${item.id}`);
       } else if (fittingIds.has(item.id)) {
         issues.push(`unit ${index}: duplicate fitting id`);
       }
@@ -204,6 +227,9 @@ function unitIssues(unit: CabinUnit, composition: CabinComposition): string[] {
   if (unit.color !== undefined && !isCabinColorId(unit.color)) issues.push("invalid color");
   if (unit.doorColor !== undefined && !isCabinColorId(unit.doorColor)) {
     issues.push("invalid door color");
+  }
+  if (unit.hasCrown !== undefined && typeof unit.hasCrown !== "boolean") {
+    issues.push("invalid crown flag");
   }
   const fittings = unit.fittings ?? [];
   if (fittings.some((item) => !isFitKind(item.kind))) {
@@ -249,6 +275,10 @@ function applyOp(
       return depthOp(c, op.depthMm);
     case "set_door":
       return doorOp(c, op.unit, op.hasDoor);
+    case "set_crown":
+      return crownOp(c, op.unit, op.hasCrown);
+    case "set_front_series":
+      return seriesOp(c, op.series);
     case "set_color":
       return colorOp(c, op.target, op.unit, op.color);
     default:
@@ -265,6 +295,10 @@ function addFittingOp(
   if (!unit) return "invalid_unit";
   if (!isFitKind(kind)) return "invalid_value";
   if (isDrawerKind(kind)) return addDrawerOp(c, unit, kind);
+  // Appended means on top: over a hanger only a second hanger may go.
+  if (kind === "shelf" && (unit.fittings ?? []).some((item) => item.kind === "hanger")) {
+    return "above_hanger";
+  }
   // Shelf / hanger: appended like the side panel; undefined = no room left.
   const updated = addFitting(unit, kind, c.depthMm, c.hasPlinth);
   if (!updated) return "no_room";
@@ -276,8 +310,8 @@ function addFittingOp(
  * exists. Here the drawer goes on top of the bottom bank instead (index =
  * bank length): drawers stay a prefix ("Çekmeceler yalnız altta") and the
  * default gardırop / vestiyer units can still get one. Everything above the
- * bank has to keep fitting and the door zone has to stay ≥ 320 mm; the
- * catalog KAPAK height is checked by `applyEditOp`.
+ * bank has to keep fitting and the door zone has to stay ≥ 160 mm; the
+ * catalog KAPAK height and the capacity rules are checked by `applyEditOp`.
  */
 function addDrawerOp(
   c: CabinComposition,
@@ -325,6 +359,12 @@ function unitWidthOp(
   return { ...c, units: setUnitWidth(c.units, unit.id, widthMm) };
 }
 
+/**
+ * A height is taken within half a grid step of a catalog height (2000 →
+ * 1984); further off it is refused rather than rounded away (1824 has no
+ * catalog body, 1664 would be 16 cm less than asked). The crown follows the
+ * new height (`crownByDefault`).
+ */
 function unitHeightOp(
   c: CabinComposition,
   index: unknown,
@@ -333,7 +373,13 @@ function unitHeightOp(
   const unit = unitAt(c, index);
   if (!unit) return "invalid_unit";
   if (!isPositive(value)) return "invalid_value";
-  return { ...c, units: setUnitHeight(c.units, unit.id, nearestHeight(value)) };
+  const heightMm = nearestHeight(value);
+  if (Math.abs(heightMm - value) >= CABIN_GRID_MM / 2) return "height_unavailable";
+  if (heightMm === unit.heightMm) return c;
+  const units = setUnitHeight(c.units, unit.id, heightMm).map((item) =>
+    item.id === unit.id ? withCrown(item, crownByDefault(heightMm)) : item,
+  );
+  return { ...c, units };
 }
 
 function totalWidthOp(
@@ -369,6 +415,28 @@ function doorOp(
     return "door_too_short";
   }
   return { ...c, units: setUnitDoor(c.units, unit.id, hasDoor) };
+}
+
+function crownOp(
+  c: CabinComposition,
+  index: unknown,
+  hasCrown: unknown,
+): CabinComposition | EditRejectReason {
+  const unit = unitAt(c, index);
+  if (!unit) return "invalid_unit";
+  if (typeof hasCrown !== "boolean") return "invalid_value";
+  return withUnit(c, unit, withCrown(unit, hasCrown));
+}
+
+function seriesOp(c: CabinComposition, series: unknown): CabinComposition | EditRejectReason {
+  const found = findFrontSeries(series);
+  if (!found) return "invalid_value";
+  return { ...c, frontSeries: found.id };
+}
+
+function withCrown(unit: CabinUnit, hasCrown: boolean): CabinUnit {
+  const { hasCrown: _old, ...rest } = unit;
+  return hasCrown ? { ...rest, hasCrown: true } : rest;
 }
 
 function colorOp(
@@ -412,6 +480,8 @@ function editWarnings(
   let trimmed = false;
   let doorRemoved = false;
   let unitsRemoved = false;
+  let crownAdded = false;
+  let crownRemoved = false;
   for (const unit of before.units) {
     const next = after.units.find((item) => item.id === unit.id);
     if (!next) {
@@ -422,10 +492,14 @@ function editWarnings(
       trimmed = true;
     }
     if (op.action !== "set_door" && unit.hasDoor && !next.hasDoor) doorRemoved = true;
+    if (op.action !== "set_crown" && !unit.hasCrown && next.hasCrown) crownAdded = true;
+    if (op.action !== "set_crown" && unit.hasCrown && !next.hasCrown) crownRemoved = true;
   }
   if (trimmed) warnings.push("fittings_trimmed");
   if (doorRemoved) warnings.push("door_removed");
   if (unitsRemoved) warnings.push("units_removed");
+  if (crownAdded) warnings.push("crown_added");
+  if (crownRemoved) warnings.push("crown_removed");
   return warnings;
 }
 
@@ -435,6 +509,7 @@ function sameComposition(a: CabinComposition, b: CabinComposition): boolean {
     a.depthMm !== b.depthMm ||
     a.hasPlinth !== b.hasPlinth ||
     a.color !== b.color ||
+    a.frontSeries !== b.frontSeries ||
     a.units.length !== b.units.length
   ) {
     return false;
@@ -450,6 +525,7 @@ function sameUnit(a: CabinUnit, b: CabinUnit): boolean {
     a.hasDoor !== b.hasDoor ||
     a.color !== b.color ||
     a.doorColor !== b.doorColor ||
+    (a.hasCrown ?? false) !== (b.hasCrown ?? false) ||
     a.fittings.length !== b.fittings.length
   ) {
     return false;
@@ -458,6 +534,13 @@ function sameUnit(a: CabinUnit, b: CabinUnit): boolean {
     const other = b.fittings[index];
     return item.id === other.id && item.kind === other.kind && item.color === other.color;
   });
+}
+
+/** Capacity-rule breaks of the whole design (`interiorRuleExcess` per unit). */
+function ruleExcess(c: CabinComposition): number {
+  let total = 0;
+  for (const unit of c.units) total += interiorRuleExcess(unitSize(unit, c), unit.fittings ?? []);
+  return total;
 }
 
 function hasCatalogDoor(unit: CabinUnit, c: CabinComposition): boolean {

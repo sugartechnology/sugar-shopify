@@ -13,6 +13,7 @@ export {
   CABIN_REAR_PLINTH_Z0_MM,
   CABIN_SIDE_MM,
   CABIN_TOP_BOTTOM_MM,
+  CABIN_BACK_SPLIT_MIN_WIDTH_MM,
 } from "./buildCabinPanels";
 export {
   cloneCabinComposition,
@@ -47,7 +48,12 @@ export {
   doorLeafCount,
   drawerTubPanels,
   fittingLabel,
+  hangerFlanges,
+  interiorRuleExcess,
+  interiorRuleIssues,
+  isAutoShelfId,
   isDrawerKind,
+  layoutCrown,
   layoutDoors,
   layoutDrawerFronts,
   layoutFittings,
@@ -58,10 +64,19 @@ export {
   OVERLAY_INSET_MM,
   DRAWER_160_MM,
   DRAWER_320_MM,
-  DRAWER_FRONT_MM,
-  HANGER_DIAMETER_MM,
   SHELF_THICKNESS_MM,
 } from "./fittings";
+export {
+  CABINET_RULES,
+  crownByDefault,
+  defaultFrontSeries,
+  findFrontSeries,
+  frontSeriesOf,
+  frontThicknessMm,
+  maxHangers,
+  maxShelves,
+} from "./rules";
+export type { FrontSeries } from "./rules";
 export {
   CABIN_COLORS,
   DEFAULT_CABIN_COLOR,
@@ -70,7 +85,7 @@ export {
   normalizeCabinColor,
 } from "./colors";
 export type { CabinColorOption } from "./colors";
-export type { CabinDoorLeaf, CanAddFittingOptions, DrawerTubPanel, PlacedFitting } from "./fittings";
+export type { CabinBox, CabinDoorLeaf, CanAddFittingOptions, DrawerTubPanel, PlacedFitting } from "./fittings";
 export {
   CABIN_DEPTHS_MM,
   CABIN_GRID_MM,

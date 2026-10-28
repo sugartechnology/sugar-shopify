@@ -18,6 +18,8 @@ export const CABIN_BACK_Z0_MM = 16;
 export const CABIN_REAR_PLINTH_Z0_MM = 51;
 export const CABIN_FRONT_PLINTH_INSET_MAX_MM = 29;
 export const CABIN_FRONT_PLINTH_INSET_MIN_MM = 45;
+/** From this width the back is two equal pieces, split at W / 2 (PnP-3D). */
+export const CABIN_BACK_SPLIT_MIN_WIDTH_MM = 640;
 
 function vec(x: number, y: number, z: number): CabinVec3 {
   return { x, y, z };
@@ -55,7 +57,8 @@ export function cabinCavity(size: CabinSize): CabinCavity {
 }
 
 /**
- * Seven (or five without plinth) carcass panels in mm.
+ * Seven (or five without plinth) carcass panels in mm, one more when the
+ * back is split (≥ 640 mm wide).
  * X right, Y up, Z back→front. Origin is the back-left-bottom corner.
  */
 export function buildCabinPanels(size: CabinSize): CabinPanel[] {
@@ -82,12 +85,18 @@ export function buildCabinPanels(size: CabinSize): CabinPanel[] {
       vec(CABIN_SIDE_MM, h - CABIN_TOP_BOTTOM_MM, 0),
       vec(w - CABIN_SIDE_MM, h, d),
     ),
-    panel(
-      "back",
-      vec(backX0, backY0, CABIN_BACK_Z0_MM),
-      vec(backX1, backY1, CABIN_BACK_Z0_MM + CABIN_BACK_THICKNESS_MM),
-    ),
   ];
+
+  const backZ1 = CABIN_BACK_Z0_MM + CABIN_BACK_THICKNESS_MM;
+  if (w >= CABIN_BACK_SPLIT_MIN_WIDTH_MM) {
+    const mid = w / 2;
+    panels.push(
+      panel("back", vec(backX0, backY0, CABIN_BACK_Z0_MM), vec(mid, backY1, backZ1)),
+      panel("backRight", vec(mid, backY0, CABIN_BACK_Z0_MM), vec(backX1, backY1, backZ1)),
+    );
+  } else {
+    panels.push(panel("back", vec(backX0, backY0, CABIN_BACK_Z0_MM), vec(backX1, backY1, backZ1)));
+  }
 
   if (size.hasPlinth) {
     panels.push(

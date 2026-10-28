@@ -12,6 +12,7 @@ import {
   type CabinFitKind,
   type DesignKind,
 } from "./engine";
+import { findFrontSeries } from "./cabinet-core";
 import { MAX_LAYOUT_ITEMS } from "./room-layout";
 
 export const KOSHOY_ERROR_CODES = [
@@ -49,6 +50,8 @@ export interface SceneUnit {
   hasDoor: boolean;
   color?: CabinColorId;
   doorColor?: CabinColorId;
+  /** Only written when on. */
+  hasCrown?: true;
 }
 
 /** CabinComposition without open/doorOpen flags and widestUnits. */
@@ -57,6 +60,8 @@ export interface SceneView {
   depthMm: number;
   hasPlinth: boolean;
   color?: CabinColorId;
+  /** Front series id of the core table (no shop names); missing = default. */
+  frontSeries?: string;
 }
 
 export interface DesignSummary {
@@ -219,6 +224,7 @@ function toSceneUnit(raw: unknown): SceneUnit | null {
   const doorColor = oneOf(row.doorColor, CABIN_COLOR_IDS);
   if (color) unit.color = color;
   if (doorColor) unit.doorColor = doorColor;
+  if (row.hasCrown === true) unit.hasCrown = true;
   return unit;
 }
 
@@ -238,6 +244,8 @@ export function toSceneView(raw: unknown): SceneView | null {
   const view: SceneView = { units, depthMm, hasPlinth: row.hasPlinth !== false };
   const color = oneOf(row.color, CABIN_COLOR_IDS);
   if (color) view.color = color;
+  const series = findFrontSeries(row.frontSeries);
+  if (series) view.frontSeries = series.id;
   return view;
 }
 
