@@ -462,6 +462,8 @@ const STYLE_DECISIONS: readonly StyleDecision[] = ["level", "panel", "front", "c
 
 const STYLE_BEFORE_SET_HINT = "Tarz kararları ürünler kurulduktan sonra sorulur; önce odanın setini kur.";
 
+const NO_HANDLES_HINT = "Kulp seçeneği yok; kulptan hiç söz etme, sıradaki karara geç.";
+
 const ALREADY_DECIDED_HINT =
   "Bu karar zaten verildi; tekrar sorma. Müşteri bunu değiştirmek isterse ask_style'ı change: true ile çağır.";
 
@@ -558,6 +560,9 @@ export async function executeKoshoyTool(
   if (call.name === "ask_style") {
     const decision = oneOf(args.decision, STYLE_DECISIONS);
     if (!decision) return { payload: { ok: false, error: "invalid_decision" } };
+    if (decision === "handle" && !deps.handles?.handles.length) {
+      return { payload: { ok: false, error: "no_handles", hint: NO_HANDLES_HINT } };
+    }
     const designs = await deps.store.listDesigns(session.id);
     if (!designs.length) return { payload: { ok: false, error: "no_designs", hint: STYLE_BEFORE_SET_HINT } };
     // A decision already taken is asked again only when the customer wants to change it.
@@ -923,7 +928,7 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
       tag: KOSHOY_CHAT_TAG,
       jobId: session.id,
       instructions: koshoyInstructions(instructionInput),
-      tools: koshoyTools(Boolean(roomContext)),
+      tools: koshoyTools(Boolean(roomContext), { handles: Boolean(deps.handles?.handles.length) }),
       thinkingLevel: "low",
     };
     const platform = process.env.KOSHOY_CHAT_PLATFORM?.trim();
@@ -1358,7 +1363,9 @@ async function applyClientToJourney(ctx: TurnContext, client: ClientInput): Prom
       if (applied.ok) {
         ctx.journeyChanged = true;
         await publishDesigns(ctx, applied.designs);
-        publishText(ctx, applied.summary);
+        // Server text (catalog names with sizes like "16 mm"): not model text, so no number guard.
+        ctx.publish({ type: "text", text: (ctx.textSent ? "\n\n" : "") + applied.summary });
+        ctx.textSent = true;
       }
     }
     return client;

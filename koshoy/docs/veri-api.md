@@ -110,14 +110,15 @@ Anahtar dosyaya, belgeye, mesaja yazılmaz.
 | Alan | Kural |
 |---|---|
 | liste | 1–4 seviye |
-| `label` | İçinde "ucuz", "hesaplı" geçemez |
+| `label` | Müşterinin tıkladığı seçenek. İçinde "ucuz", "hesaplı" geçemez |
+| `name` | İsteğe bağlı kısa ad; oda özetinde "Bütçe: …" satırında görünür. Yoksa `label` kullanılır |
 | `crown` | Uzun gövdede taç. `auto`: kendiliğinden gelir, müşteriye söylenir. `ask`: iki toplam fiyatla sorulur. |
 | `front` | Mat kapak serisi (Aruuke). `auto` / `ask` aynı anlamda. |
 
 ```json
 [
-  { "id": "en_iyisi", "label": "En iyisi olsun", "crown": "auto", "front": "auto" },
-  { "id": "fiyatina_bakarak", "label": "Fiyatına bakarak seçeyim", "crown": "ask", "front": "ask" }
+  { "id": "en_iyisi", "label": "En iyisi olsun", "name": "En iyisi", "crown": "auto", "front": "auto" },
+  { "id": "fiyatina_bakarak", "label": "Fiyatına bakarak seçeyim", "name": "Fiyata göre", "crown": "ask", "front": "ask" }
 ]
 ```
 

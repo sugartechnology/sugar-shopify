@@ -60,7 +60,10 @@ export type KoshoyLevelChoice = "auto" | "ask";
 
 export interface KoshoyDataLevel {
   id: string;
+  /** The choice as the customer clicks it ("Fiyatına bakarak seçeyim"). */
   label: string;
+  /** Short name in the room summary next to "Bütçe" ("Fiyata göre"); the label when not given. */
+  name: string;
   /** Crown on tall bodies. */
   crown: KoshoyLevelChoice;
   /** The matte front series (Aruuke, core series id `kapak-18`). */
@@ -201,8 +204,8 @@ export const KOSHOY_DATA_DEFAULTS: KoshoyDataDocs = {
     questions: DEFAULT_QUESTIONS[kind] ?? [],
   })),
   levels: [
-    { id: "en_iyisi", label: "En iyisi olsun", crown: "auto", front: "auto" },
-    { id: "fiyatina_bakarak", label: "Fiyatına bakarak seçeyim", crown: "ask", front: "ask" },
+    { id: "en_iyisi", label: "En iyisi olsun", name: "En iyisi", crown: "auto", front: "auto" },
+    { id: "fiyatina_bakarak", label: "Fiyatına bakarak seçeyim", name: "Fiyata göre", crown: "ask", front: "ask" },
   ],
   scope: { outOfScope: [...KOSHOY_SCOPE.outOfScope], unsaid: ["nem dayanımı"] },
   texts: {
@@ -408,12 +411,16 @@ export function validateLevels(value: unknown): KoshoyDataResult<KoshoyDataLevel
     const id = readSlug(errors, where, "id", row.id);
     noteDuplicate(errors, ids, where, "id", id);
     const label = readText(errors, where, "label", row.label, 60);
-    if (LEVEL_FORBIDDEN.test(label.toLocaleLowerCase("tr-TR"))) {
-      errors.push(`${where}: "label" içinde "ucuz" ya da "hesaplı" geçemez.`);
+    const name = row.name === undefined ? label : readText(errors, where, "name", row.name, 40);
+    for (const [field, text] of [["label", label], ["name", name]] as const) {
+      if (LEVEL_FORBIDDEN.test(text.toLocaleLowerCase("tr-TR"))) {
+        errors.push(`${where}: "${field}" içinde "ucuz" ya da "hesaplı" geçemez.`);
+      }
     }
     return {
       id,
       label,
+      name,
       crown: readOneOf(errors, where, "crown", row.crown, choices),
       front: readOneOf(errors, where, "front", row.front, choices),
     };

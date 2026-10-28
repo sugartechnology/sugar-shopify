@@ -281,7 +281,7 @@ export async function applyStyleDecision(
 function styleLines(style: KoshoyStyle, data: KoshoyJourneyData, options: JourneyOptions) {
   const lines: Array<{ label: string; value: string }> = [];
   const level = data.levels.find((item) => item.id === style.level);
-  if (level) lines.push({ label: "Seçim", value: level.label });
+  if (level) lines.push({ label: "Bütçe", value: level.name });
   if (style.panel) lines.push({ label: "Renk", value: CABIN_COLOR_LABELS[style.panel] });
   const series = CABINET_RULES.frontSeries.find((item) => item.id === style.front);
   if (series) lines.push({ label: "Kapak", value: series.label });
