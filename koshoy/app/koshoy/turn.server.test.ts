@@ -320,6 +320,58 @@ describe("koshoy turn loop", () => {
     assert.deepEqual(ctx.session.pendingTools.map((tool) => tool.id), ["call_ask_2"]);
   });
 
+  it("never leaves the customer stuck: choices announced but not shown get one more hop (ClickUp z8qu5d671e)", async () => {
+    const colorAsk = (id: string) => ({
+      event: "tool_call",
+      data: {
+        callId: id,
+        name: "ask_user",
+        arguments: { question: "Hangi renk?", options: [{ id: "wood", label: "Ahşap" }, { id: "ivory", label: "Kırık beyaz" }] },
+      },
+    });
+
+    // The colour pick answered with a sentence that promises choices, and no choices.
+    const ctx = await setup();
+    const opening = scriptedStream([[colorAsk("call_color")]]);
+    await turn(ctx, ctx.session, { type: "message", text: "Yatak odamı döşe" }, { stream: opening.stream });
+    const session = await ctx.store.findSession(ctx.token, SHOP);
+    assert.ok(session);
+    const pick = scriptedStream([
+      [{ event: "text", data: { text: "Harika bir yatak odası hazırlayabiliriz! Setin için baskın rengi seçebilirsin:" } }],
+      [colorAsk("call_color_2")],
+    ]);
+    const events = await turn(ctx, session, { type: "choice", selected: "opt_2", label: "Kırık beyaz" }, { stream: pick.stream });
+    assert.equal(pick.bodies.length, 2);
+    assert.match(String(pick.bodies[1].message), /ask_user ile tek başına sor/);
+    assert.equal(events.filter((event) => event.type === "choice").length, 1);
+    assertNoLeak(events);
+
+    // A question sent back for asking beside another tool, then never asked.
+    const alone = await setup();
+    const sentBack = scriptedStream([
+      [{ event: "tool_call", data: { callId: "call_brief", name: "set_brief", arguments: { color: "ivory" } } }, colorAsk("call_ask_1")],
+      [{ event: "text", data: { text: "Rengi not aldım." } }],
+      [colorAsk("call_ask_2")],
+    ]);
+    const asked = await turn(alone, alone.session, { type: "message", text: "Kırık beyaz" }, { stream: sentBack.stream });
+    assert.equal(sentBack.bodies.length, 3);
+    assert.equal(asked.filter((event) => event.type === "choice").length, 1);
+
+    // Nothing at all, twice: one nudge, then the safe reply; never silent.
+    const quiet = await setup();
+    const silent = scriptedStream([[], []]);
+    const said = await turn(quiet, quiet.session, { type: "message", text: "Kırık beyaz" }, { stream: silent.stream });
+    assert.equal(silent.bodies.length, 2);
+    assert.match(String(silent.bodies[1].message), /hiçbir şey gösterilmedi/);
+    assert.deepEqual(said.slice(-2), [{ type: "text", text: KOSHOY_SAFE_STOPPED_REPLY }, { type: "done" }]);
+
+    // A plain answer is not a dead end: no extra hop.
+    const plain = await setup();
+    const reply = scriptedStream([[{ event: "text", data: { text: "Elbette, yardımcı olayım." } }]]);
+    await turn(plain, plain.session, { type: "message", text: "Merhaba" }, { stream: reply.stream });
+    assert.equal(reply.bodies.length, 1);
+  });
+
   it("never forwards model-chosen option ids (tool names, SKU text) to the storefront", async () => {
     const ctx = await setup();
     const ask = scriptedStream([
