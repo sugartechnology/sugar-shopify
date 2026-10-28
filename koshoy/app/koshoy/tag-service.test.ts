@@ -99,6 +99,8 @@ describe("koshoy tag-service client", () => {
       objectsUrl: "https://a/objects.png",
       furnitureUrl: "https://a/furniture.png",
       objectIds: [2, 3],
+      text: "koltuk",
+      keepText: "Halı, Perde",
       depthScale: { min: 0.5, max: 6.2 },
       camera: { fx: 1000, fy: 1000, cx: 800, cy: 600 },
       planes: { floor: { normal: [0, -1, 0], equation: [0, -1, 0, 1.3] } },
@@ -122,6 +124,25 @@ describe("koshoy tag-service client", () => {
     assert.deepEqual(await tag.startRoomClean(input), { ok: false, status: 400, error: "objectIds is required" });
     assert.deepEqual(await tag.startRoomClean(input), { ok: false, status: 503, error: "busy" });
     await assert.rejects(tag.getRoomClean("c-1"));
+  });
+
+  it("starts a room clean from the customer's text alone, without part numbers", async () => {
+    const { fetchFn, calls } = fakeFetch([jsonAnswer(202, { jobId: "c-2", status: "processing" })]);
+    const tag = createTagService("shop-key", fetchFn, BASE);
+    const input = {
+      imageUrl: "https://s/photo.jpg?X-Amz-Signature=1",
+      depthUrl: "https://a/depth.png",
+      objectsUrl: "https://a/objects.png",
+      text: "masadaki vazoyu",
+      keepText: "Koltuk, Halı",
+      depthScale: { min: 0.5, max: 6.2 },
+      camera: { fx: 1000, fy: 1000, cx: 800, cy: 600 },
+      planes: {},
+    };
+    assert.deepEqual(await tag.startRoomClean(input), { ok: true, jobId: "c-2" });
+    const body = JSON.parse(String(calls[0].init.body)) as Record<string, unknown>;
+    assert.deepEqual(body, input);
+    assert.equal("objectIds" in body, false);
   });
 
   it("downloads result files over https only", async () => {

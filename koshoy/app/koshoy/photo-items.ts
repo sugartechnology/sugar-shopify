@@ -106,6 +106,8 @@ export const ROOM_CLASSES: readonly string[] = [
 export const MIN_ITEM_AREA = 0.005;
 /** At most this many items on the card. */
 export const MAX_PHOTO_ITEMS = 12;
+/** At most this many characters of what the customer writes on the card to remove. */
+export const MAX_CLEAN_TEXT = 200;
 /** How far a small thing's box may stick out of the larger item's box (share of the photo). */
 const EDGE_SLACK = 0.02;
 /** The object map is 8 bit: part numbers 1..255. */

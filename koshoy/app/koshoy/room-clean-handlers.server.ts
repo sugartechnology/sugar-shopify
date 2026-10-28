@@ -3,28 +3,37 @@
  * Same session rules and error bodies as the room endpoints
  * (room-handlers.server.ts); the files come through /room-file …&clean=.
  *
- * Limits: a new selection counts per visitor (koshoyClientKey, one a
- * minute) and per room photo (MAX_CLEANS_PER_ROOM distinct selections);
+ * Limits: a new request counts per visitor (koshoyClientKey, one a
+ * minute) and per room photo (MAX_CLEANS_PER_ROOM distinct requests);
  * asking for one again and bringing everything back are free. Status polls
  * count per session like the room's.
  */
 import { koshoyJson, loadSession, readJson, type KoshoyRequestContext } from "./handlers.server";
 import { parseOpaqueId } from "./input";
-import { MAX_PHOTO_ITEMS } from "./photo-items";
+import { MAX_CLEAN_TEXT, MAX_PHOTO_ITEMS } from "./photo-items";
 import { koshoyClientKey } from "./rate-limit.server";
 import { refreshActiveClean, requestClean, roomViewWithClean } from "./room-clean.server";
 import { koshoyStudioError } from "./room-handlers.server";
 
-/** {roomId, objectIds: string[]} with 0..12 well-formed ids; null otherwise. */
-export function parseRoomCleanRequest(body: Record<string, unknown>): { roomId: string; objectIds: string[] } | null {
+/**
+ * {roomId, objectIds: string[], text?: string} with 0..12 well-formed ids and
+ * at most 200 characters of text once trimmed; null otherwise. No text is "".
+ */
+export function parseRoomCleanRequest(
+  body: Record<string, unknown>,
+): { roomId: string; objectIds: string[]; text: string } | null {
   const roomId = parseOpaqueId(body.roomId);
   if (!roomId || !Array.isArray(body.objectIds) || body.objectIds.length > MAX_PHOTO_ITEMS) return null;
   const objectIds = body.objectIds.map(parseOpaqueId);
   if (objectIds.some((id) => id === null)) return null;
-  return { roomId, objectIds: objectIds as string[] };
+  const written = body.text ?? "";
+  if (typeof written !== "string") return null;
+  const text = written.trim();
+  if (text.length > MAX_CLEAN_TEXT) return null;
+  return { roomId, objectIds: objectIds as string[], text };
 }
 
-/* ---------------- POST /room-clean {roomId, objectIds} ---------------- */
+/* ---------------- POST /room-clean {roomId, objectIds, text?} ---------------- */
 
 export async function handleKoshoyRoomClean(
   request: Request,
@@ -46,7 +55,7 @@ export async function handleKoshoyRoomClean(
 
     const visitor = koshoyClientKey(ctx.shop, request);
     const limiter = ctx.limits.roomClean;
-    const result = await requestClean(ctx.room, room, input.objectIds, () => limiter?.hit(visitor) ?? false);
+    const result = await requestClean(ctx.room, room, input, () => limiter?.hit(visitor) ?? false);
     if (!result.ok) {
       if (result.refused === "unknown_items") return koshoyStudioError("invalid_input");
       if (result.refused === "rate_limited") return koshoyStudioError("rate_limited");

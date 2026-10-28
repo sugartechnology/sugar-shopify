@@ -267,7 +267,7 @@ function toolList(withHandle: boolean) {
     {
       name: "offer_photo_cleanup",
       description:
-        "Open the card where the customer picks items to remove from their room photo (the photoItems of the room facts); preselect ticks the ones you suggest by their id. It removes nothing: only the customer's button on the card does, so never say anything was removed. reason no_room: no ready room photo; no_items: nothing removable was found in it.",
+        "Open the card where the customer removes items from their room photo: they tick items (the photoItems of the room facts) or write what to remove. When the customer asks to remove something, pass what they named in their own words as text (\"kanepeyi kaldır\" → text \"kanepe\") and preselect the matching photoItems ids when you can. It removes nothing: only the customer's button on the card does, so never say anything was removed. reason no_room: no ready room photo; no_items: nothing removable was found in it.",
       strict: false,
       parameters: {
         type: "object",
@@ -277,6 +277,11 @@ function toolList(withHandle: boolean) {
             maxItems: 12,
             items: { type: "string" },
             description: "photoItems ids to tick on the card",
+          },
+          text: {
+            type: "string",
+            maxLength: 200,
+            description: "What the customer wants removed, in their own words, for the card's text field",
           },
         },
         additionalProperties: false,

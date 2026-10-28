@@ -4,14 +4,15 @@
  * model sees. The assistant never removes anything: it only opens the card,
  * the customer's button does the rest (room-clean-handlers.server.ts).
  */
-import { MAX_PHOTO_ITEMS, parseStoredPhotoItems, photoItemsForModel } from "./photo-items";
+import { MAX_CLEAN_TEXT, MAX_PHOTO_ITEMS, parseStoredPhotoItems, photoItemsForModel } from "./photo-items";
 import { cleanView, type KoshoyRoomCleanRow } from "./room-clean.server";
 import type { RoomToolContext } from "./room-tools.server";
 import { imageType, type KoshoyRoomDeps, type KoshoyRoomRow } from "./room.server";
 
 /**
- * offer_photo_cleanup {preselect?}: opens the removal card with the items
- * the model suggests already ticked. Ids that are not this photo's drop.
+ * offer_photo_cleanup {preselect?, text?}: opens the removal card with the
+ * items the model suggests already ticked and the customer's words in the
+ * text field. Ids that are not this photo's drop.
  */
 export async function offerPhotoCleanup(
   ctx: RoomToolContext,
@@ -27,19 +28,25 @@ export async function offerPhotoCleanup(
   const known = new Set(items.map((item) => item.id));
   const wanted = Array.isArray(args.preselect) ? args.preselect : [];
   const preselect = [...new Set(wanted.filter((id): id is string => typeof id === "string" && known.has(id)))];
-  ctx.publish({ type: "photo_items", preselect: preselect.slice(0, MAX_PHOTO_ITEMS) });
+  const text = typeof args.text === "string" ? args.text.trim().slice(0, MAX_CLEAN_TEXT) : "";
+  ctx.publish({ type: "photo_items", preselect: preselect.slice(0, MAX_PHOTO_ITEMS), ...(text ? { text } : {}) });
   return { ok: true, shown: true, items: items.map((item) => ({ id: item.id, label: item.label })) };
 }
 
-/** The room facts' photo part: what is in the photo and what was removed. No measurements. */
+/**
+ * The room facts' photo part: what is in the photo and what was removed (the
+ * picked items' names and what the customer wrote). No measurements.
+ */
 export function photoFactsForModel(
   room: KoshoyRoomRow,
   clean: KoshoyRoomCleanRow | null,
 ): Record<string, unknown> {
   const items = parseStoredPhotoItems(room.objects);
   if (!items?.length) return {};
-  const removedIds = new Set(clean ? cleanView(clean).objectIds : []);
+  const view = clean ? cleanView(clean) : null;
+  const removedIds = new Set(view?.objectIds ?? []);
   const removed = items.filter((item) => removedIds.has(item.id)).map((item) => item.label);
+  if (view?.text) removed.push(view.text);
   return { photoItems: photoItemsForModel(items), ...(removed.length ? { removed } : {}) };
 }
 

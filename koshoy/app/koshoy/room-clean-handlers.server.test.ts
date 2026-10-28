@@ -17,7 +17,7 @@ import { createMemoryKoshoyDb, createMemoryRoomDb, createMemoryRoomSessionsDb } 
 import { createKoshoyPricer, createMockSkuResolver } from "./pricing.server";
 import { createBusyLock, createRateLimiter, KOSHOY_LIMITS } from "./rate-limit.server";
 import { handleKoshoyRoomClean, handleKoshoyRoomCleanStatus } from "./room-clean-handlers.server";
-import { MAX_CLEANS_PER_ROOM } from "./room-clean.server";
+import { MAX_CLEANS_PER_ROOM, namedIn } from "./room-clean.server";
 import { handleKoshoyRender, handleKoshoyRoom, handleKoshoyRoomFile, handleKoshoyRoomStatus } from "./room-handlers.server";
 import { parseMeasures } from "./room-measure.server";
 import { KOSHOY_JOB_DEADLINE_MS, type KoshoyRoomDeps } from "./room.server";
@@ -250,7 +250,7 @@ type View = {
   status: string;
   files?: Record<string, string>;
   objects?: Array<{ id: string; label: string; parts: number[]; box: number[] }>;
-  clean?: { id: string; status: string; error?: string; objectIds: string[] };
+  clean?: { id: string; status: string; error?: string; objectIds: string[]; text?: string };
   cleanReadyId?: string;
 };
 
@@ -266,8 +266,9 @@ async function readyRoom(t: Setup, token: string): Promise<View> {
   return ready.body.room as View;
 }
 
-async function clean(t: Setup, token: string, roomId: string, objectIds: unknown, ip?: string) {
-  const answer = await json(await handleKoshoyRoomClean(post("room-clean", { roomId, objectIds }, token, ip), t.ctx));
+async function clean(t: Setup, token: string, roomId: string, objectIds: unknown, extra: { ip?: string; text?: unknown } = {}) {
+  const body = { roomId, objectIds, ...(extra.text !== undefined ? { text: extra.text } : {}) };
+  const answer = await json(await handleKoshoyRoomClean(post("room-clean", body, token, extra.ip), t.ctx));
   return { ...answer, room: answer.body.room as View };
 }
 
@@ -326,6 +327,8 @@ describe("koshoy item removal from the room photo (/room-clean)", () => {
     assert.equal(input.objectsUrl, ANALYSIS.masks.objects);
     assert.equal(input.furnitureUrl, ANALYSIS.masks.furniture);
     assert.deepEqual(input.objectIds, [2, 3, 4], "the sofa, its cushion and the rug");
+    assert.equal(input.text, "koltuk, halı", "nothing written: the names of the picked items");
+    assert.equal(input.keepText, "Perde, Lamba", "the items not picked stay");
     assert.deepEqual(input.depthScale, ANALYSIS.depthScale);
     assert.equal(input.camera.fx, 1385.6);
     assert.deepEqual(input.planes, {
@@ -396,9 +399,9 @@ describe("koshoy item removal from the room photo (/room-clean)", () => {
     finish(t, "clean-job-1");
     await cleanStatus(t, token, room.id);
 
-    const back = await clean(t, token, room.id, []);
+    const back = await clean(t, token, room.id, [], { text: "   " });
     assert.equal(back.status, 200);
-    assert.equal(back.room.clean, undefined);
+    assert.equal(back.room.clean, undefined, "only spaces is no text");
     assert.equal(back.room.cleanReadyId, undefined);
 
     const again = await clean(t, token, room.id, ["2", "2"]);
@@ -413,7 +416,91 @@ describe("koshoy item removal from the room photo (/room-clean)", () => {
     const fresh = await openSession(t.ctx);
     const freshRoom = await readyRoom(t, fresh);
     assert.equal((await clean(t, fresh, freshRoom.id, ["6"])).status, 429, "a new session does not reset the visitor");
-    assert.equal((await clean(t, fresh, freshRoom.id, ["6"], "198.51.100.7")).status, 200, "another visitor");
+    assert.equal((await clean(t, fresh, freshRoom.id, ["6"], { ip: "198.51.100.7" })).status, 200, "another visitor");
+  });
+
+  it("does not ask to keep an item the customer's text names", async () => {
+    assert.equal(namedIn("koltuğu kaldır", "Koltuk (solda)"), true, "koltuk → koltuğu");
+    assert.equal(namedIn("sehpayı ve halıyı", "Sehpa"), true);
+    assert.equal(namedIn("sehpayı ve halıyı", "Halı"), true);
+    assert.equal(namedIn("yatağı", "Yatak"), true, "yatak → yatağı");
+    assert.equal(namedIn("masadaki vazoyu", "Lamba"), false);
+    assert.equal(namedIn("tabloyu", "Tabure"), false);
+
+    const t = setup({ cleanLimit: 100 });
+    const token = await openSession(t.ctx);
+    const room = await readyRoom(t, token);
+    await clean(t, token, room.id, [], { text: "koltuğu" });
+    assert.equal(t.tag.calls.cleans[0].keepText, "Halı, Perde, Lamba", "Koltuk is the one to remove, not to keep");
+  });
+
+  it("removes what the customer wrote, alone or with picked items, and reuses the same request", async () => {
+    const t = setup({ cleanLimit: 100 });
+    const token = await openSession(t.ctx);
+    const room = await readyRoom(t, token);
+
+    // Text alone: a vase is never listed on its own, the customer can still write it.
+    const written = await clean(t, token, room.id, [], { text: "  Masadaki vazoyu " });
+    assert.equal(written.status, 200);
+    assert.ok(!LEAKS.test(written.text), written.text);
+    const writtenId = written.room.clean!.id;
+    assert.deepEqual(written.room.clean, { id: writtenId, status: "processing", objectIds: [], text: "Masadaki vazoyu" });
+    const [alone] = t.tag.calls.cleans;
+    assert.equal(alone.text, "Masadaki vazoyu");
+    assert.equal(alone.keepText, "Koltuk, Halı, Perde, Lamba");
+    assert.equal("objectIds" in alone, false, "no picked items: nothing to check");
+    assert.equal(alone.objectsUrl, ANALYSIS.masks.objects);
+    assert.deepEqual(alone.depthScale, ANALYSIS.depthScale);
+
+    finish(t, "clean-job-1");
+    const ready = await cleanStatus(t, token, room.id);
+    assert.deepEqual(ready.room.clean, { id: writtenId, status: "ready", objectIds: [], text: "Masadaki vazoyu" });
+    assert.equal(ready.room.cleanReadyId, writtenId);
+    const restored = await json(await handleKoshoySession(post("session", {}, token), t.ctx));
+    assert.equal((restored.body.room as View).clean?.text, "Masadaki vazoyu", "a reload fills the text field again");
+
+    // Other case and spaces: the same request, free.
+    const same = await clean(t, token, room.id, [], { text: "masadaki   VAZOYU" });
+    assert.equal(same.room.clean?.id, writtenId);
+    assert.equal(t.tag.calls.cleans.length, 1);
+
+    // Picked items with text: the customer's words go, the picked parts are checked.
+    const both = await clean(t, token, room.id, ["6", "2"], { text: "koltuğu ve perdeyi" });
+    assert.deepEqual(both.room.clean, {
+      id: both.room.clean!.id,
+      status: "processing",
+      objectIds: ["2", "6"],
+      text: "koltuğu ve perdeyi",
+    });
+    const withItems = t.tag.calls.cleans[1];
+    assert.equal(withItems.text, "koltuğu ve perdeyi", "the customer's words, not the names");
+    assert.equal(withItems.keepText, "Halı, Lamba");
+    assert.deepEqual(withItems.objectIds, [2, 3, 6]);
+
+    // The same items without the text are another request.
+    const picked = await clean(t, token, room.id, ["2", "6"]);
+    assert.notEqual(picked.room.clean?.id, both.room.clean?.id);
+    assert.equal(picked.room.clean?.text, undefined);
+    assert.equal(t.tag.calls.cleans[2].text, "koltuk, perde");
+    assert.equal(t.tag.calls.cleans.length, 3);
+  });
+
+  it("says when the asked items are still in the cleaned photo", async () => {
+    const t = setup();
+    const token = await openSession(t.ctx);
+    const room = await readyRoom(t, token);
+    const asked = await clean(t, token, room.id, ["2"], { text: "koltuğu" });
+    t.tag.state.cleanJobs.set("clean-job-1", { status: "failed", error: "not_removed" });
+    const status = await cleanStatus(t, token, room.id);
+    assert.ok(!LEAKS.test(status.text), status.text);
+    assert.deepEqual(status.room.clean, {
+      id: asked.room.clean!.id,
+      status: "failed",
+      error: "not_removed",
+      objectIds: ["2"],
+      text: "koltuğu",
+    });
+    assert.equal(status.room.cleanReadyId, undefined);
   });
 
   it("keeps the previous cleaned photo while a new one is processing or when it fails", async () => {
@@ -487,6 +574,8 @@ describe("koshoy item removal from the room photo (/room-clean)", () => {
     assert.equal((await clean(t, token, room.id, "2")).status, 400);
     assert.equal((await clean(t, token, room.id, Array.from({ length: 13 }, (_, i) => String(i)))).status, 400);
     assert.equal((await clean(t, token, room.id, ["bad id!"])).status, 400);
+    assert.deepEqual((await clean(t, token, room.id, ["2"], { text: "a".repeat(201) })).body, { error: "invalid_input" });
+    assert.equal((await clean(t, token, room.id, [], { text: ["koltuk"] })).status, 400);
     assert.equal(t.tag.calls.cleans.length, 0);
 
     const other = await openSession(t.ctx);
