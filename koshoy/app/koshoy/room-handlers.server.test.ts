@@ -11,7 +11,7 @@ import type {
 import { KOSHOY_DATA_DEFAULTS } from "./data.server";
 import { cabinetEngine, type CabinComposition } from "./engine";
 import { handleKoshoyEdit, handleKoshoySession, type KoshoyRequestContext } from "./handlers.server";
-import { createMemoryKoshoyDb, createMemoryRoomDb, sampleReadyRoom } from "./memory-db";
+import { createMemoryKoshoyDb, createMemoryRoomDb, createMemoryRoomSessionsDb, sampleReadyRoom } from "./memory-db";
 import { createKoshoyPricer, createMockSkuResolver } from "./pricing.server";
 import { createBusyLock, createRateLimiter, KOSHOY_LIMITS } from "./rate-limit.server";
 import { cabinetDescription, renderDescription } from "./render.server";
@@ -117,6 +117,9 @@ function fakeFiles() {
     async get(key) {
       return objects.get(key) ?? null;
     },
+    async delete(key) {
+      objects.delete(key);
+    },
     async signedUrl(key, seconds) {
       return `https://cdn.sugartech.s3.eu-central-1.amazonaws.com/${key}?X-Amz-Expires=${seconds}&X-Amz-Signature=abc`;
     },
@@ -145,10 +148,11 @@ function setup(
     },
   };
   const loose = () => createRateLimiter({ limit: 100, windowMs: 60_000 });
+  const koshoyDb = createMemoryKoshoyDb();
   const ctx: KoshoyRequestContext = {
     shop: SHOP,
     enabled: true,
-    store: createKoshoyStore(createMemoryKoshoyDb().db),
+    store: createKoshoyStore(koshoyDb.db),
     engine: cabinetEngine,
     pricer: createKoshoyPricer(cabinetEngine, createMockSkuResolver([{ pattern: "*", price: "100.00" }])),
     limits: {
@@ -163,11 +167,13 @@ function setup(
       render: createRateLimiter({ ...KOSHOY_LIMITS.render, limit: options.renderLimit ?? KOSHOY_LIMITS.render.limit }),
       roomRead: createRateLimiter({ ...KOSHOY_LIMITS.roomRead, limit: options.readLimit ?? KOSHOY_LIMITS.roomRead.limit }),
       layout: createRateLimiter({ ...KOSHOY_LIMITS.layout, limit: options.layoutLimit ?? KOSHOY_LIMITS.layout.limit }),
+      rooms: loose(),
     },
     busy: createBusyLock(),
     chatConfig: async () => ({ apiKey: "", mock: true }),
     journeyData: async () => KOSHOY_DATA_DEFAULTS,
     customerId: "c1",
+    roomSessions: createMemoryRoomSessionsDb(koshoyDb, memory),
     room,
   };
   return { ctx, room, tag, storage, memory, downloads };
@@ -215,7 +221,7 @@ async function readyRoom(t: Setup, token: string) {
 }
 
 async function designFor(t: Setup, token: string, widthMm = 1920) {
-  const session = await t.ctx.store.findSession(token, SHOP);
+  const session = await t.ctx.store.findSession(token, SHOP, t.ctx.customerId);
   assert.ok(session);
   return t.ctx.store.createDesign(session.id, {
     kind: "gardirop",
@@ -289,7 +295,7 @@ describe("koshoy room photo and render endpoints", () => {
       },
     });
     assert.ok(!LEAKS.test(ready.text), ready.text);
-    assert.equal((await t.ctx.store.findSession(token, SHOP))?.roomId, room.id, "session keeps the ready room");
+    assert.equal((await t.ctx.store.findSession(token, SHOP, t.ctx.customerId))?.roomId, room.id, "session keeps the ready room");
 
     const photo = await handleKoshoyRoomFile(get(link("photo"), token), t.ctx);
     assert.equal(photo.status, 200);
@@ -379,10 +385,10 @@ describe("koshoy room photo and render endpoints", () => {
     const poll = () => handleKoshoyRoomStatus(post("room-status", { roomId }, token), t.ctx);
     const first = await json(await poll());
     assert.equal((first.body.room as { status: string }).status, "ready", "the customer still gets the room");
-    assert.equal((await t.ctx.store.findSession(token, SHOP))?.roomId, null);
+    assert.equal((await t.ctx.store.findSession(token, SHOP, t.ctx.customerId))?.roomId, null);
     const retried = await json(await poll());
     assert.equal(retried.status, 200);
-    assert.equal((await t.ctx.store.findSession(token, SHOP))?.roomId, roomId, "the next poll writes it");
+    assert.equal((await t.ctx.store.findSession(token, SHOP, t.ctx.customerId))?.roomId, roomId, "the next poll writes it");
 
     const resumed = await json(await handleKoshoySession(post("session", {}, token), t.ctx));
     assert.deepEqual(resumed.body.room, retried.body.room);
@@ -686,7 +692,7 @@ describe("koshoy room photo and render endpoints", () => {
     Object.assign(t.memory.rooms.get(room.id)!, { createdAt: new Date(2_000) });
     Object.assign(t.memory.renders.get(ready.id)!, { status: "ready", updatedAt: new Date(4_000) });
     Object.assign(t.memory.renders.get(failed.id)!, { status: "failed", updatedAt: new Date(5_000) });
-    const session = await t.ctx.store.findSession(token, SHOP);
+    const session = await t.ctx.store.findSession(token, SHOP, t.ctx.customerId);
     assert.ok(session);
     session.events = [
       { type: "text", text: "Eski metin" },
@@ -772,14 +778,14 @@ describe("koshoy room photo and render endpoints", () => {
     t.tag.state.roomJob = { status: "completed", result: { ...ANALYSIS, planes: { ...ANALYSIS.planes, floor: tableTop } } };
     const status = await json(await handleKoshoyRoomStatus(post("room-status", { roomId }, token), t.ctx));
     assert.deepEqual(status.body, { room: { id: roomId, status: "failed", error: "no_floor" } });
-    assert.equal((await t.ctx.store.findSession(token, SHOP))?.roomId, null, "not the session's room");
+    assert.equal((await t.ctx.store.findSession(token, SHOP, t.ctx.customerId))?.roomId, null, "not the session's room");
   });
 
   it("starts the room layout when the room becomes ready, with the active design in it", async () => {
     const t = setup();
     const token = await openSession(t.ctx);
     const active = await designFor(t, token, 960);
-    const session = (await t.ctx.store.findSession(token, SHOP))!;
+    const session = (await t.ctx.store.findSession(token, SHOP, t.ctx.customerId))!;
     session.activeDesignId = active.id;
     await t.ctx.store.saveSession(session);
     const before = await json(await handleKoshoySession(post("session", {}, token), t.ctx));
@@ -828,7 +834,7 @@ describe("koshoy room photo and render endpoints", () => {
     for (const [design, alongM] of [[left, -1], [right, 1]] as const) {
       await handleKoshoyLayout(post("layout", { op: "add", designId: design.id, place: { surface: "wall", alongM } }, token), t.ctx);
     }
-    const session = (await t.ctx.store.findSession(token, SHOP))!;
+    const session = (await t.ctx.store.findSession(token, SHOP, t.ctx.customerId))!;
     t.memory.rooms.set("room_r", sampleReadyRoom("room_r", session.id));
     await t.ctx.store.setRoom(session.id, "room_r");
 

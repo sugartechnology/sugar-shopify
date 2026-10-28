@@ -43,6 +43,8 @@ export const KOSHOY_LIMITS = {
   phoneLink: { limit: 6, windowMs: 60_000 },
   /** phone page opens (link checks) per visitor */
   phoneCheck: { limit: 30, windowMs: 60_000 },
+  /** room list reads and room deletes per visitor (room-sessions.server.ts) */
+  rooms: { limit: 30, windowMs: 60_000 },
 } as const;
 
 /**

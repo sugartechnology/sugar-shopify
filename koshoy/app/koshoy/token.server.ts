@@ -10,6 +10,8 @@ const TOKEN_BYTES = 32;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 export const KOSHOY_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** A session that belongs to a signed-in customer's account. */
+export const KOSHOY_ACCOUNT_SESSION_TTL_MS = 180 * 24 * 60 * 60 * 1000;
 /** A session nobody has used yet (page view only) expires much sooner. */
 export const KOSHOY_FRESH_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 

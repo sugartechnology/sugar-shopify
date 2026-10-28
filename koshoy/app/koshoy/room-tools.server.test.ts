@@ -40,6 +40,7 @@ async function setup(options: { withRoom?: boolean } = {}) {
       put: async (name) => name,
       get: async (key) => (key.endsWith("photo.jpg") ? { bytes: PHOTO, contentType: "image/jpeg" } : null),
       signedUrl: async (key) => key,
+      delete: async () => {},
     },
     tagService: async () => {
       throw new Error("no upstream here");

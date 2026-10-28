@@ -35,7 +35,7 @@ model ShopCredential {
   createdAt DateTime @default(now())
 }
 
-/// Koshoy studio conversation. Only the sha256 of the opaque browser token is stored.
+/// Koshoy studio conversation; one per room the customer opens. Only the sha256 of the opaque browser token is stored.
 model KoshoySession {
   id             String         @id
   shop           String
@@ -45,15 +45,30 @@ model KoshoySession {
   activeDesignId String?
   /// Latest analysed room photo (KoshoyRoom.id); written only by room-status.
   roomId         String?
+  /// Signed-in Shopify customer the room belongs to (logged_in_customer_id); null = this browser only.
+  customerId     String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   expiresAt      DateTime
   designs        KoshoyDesign[]
   layout         KoshoyLayout?
   phoneLinks     KoshoyPhoneLink[]
+  keys           KoshoySessionKey[]
 
   @@index([shop])
   @@index([expiresAt])
+  @@index([shop, customerId])
+}
+
+/// Another device's token for the same session: a signed-in customer opened
+/// an account room there (rooms.server.ts). Only the sha256 is stored.
+model KoshoySessionKey {
+  tokenHash String        @id
+  sessionId String
+  session   KoshoySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@index([sessionId])
 }
 
 /// One Koshoy product design (cabinet composition) inside a session.

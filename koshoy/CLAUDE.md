@@ -53,7 +53,8 @@ tool'ları modele sunulmaz, sohbet bugünkü gibi çalışır.
 
 - Uçlar: `/room`, `/room-status`, `/room-file`, `/render`, `/render-status`,
   `/render-file`, `/layout` (`room-handlers.server.ts`). Analiz ve render tag-service
-  üzerinden (`services/tag-service.server.ts`), dosyalar Sugar S3'te, silinmez.
+  üzerinden (`services/tag-service.server.ts`), dosyalar Sugar S3'te; yalnız müşteri odayı
+  silince silinir (aşağıda "Oda oturumları").
 - Oda hazır olunca EXIF yoksa açı yeniden tahmin edilir (`room-fov.ts`), sonra ölçüler
   çıkarılır (`room-measure.server.ts`). Ölçüler tarayıcıya gitmez; yalnız görünen duvarın
   uçları `RoomView.wall` olarak gider.
@@ -64,6 +65,15 @@ tool'ları modele sunulmaz, sohbet bugünkü gibi çalışır.
   ölçüleri cevapta yalnız "yaklaşık" ile geçebilir (`checkReply`'ın `approximate` kümesi).
 - Sınırlar `rate-limit.server.ts`'te: kişi (IP) başına dakikada 1 analiz, 2 render;
   oturum başına dakikada 120 durum/dosya okuması ve 120 yerleşim yazması.
+
+## Oda oturumları
+
+Bir oda = bir `KoshoySession` (ClickUp z8qu5d7pzv, sözleşme §2.8). Tarayıcı odalarının token'larını
+tutar; giriş yapan müşterinin odaları hesabına bağlanır (`KoshoySession.customerId`, App Proxy
+`logged_in_customer_id`). Hesaba bağlı oda yalnız o müşteri girişliyken açılır (`store.findSession`).
+Liste, başka cihazda açma (`KoshoySessionKey`) ve silme `room-sessions.server.ts`; "Sil" oturumu,
+tasarımları, yerleşimi ve oda fotoğrafı ile görsellerin S3 dosyalarını siler. En çok 10 oda (tema
+uygular), girişsiz 30 gün, hesaplı 180 gün.
 
 ## Değişmez kurallar
 
