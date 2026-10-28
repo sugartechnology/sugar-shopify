@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { KoshoyFile, KoshoyFileStore } from "../services/s3.server";
 import type { KoshoyTagService, RoomAnalysisJob } from "../services/tag-service.server";
+import { KOSHOY_DATA_DEFAULTS } from "./data.server";
 import { cabinetEngine } from "./engine";
 import { handleKoshoySession, type KoshoyRequestContext } from "./handlers.server";
 import { createMemoryKoshoyDb, createMemoryPhoneDb, createMemoryRoomDb } from "./memory-db";
@@ -101,6 +102,8 @@ function setup(options: { failUpload?: boolean } = {}) {
     },
     busy: createBusyLock(),
     chatConfig: async () => ({ apiKey: "", mock: true }),
+    journeyData: async () => KOSHOY_DATA_DEFAULTS,
+    customerId: "c1",
     room,
     phone,
   };

@@ -74,6 +74,7 @@ const EDIT_REJECT_HINTS: Record<EditRejectReason | "stale", string> = {
     "Bu çekmece düzeniyle kapak ölçüsü katalogda yok; farklı bir çekmece seçilebilir ya da kapak kaldırılabilir.",
   fitting_not_found: "Bu gövdede o parça yok.",
   no_door: "Bu gövdede kapak yok.",
+  crown_required: "Alçak dolaplarda üst kapama (taç) her zaman var; çıkarılamaz.",
   total_width_exceeded: `Toplam genişlik en fazla ${cmText(CABIN_TOTAL_WIDTH_SAFETY_MM)} cm olabilir.`,
   total_width_too_small: `Toplam genişlik en az ${cmText(CABIN_WIDTHS_MM[0])} cm olabilir.`,
   width_not_allowed:

@@ -26,12 +26,25 @@ bağımsız bir alt klasördür: kendi `package.json`, Prisma (SQLite) ve
 ```
 tema (sohbet) → /apps/koshoy/studio/turn → app/koshoy/turn.server.ts
   → LLM_GATEWAY_URL (tagservice /api/shopify/shopping/responses/stream, tag koshoy-chat)
-  → server tool'ları: set_brief, ask_user, plan_cabinet, edit_design, quote, switch_design
-    (+ oda özelliği açıkken: show_in_room, render_room, place_in_room, remove_from_room)
+  → server tool'ları: set_brief, ask_user, ask_style, plan_cabinet, plan_room, edit_design, quote,
+    switch_design, show_doors (+ oda özelliği açıkken: show_in_room, render_room, place_in_room, remove_from_room)
   → beyaz liste olaylar (events.ts) → tema
 ```
 
 Doğrudan Claude/OpenAI API'si kullanılmaz; LLM her zaman şirketin gateway'inden geçer.
+
+## Müşteri yolculuğu ve Akın'ın verisi
+
+- Yolculuk (ClickUp z8qu5d7rd9): oda → yapı → tarz → oda onayı → ürün ürün onay → sepet. Durum
+  `journey.ts` (oturumun `state.journey`), kartlar ve düğmeler `journey.server.ts`, tur bağlantısı
+  `turn.server.ts` (`runJourneyAction`, `publishStageCards`). Sepete yalnız onaylı ürün girer (`/cart`).
+- Akın'ın verisi (odalar, türler + soruları, seviyeler, metinler, resimler, kapsam) kodda değil,
+  Koshoy veritabanındadır (`data.server.ts`, varsayılanlar `KOSHOY_DATA_DEFAULTS`). Değiştirme yolu
+  veri API'sidir: `docs/veri-api.md` (`/api/koshoy/data`, anahtar `KOSHOY_DATA_API_KEY`). Bozuk veri
+  kaydedilmez; kayıtlı veri bir gün geçersiz kalırsa varsayılan kullanılır, `audit` gösterir.
+- Aşama ölçümleri `KoshoyEvent` tablosuna yazılır (`journey-events.server.ts`, kişisel veri yok);
+  huni: `GET /api/koshoy/funnel`.
+
 
 ## Oda fotoğrafı ve yerleşim
 

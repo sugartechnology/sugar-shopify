@@ -22,6 +22,8 @@ import type { KoshoyPhoneDeps, KoshoyPhoneLinkDb } from "./phone-link.server";
 import { createBusyLock, createRateLimiter, KOSHOY_LIMITS } from "./rate-limit.server";
 import type { KoshoyRoomDb, KoshoyRoomDeps } from "./room.server";
 import { createKoshoyStore, type KoshoyDb } from "./store.server";
+import { koshoyData } from "./data.server";
+import { deviceFromUserAgent, recordKoshoyEvent, type KoshoyEventDb } from "./journey-events.server";
 
 const store = createKoshoyStore(prisma as unknown as KoshoyDb);
 const limits = {
@@ -134,6 +136,9 @@ export async function koshoyContextFromProxy(
 
   const shopAdmin = admin;
   const engine = getCabinetEngine();
+  // Shopify adds the signed-in customer to every App Proxy request (signed with the query).
+  const customerId = new URL(request.url).searchParams.get("logged_in_customer_id")?.trim() || null;
+  const device = deviceFromUserAgent(request.headers.get("user-agent"));
   const resolver = createKoshoySkuResolver(shopAdmin, shop);
 
   return {
@@ -151,6 +156,11 @@ export async function koshoyContextFromProxy(
       db: prisma as unknown as KoshoyPhoneLinkDb,
       storefrontOrigin: () => storefrontOrigin(shopAdmin, shop),
       limits: phoneLimits,
+    },
+    journeyData: () => koshoyData().snapshot(),
+    customerId,
+    track(sessionId, name, props) {
+      void recordKoshoyEvent(prisma as unknown as KoshoyEventDb, { sessionId, name, device, props });
     },
     async chatConfig() {
       if (envFlag("KOSHOY_CHAT_MOCK") || !isLlmGatewayConfigured()) {

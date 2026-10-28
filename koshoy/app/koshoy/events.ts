@@ -74,7 +74,24 @@ export interface DesignSummary {
 export interface ChoiceOption {
   id: string;
   label: string;
+  /** Style info note: a small realistic picture of this option (prepared set, data images doc). */
+  image?: string;
+  /** Style info note: the whole room's price with this option. */
+  price?: string;
 }
+
+/** One line of the room summary or the cart summary. */
+export interface JourneyItemView {
+  designId: string;
+  label: string;
+}
+
+export interface CartItemView extends JourneyItemView {
+  version: number;
+  display: string;
+}
+
+export type ProductStatusView = "pending" | "approved" | "later";
 
 /** Where a design stands (CONTRACT v2 §6, room-layout LayoutPlace). Metres. */
 export type LayoutPlaceView =
@@ -128,10 +145,50 @@ export type PublicEvent =
   | { type: "photo"; roomId: string }
   /** /session only: a finished realistic picture, at its place in the thread (GET /render-file). */
   | { type: "render"; renderId: string }
+  /** Stage 4: photo / own measurements / go on without; `photo` false when the room feature is off. */
+  | { type: "structure"; photo: boolean }
+  /** Stage 6: what the customer approves (products, style, total). `single`: the one-product buyer. */
+  | {
+      type: "room_summary";
+      items: JourneyItemView[];
+      style: Array<{ label: string; value: string }>;
+      total: string;
+      approved: boolean;
+      single: boolean;
+    }
+  /** Stage 7: the product being decided on, with the progress of the room. */
+  | {
+      type: "product_card";
+      designId: string;
+      label: string;
+      status: ProductStatusView;
+      /** 1-based place among the room's products, and how many there are. */
+      index: number;
+      count: number;
+      approvedCount: number;
+      /** Other undecided products of the same kind ("2 komodin"): one approval may take them all. */
+      sameKind: number;
+      notes: string[];
+    }
+  /** Stage 8: approved products go to the cart, "later" ones are reminded. */
+  | {
+      type: "cart_summary";
+      approved: CartItemView[];
+      later: JourneyItemView[];
+      /** Already sent to the cart (this version); not offered again. */
+      inCart: JourneyItemView[];
+      total: string;
+      warning: string;
+    }
+  /** "Odanı kaydedelim": the room approval needs a signed-in customer. */
+  | { type: "login_required" }
   | { type: "error"; code: KoshoyErrorCode }
   | { type: "done" };
 
 const OPAQUE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** Info note pictures come from the shop's own image CDN only (data images doc). */
+const IMAGE_URL = /^https:\/\/image-s3\.sm\.mncdn\.com\/[A-Za-z0-9._~%\/-]{1,400}$/;
+const MAX_JOURNEY_ITEMS = 12;
 const PRICE_DISPLAY = /^\d{1,3}(?:\.\d{3})*,\d{2} TL$/;
 const MAX_TEXT = 8000;
 const MAX_LABEL = 160;
@@ -308,7 +365,41 @@ function toChoiceOption(raw: unknown): ChoiceOption | null {
   if (!row) return null;
   const id = opaqueId(row.id);
   const name = label(row.label);
-  return id && name ? { id, label: name } : null;
+  if (!id || !name) return null;
+  const option: ChoiceOption = { id, label: name };
+  if (typeof row.image === "string" && IMAGE_URL.test(row.image)) option.image = row.image;
+  if (isValidPriceDisplay(row.price)) option.price = row.price;
+  return option;
+}
+
+function toJourneyItem(raw: unknown): JourneyItemView | null {
+  const row = asRecord(raw);
+  if (!row) return null;
+  const designId = opaqueId(row.designId);
+  const name = label(row.label);
+  return designId && name ? { designId, label: name } : null;
+}
+
+function toCartItem(raw: unknown): CartItemView | null {
+  const item = toJourneyItem(raw);
+  const row = asRecord(raw);
+  const v = version(row?.version);
+  if (!item || v === null || !isValidPriceDisplay(row?.display)) return null;
+  return { ...item, version: v, display: row!.display as string };
+}
+
+function list<T>(raw: unknown, read: (item: unknown) => T | null): T[] | null {
+  if (!Array.isArray(raw) || raw.length > MAX_JOURNEY_ITEMS) return null;
+  const items = raw.map(read);
+  return items.some((item) => item === null) ? null : (items as T[]);
+}
+
+function count(value: unknown, max = MAX_DESIGNS): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= max ? value : null;
+}
+
+function shortText(value: unknown, max: number): string | null {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 }
 
 /**
@@ -408,6 +499,59 @@ export function toPublicEvent(raw: unknown): PublicEvent | null {
       const renderId = opaqueId(row.renderId);
       return renderId ? { type: "render", renderId } : null;
     }
+    case "structure":
+      return { type: "structure", photo: row.photo === true };
+    case "room_summary": {
+      const items = list(row.items, toJourneyItem);
+      const style = list(row.style, (raw) => {
+        const pair = asRecord(raw);
+        const name = shortText(pair?.label, 60);
+        const value = shortText(pair?.value, 80);
+        return name && value ? { label: name, value } : null;
+      });
+      if (!items?.length || !style || !isValidPriceDisplay(row.total)) return null;
+      return {
+        type: "room_summary",
+        items,
+        style,
+        total: row.total,
+        approved: row.approved === true,
+        single: row.single === true,
+      };
+    }
+    case "product_card": {
+      const designId = opaqueId(row.designId);
+      const name = label(row.label);
+      const status = oneOf(row.status, ["pending", "approved", "later"] as const);
+      const index = count(row.index);
+      const total = count(row.count);
+      const approvedCount = count(row.approvedCount);
+      const sameKind = count(row.sameKind);
+      const notes = list(row.notes ?? [], (raw) => shortText(raw, 120));
+      if (!designId || !name || !status || !index || !total || index > total) return null;
+      if (approvedCount === null || sameKind === null || !notes) return null;
+      return {
+        type: "product_card",
+        designId,
+        label: name,
+        status,
+        index,
+        count: total,
+        approvedCount,
+        sameKind,
+        notes,
+      };
+    }
+    case "cart_summary": {
+      const approved = list(row.approved, toCartItem);
+      const later = list(row.later, toJourneyItem);
+      const inCart = list(row.inCart ?? [], toJourneyItem);
+      const warning = shortText(row.warning, 300);
+      if (!approved || !later || !inCart || !warning || !isValidPriceDisplay(row.total)) return null;
+      return { type: "cart_summary", approved, later, inCart, total: row.total, warning };
+    }
+    case "login_required":
+      return { type: "login_required" };
     case "error":
       return {
         type: "error",

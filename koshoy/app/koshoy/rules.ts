@@ -85,22 +85,18 @@ export const KOSHOY_RULES: readonly KoshoyRule[] = [
   },
 ];
 
-/** The two room rules with a ready room (CONTRACT v2 §6 decision 5, v2.1-9). */
+/**
+ * The photo rule with a ready room. Room sizes are still never said, not
+ * even "yaklaşık" (ClickUp z8qu5d7rdp): the room information only steers
+ * which product sizes the assistant picks.
+ */
 const READY_ROOM_RULES: Record<string, KoshoyRule> = {
-  no_room_dimensions: {
-    // checkReply lets a room size through only with "yaklaşık", a number from
-    // the room measurements and its unit (see RoomNumbers).
-    id: "room_dimensions",
-    text:
-      "Oda ölçüsünü yalnız sistemin verdiği oda bilgisinden söylersin: her zaman \"yaklaşık\" diyerek, 10 cm'ye yuvarlanmış hâliyle ve oda bilgisindeki birimle. " +
-      `Oda bilgisinde bir tasarım için "sınırda" yazıyorsa "${TIGHT_FIT_SENTENCE}" dersin. Metrekare hiç söylemezsin.`,
-    guard: [SQUARE_METRES],
-  },
   photo_context_only: {
     id: "room_photo",
     text:
       "Müşterinin oda fotoğrafını görebilirsin; pencere, kapı ve eşyaların yerini anlamak için kullanırsın. " +
-      "Ölçüyü fotoğraftan kendin tahmin etmezsin; ölçü yalnız sistemin oda bilgisinden gelir.",
+      "Ölçüyü fotoğraftan kendin tahmin etmezsin; ölçü yalnız sistemin oda bilgisinden gelir. " +
+      `Oda bilgisinde bir tasarım için "sınırda" yazıyorsa "${TIGHT_FIT_SENTENCE}" dersin.`,
   },
 };
 
@@ -108,7 +104,7 @@ export const KOSHOY_ROOM_RULES: readonly KoshoyRule[] = KOSHOY_RULES.map(
   (rule) => READY_ROOM_RULES[rule.id] ?? rule,
 );
 
-/** The rules in force: with a ready room the room sizes may be told, approximately. */
+/** The rules in force: with a ready room the photo rule tells how the room information is used. */
 export function koshoyRules(roomReady: boolean): readonly KoshoyRule[] {
   return roomReady ? KOSHOY_ROOM_RULES : KOSHOY_RULES;
 }

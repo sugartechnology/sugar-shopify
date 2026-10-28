@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { KOSHOY_DATA_DEFAULTS } from "./data.server";
 import { cabinetEngine, type CabinComposition } from "./engine";
 import type { PublicEvent } from "./events";
 import {
@@ -68,6 +69,8 @@ function makeCtx(overrides: Partial<KoshoyRequestContext> = {}): KoshoyRequestCo
     },
     busy: createBusyLock(),
     chatConfig: async () => ({ apiKey: "", mock: true }),
+    journeyData: async () => KOSHOY_DATA_DEFAULTS,
+    customerId: "c1",
     ...overrides,
   };
 }
@@ -103,6 +106,21 @@ function parseSse(text: string): PublicEvent[] {
 async function openSession(ctx: KoshoyRequestContext) {
   const response = await handleKoshoySession(post("session", {}), ctx);
   return (await response.json()) as { session: string };
+}
+
+/** The customer approved every design as it is now; the cart takes approved products only. */
+async function approveAll(ctx: KoshoyRequestContext, token: string) {
+  const session = await ctx.store.findSession(token, SHOP);
+  assert.ok(session);
+  for (const design of await ctx.store.listDesigns(session.id)) {
+    session.journey.approvals[design.id] = { status: "approved", version: design.version };
+  }
+  await ctx.store.saveSession(session);
+}
+
+async function approvedCart(ctx: KoshoyRequestContext, token: string, body: Record<string, unknown>) {
+  await approveAll(ctx, token);
+  return handleKoshoyCart(post("cart", body, { token }), ctx);
 }
 
 async function planGardirop(ctx: KoshoyRequestContext, token: string) {
@@ -404,6 +422,53 @@ describe("koshoy studio handlers", () => {
     assert.ok(!/Aruuke|Acıbay/.test(JSON.stringify(body)));
   });
 
+  it("shows the product card again when a panel edit changes an approved product", async () => {
+    const ctx = makeCtx();
+    const { session: token } = await openSession(ctx);
+    const session = await ctx.store.findSession(token, SHOP);
+    assert.ok(session);
+    const design = await ctx.store.createDesign(session.id, {
+      kind: "kitaplik",
+      label: "Kitaplık",
+      composition: cabinetEngine.planCabinet({ kind: "kitaplik" }).composition,
+    });
+    session.brief.room = "Salon";
+    Object.assign(session.journey, { structure: "skip", roomApprovedAt: 1, shownStage: "cart" });
+    Object.assign(session.journey.style, { level: "en_iyisi", panel: "ivory", front: "kapak-18", crown: "on" });
+    session.journey.approvals[design.id] = { status: "approved", version: design.version };
+    await ctx.store.saveSession(session);
+    const body = (await (
+      await handleKoshoyEdit(
+        post("edit", { designId: design.id, version: design.version, op: { action: "add_fitting", unit: 0, kind: "shelf" } }, { token }),
+        ctx,
+      )
+    ).json()) as { ok: boolean; events: PublicEvent[] };
+    assert.equal(body.ok, true);
+    const card = body.events.find((event) => event.type === "product_card");
+    assert.ok(card?.type === "product_card", "the changed product is decided again");
+    assert.equal(card.status, "pending");
+  });
+
+  it("takes only an approved product, as it is now, into the cart (ClickUp z8qu5d7rdv)", async () => {
+    const ctx = makeCtx({ pricer: createKoshoyPricer(cabinetEngine, createMockSkuResolver()) });
+    const { session: token } = await openSession(ctx);
+    const session = await ctx.store.findSession(token, SHOP);
+    assert.ok(session);
+    const design = await ctx.store.createDesign(session.id, { kind: "gardirop", label: "Gardırop 192 cm", composition: GOLDEN });
+    const cart = async () =>
+      (await (await handleKoshoyCart(post("cart", { designId: design.id, version: 1 }, { token }), ctx)).json()) as {
+        ok: boolean;
+        error?: string;
+      };
+    assert.deepEqual(await cart(), { ok: false, error: "not_approved", lines: [] });
+    session.journey.approvals[design.id] = { status: "later", version: 1 };
+    await ctx.store.saveSession(session);
+    assert.equal((await cart()).error, "not_approved", "\"sonra\" is not an approval");
+    session.journey.approvals[design.id] = { status: "approved", version: 1 };
+    await ctx.store.saveSession(session);
+    assert.equal((await cart()).ok, true);
+  });
+
   it("recomputes the golden cart from the stored design, ignoring browser data", async () => {
     const ctx = makeCtx({ pricer: createKoshoyPricer(cabinetEngine, createMockSkuResolver()) });
     const { session: token } = await openSession(ctx);
@@ -415,6 +480,7 @@ describe("koshoy studio handlers", () => {
       composition: GOLDEN,
     });
 
+    await approveAll(ctx, token);
     const response = await handleKoshoyCart(
       post(
         "cart",
@@ -454,13 +520,13 @@ describe("koshoy studio handlers", () => {
     assert.equal(price.display, "16.531,42 TL");
 
     const after = (await (
-      await handleKoshoyCart(post("cart", { designId: design.id, version: 2 }, { token }), ctx)
+      await approvedCart(ctx, token, { designId: design.id, version: 2 })
     ).json()) as typeof body;
     assert.equal(after.display, "16.531,42 TL");
     assert.deepEqual(after.lines.map((line) => line.quantity), [2, 2, 2, 1]);
 
     const stale = (await (
-      await handleKoshoyCart(post("cart", { designId: design.id, version: 1 }, { token }), ctx)
+      await approvedCart(ctx, token, { designId: design.id, version: 1 })
     ).json()) as { ok: boolean; error: string; lines: unknown[] };
     assert.deepEqual([stale.ok, stale.error, stale.lines], [false, "cart_failed", []]);
   });
@@ -471,7 +537,7 @@ describe("koshoy studio handlers", () => {
     const scene = await planGardirop(ctx, token);
 
     const ok = (await (
-      await handleKoshoyCart(post("cart", { designId: scene.designId, version: 1 }, { token }), ctx)
+      await approvedCart(ctx, token, { designId: scene.designId, version: 1 })
     ).json()) as {
       ok: boolean;
       display: string;
@@ -488,7 +554,7 @@ describe("koshoy studio handlers", () => {
     }
 
     const stale = (await (
-      await handleKoshoyCart(post("cart", { designId: scene.designId, version: 7 }, { token }), ctx)
+      await approvedCart(ctx, token, { designId: scene.designId, version: 7 })
     ).json()) as { ok: boolean; error: string; lines: unknown[] };
     assert.deepEqual([stale.ok, stale.error, stale.lines], [false, "cart_failed", []]);
 
@@ -501,7 +567,7 @@ describe("koshoy studio handlers", () => {
     const partialToken = (await openSession(partial)).session;
     const partialScene = await planGardirop(partial, partialToken);
     const unresolved = (await (
-      await handleKoshoyCart(post("cart", { designId: partialScene.designId, version: 1 }, { token: partialToken }), partial)
+      await approvedCart(partial, partialToken, { designId: partialScene.designId, version: 1 })
     ).json()) as { ok: boolean; error: string; display: string; lines: unknown[] };
     assert.deepEqual(
       [unresolved.ok, unresolved.error, unresolved.display, unresolved.lines],
@@ -606,16 +672,15 @@ describe("koshoy studio handlers", () => {
   });
 
   it("stops the model loop and frees the session when the SSE reader cancels", async () => {
-    let calls = 0;
-    const stream: KoshoyStreamFn = (_apiKey, _body, onEvent) => {
-      calls += 1;
-      if (calls === 1) return new Promise(() => {});
+    // The first turn's upstream never answers (whether it is reached before the cancel or not).
+    const stream: KoshoyStreamFn = (_apiKey, body, onEvent) => {
+      if (String(body.message).includes("Bekle")) return new Promise(() => {});
       onEvent({ event: "text", data: { text: "Merhaba!" } });
       return Promise.resolve();
     };
     const ctx = makeCtx({ chatConfig: async () => ({ apiKey: "k", mock: false }), stream });
     const { session: token } = await openSession(ctx);
-    const response = await handleKoshoyTurn(post("turn", { input: { type: "message", text: "Merhaba" } }, { token }), ctx);
+    const response = await handleKoshoyTurn(post("turn", { input: { type: "message", text: "Bekle" } }, { token }), ctx);
     const reader = response.body!.getReader();
     await reader.read();
     await reader.cancel();
@@ -674,7 +739,7 @@ describe("koshoy studio handlers", () => {
     assert.equal(billed("CEKMECE"), drawn(["drawer160", "drawer320"]));
 
     const cart = (await (
-      await handleKoshoyCart(post("cart", { designId: scene.designId, version: scene.version }, { token }), ctx)
+      await approvedCart(ctx, token, { designId: scene.designId, version: scene.version })
     ).json()) as { ok: boolean; lines: Array<{ quantity: number }> };
     assert.equal(cart.ok, true);
     assert.equal(
@@ -699,7 +764,7 @@ describe("koshoy studio handlers", () => {
       },
     });
     const body = (await (
-      await handleKoshoyCart(post("cart", { designId: design.id, version: 1 }, { token }), ctx)
+      await approvedCart(ctx, token, { designId: design.id, version: 1 })
     ).json()) as { ok: boolean; error: string; lines: unknown[] };
     assert.deepEqual([body.ok, body.error, body.lines], [false, "cart_failed", []]);
   });

@@ -14,6 +14,7 @@ import type {
 } from "./engine";
 import { DESIGN_KINDS } from "./engine";
 import { publicEvents, type ChoiceOption, type PublicEvent } from "./events";
+import { emptyJourney, parseJourney, type KoshoyJourney } from "./journey";
 import {
   hashKoshoyToken,
   issueKoshoyToken,
@@ -82,6 +83,7 @@ export interface KoshoyDb {
       where: { id: string; sessionId: string; version: number };
       data: Pick<KoshoyDesignRow, "label" | "version" | "composition">;
     }): Promise<{ count: number }>;
+    deleteMany(args: { where: { id: string; sessionId: string } }): Promise<{ count: number }>;
   };
 }
 
@@ -129,11 +131,14 @@ export interface KoshoySessionState {
   brief: KoshoyBrief;
   /** Hydration transcript: assistant text and choice events only. */
   events: KoshoyTranscriptEvent[];
-  pendingAskUser: { id: string; question: string; options: KoshoyPendingOption[] } | null;
+  /** `tool`: the question tool that asked (ask_user when missing). */
+  pendingAskUser: { id: string; tool?: string; question: string; options: KoshoyPendingOption[] } | null;
   /** Tool payloads of the hop that ended with ask_user (every call id). */
   pendingTools: KoshoyPendingTool[];
   /** Room whose photo the model conversation has already seen (sent once per room). */
   photoSentRoomId: string | null;
+  /** Stages, style decisions and approvals (journey.ts). */
+  journey: KoshoyJourney;
 }
 
 export interface KoshoyDesign {
@@ -166,6 +171,8 @@ export interface KoshoyStore {
     design: KoshoyDesign,
     next: { label: string; composition: CabinComposition },
   ): Promise<KoshoyDesign | null>;
+  /** "Bu ürünü istemiyorum": the design leaves the conversation. */
+  deleteDesign(sessionId: string, designId: string): Promise<boolean>;
 }
 
 /**
@@ -192,7 +199,7 @@ export function appendTranscriptEvent(
 
 type PersistedState = Pick<
   KoshoySessionState,
-  "modelSessionId" | "brief" | "events" | "pendingAskUser" | "pendingTools" | "photoSentRoomId"
+  "modelSessionId" | "brief" | "events" | "pendingAskUser" | "pendingTools" | "photoSentRoomId" | "journey"
 >;
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -230,6 +237,7 @@ function parseState(raw: string): PersistedState {
       typeof pending.id === "string" && Array.isArray(pending.options)
         ? {
             id: pending.id,
+            ...(typeof pending.tool === "string" ? { tool: pending.tool } : {}),
             question: String(pending.question ?? ""),
             options: pending.options as KoshoyPendingOption[],
           }
@@ -238,6 +246,7 @@ function parseState(raw: string): PersistedState {
       ? (row.pendingTools as KoshoyPendingTool[])
       : [],
     photoSentRoomId: typeof row.photoSentRoomId === "string" ? row.photoSentRoomId : null,
+    journey: parseJourney(row.journey),
   };
 }
 
@@ -249,6 +258,7 @@ function serializeState(session: KoshoySessionState): string {
     pendingAskUser: session.pendingAskUser,
     pendingTools: session.pendingTools,
     photoSentRoomId: session.photoSentRoomId,
+    journey: session.journey,
   };
   return JSON.stringify(state);
 }
@@ -303,6 +313,7 @@ export function createKoshoyStore(
         pendingAskUser: null,
         pendingTools: [],
         photoSentRoomId: null,
+        journey: emptyJourney(),
       };
       await db.koshoySession.create({
         data: {
@@ -395,6 +406,11 @@ export function createKoshoyStore(
       });
       if (result.count !== 1) return null;
       return { ...design, label: next.label, version, composition: next.composition };
+    },
+
+    async deleteDesign(sessionId, designId) {
+      const result = await db.koshoyDesign.deleteMany({ where: { id: designId, sessionId } });
+      return result.count === 1;
     },
   };
 }

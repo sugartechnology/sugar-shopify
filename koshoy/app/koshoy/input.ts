@@ -12,10 +12,38 @@ import {
   type EditOp,
 } from "./engine";
 
+/** The journey buttons on the screen (journey.ts, CONTRACT §4 journey cards). */
+export const JOURNEY_ACTIONS = [
+  "structure_skip",
+  "measure",
+  "approve_room",
+  "change_room",
+  "approve",
+  "approve_same",
+  "change",
+  "later",
+  "remove",
+  "revisit",
+] as const;
+export type JourneyAction = (typeof JOURNEY_ACTIONS)[number];
+
+/** A welcome card's intent: furnish a room, or the one-product fast path. */
+export type MessageIntent = "room" | "single";
+
 export type ClientInput =
-  | { type: "message"; text: string }
+  | { type: "message"; text: string; intent?: MessageIntent; card?: string }
   | { type: "choice"; selected: string; label?: string }
-  | { type: "add_cart_result"; ok: boolean; error?: string };
+  /** designIds: the products that reached the cart (cart summary card); they are not offered again. */
+  | { type: "add_cart_result"; ok: boolean; error?: string; designIds?: string[] }
+  | {
+      type: "journey";
+      action: JourneyAction;
+      /** approve / approve_same / change / later / remove / revisit */
+      designId?: string;
+      /** measure: the customer's own wall width and ceiling height */
+      wallCm?: number;
+      ceilingCm?: number;
+    };
 
 const MAX_MESSAGE = 2000;
 const MAX_CHOICE_ID = 64;
@@ -29,14 +57,46 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
+const PRODUCT_ACTIONS: readonly JourneyAction[] = ["approve", "approve_same", "change", "later", "remove", "revisit"];
+const MEASURE_CM = { min: 30, max: 2000 };
+
+function measureCm(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= MEASURE_CM.min && value <= MEASURE_CM.max
+    ? Math.round(value)
+    : null;
+}
+
+function parseJourneyInput(row: Record<string, unknown>): ClientInput | null {
+  const action = oneOf<JourneyAction>(row.action, JOURNEY_ACTIONS);
+  if (!action) return null;
+  if (PRODUCT_ACTIONS.includes(action)) {
+    const designId = typeof row.designId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(row.designId) ? row.designId : "";
+    return designId ? { type: "journey", action, designId } : null;
+  }
+  if (action === "measure") {
+    const wallCm = measureCm(row.wallCm);
+    if (wallCm === null) return null;
+    const ceilingCm = measureCm(row.ceilingCm);
+    return ceilingCm === null
+      ? { type: "journey", action, wallCm }
+      : { type: "journey", action, wallCm, ceilingCm };
+  }
+  return { type: "journey", action };
+}
+
 export function parseClientInput(body: unknown): ClientInput | null {
   const row = asRecord(body);
   if (row.type === "message") {
     if (typeof row.text !== "string") return null;
     const text = row.text.trim();
     if (!text || text.length > MAX_MESSAGE) return null;
-    return { type: "message", text };
+    const message: ClientInput = { type: "message", text };
+    const intent = oneOf<MessageIntent>(row.intent, ["room", "single"]);
+    if (intent) message.intent = intent;
+    if (typeof row.card === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(row.card)) message.card = row.card;
+    return message;
   }
+  if (row.type === "journey") return parseJourneyInput(row);
   if (row.type === "choice") {
     const selected = typeof row.selected === "string" ? row.selected.trim() : "";
     if (!selected || selected.length > MAX_CHOICE_ID) return null;
@@ -50,9 +110,14 @@ export function parseClientInput(body: unknown): ClientInput | null {
       typeof row.error === "string"
         ? row.error.replace(/[^\w.-]/g, "").slice(0, MAX_CART_ERROR)
         : "";
-    return error
+    const result: ClientInput = error
       ? { type: "add_cart_result", ok: row.ok, error }
       : { type: "add_cart_result", ok: row.ok };
+    const ids = Array.isArray(row.designIds)
+      ? row.designIds.filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id)).slice(0, 12)
+      : [];
+    if (ids.length) result.designIds = ids;
+    return result;
   }
   return null;
 }

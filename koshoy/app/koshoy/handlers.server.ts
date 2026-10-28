@@ -44,6 +44,9 @@ import {
 import { runKoshoyTurn, type KoshoyStreamFn } from "./turn.server";
 import { roomView, type KoshoyRoomDeps, type RoomView } from "./room.server";
 import type { KoshoyPhoneDeps } from "./phone-link.server";
+import { approvalOf } from "./journey";
+import { journeyView, stageCards, type KoshoyJourneyData } from "./journey.server";
+import type { KoshoyJourneyEvent } from "./journey-events.server";
 import {
   currentLayout,
   layoutEvent,
@@ -97,6 +100,12 @@ export interface KoshoyRequestContext extends KoshoyDesignDeps {
   room?: KoshoyRoomDeps;
   /** QR phone link (phone-handlers.server.ts); works only together with `room`. */
   phone?: KoshoyPhoneDeps;
+  /** Akın's journey data (data.server.ts); read per request, cached there. */
+  journeyData(): Promise<KoshoyJourneyData>;
+  /** Signed-in shop customer from the App Proxy request; null for guests. */
+  customerId: string | null;
+  /** Journey measurement for this request's session (journey-events.server.ts). */
+  track?: (sessionId: string, name: KoshoyJourneyEvent, props?: Record<string, string | number>) => void;
 }
 
 export const KOSHOY_WELCOME_CARDS = [
@@ -344,6 +353,10 @@ export async function handleKoshoySession(
     }
     const total = await setTotalEvent(ctx, session.id);
     if (total) events.push(total);
+    // The current stage's card (structure, room summary, product, cart), rebuilt from the state.
+    const data = await ctx.journeyData();
+    const view = await journeyView(ctx, session, data);
+    events.push(...(await stageCards(ctx, session, view, data, { photo: Boolean(ctx.room), handles: [] })));
 
     return koshoyJson(
       {
@@ -404,6 +417,7 @@ export async function handleKoshoyTurn(
     }
 
     const chat = await ctx.chatConfig();
+    const journeyData = await ctx.journeyData();
     const run = (emit: (event: PublicEvent) => void) =>
       runKoshoyTurn({
         client,
@@ -417,6 +431,9 @@ export async function handleKoshoyTurn(
           stream: ctx.stream,
           signal: gone.signal,
           room: ctx.room,
+          data: journeyData,
+          customerId: ctx.customerId,
+          track: ctx.track ? (name, props) => ctx.track?.(session.id, name, props) : undefined,
         },
         emit,
       })
@@ -532,6 +549,16 @@ export async function handleKoshoyEdit(
       events.push(text);
     }
     session.activeDesignId = result.design.id;
+    // A panel edit can undo an approval (the design changed) or move the stage: show that stage's card now.
+    if (result.changed) {
+      const data = await ctx.journeyData();
+      const view = await journeyView(ctx, session, data);
+      const lostApproval = approvalOf(session.journey, design) !== "pending";
+      if (view.stage !== session.journey.shownStage || lostApproval) {
+        events.push(...(await stageCards(ctx, session, view, data, { photo: Boolean(ctx.room), handles: [] })));
+        session.journey.shownStage = view.stage;
+      }
+    }
     await ctx.store.saveSession(session);
     const total = await setTotalEvent(ctx, session.id);
     if (total) events.push(total);
@@ -611,6 +638,10 @@ export async function handleKoshoyCart(
 
     const design = await ctx.store.getDesign(session.id, ref.designId);
     if (!design) return koshoyErrorResponse("invalid_input");
+    // Only a product the customer approved, as it is now, goes to the cart (ClickUp z8qu5d7rdv).
+    if (approvalOf(session.journey, design) !== "approved") {
+      return koshoyJson({ ok: false, error: "not_approved", lines: [] });
+    }
 
     // BOM, SKUs and prices are recomputed from the stored design; only the
     // design id and version come from the browser. A design the storefront

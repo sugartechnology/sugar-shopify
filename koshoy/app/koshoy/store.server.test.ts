@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { cabinetEngine } from "./engine";
+import { emptyJourney } from "./journey";
 import { createMemoryKoshoyDb } from "./memory-db";
 import { appendTranscriptEvent, createKoshoyStore } from "./store.server";
 import { hashKoshoyToken } from "./token.server";
@@ -142,6 +143,7 @@ describe("koshoy session store", () => {
       pendingAskUser: null,
       pendingTools: [],
       photoSentRoomId: null,
+      journey: emptyJourney(),
     };
     appendTranscriptEvent(session, { type: "status", key: "thinking" }, 1);
     appendTranscriptEvent(session, { type: "text", text: "Hazırladım." }, 2);
