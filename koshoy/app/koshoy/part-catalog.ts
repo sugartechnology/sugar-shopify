@@ -24,7 +24,7 @@ export interface PartName {
   name: string;
   part: BomPart;
   series?: string;
-  /** The size in the title does not matter (handles: "Kulp SİYAH" or "Kulp SİYAH 128 mm"). */
+  /** The size in the title does not matter (handles: "Serek Kulp 128 Siyah" or "Serek Kulp SİYAH"). */
   anySize?: boolean;
 }
 

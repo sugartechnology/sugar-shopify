@@ -168,7 +168,7 @@ rengin müşteriye sunulacağını mağaza belirler:
 
 - **Dolap rengi** (`"use": "body"`): şablonların bütün parçaları mağazada bu renkte varsa sunulur.
   İlk sıradaki sunulan renk varsayılandır. Eski tasarımların rengi (Ahşap, Kırık beyaz, Mavi) ona düşer.
-- **Kulp rengi** (`"use": "handle"`): mağazada bu renkte bir `Kulp` ürünü varsa sunulur. Hiç kulp
+- **Kulp rengi** (`"use": "handle"`): mağazada bu renkte bir `Serek Kulp` ürünü varsa sunulur. Hiç kulp
   ürünü yoksa kulp sorulmaz, tasarımlarda kulp olmaz.
 - Mağazada olup burada görünüşü olmayan renk stüdyoda çıkmaz. Admin sayfası → Katalog sağlığı bunu gösterir.
 - Değişiklik en geç 5 dakikada (bir sonraki katalog okumasında) stüdyoya yansır.

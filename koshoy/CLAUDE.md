@@ -83,7 +83,7 @@ uygular), girişsiz 30 gün, hesaplı 180 gün.
    kapak serisi + renk + ölçü olarak okunur (`part-catalog.ts`), ad sırası, boşluk, büyük/küçük
    harf önemsizdir. Parça adları kodda değil `shop-parts.json`'dadır (`Bakay` gövde, `Acıbay` /
    `Aruuke` kapak, `… Çekmece` çekmece önü, `Sırgak` çekmece, `Tekçe` raf, `Tündük` taç,
-   `Gardırop Askısı` askı, `Kulp` kulp). Eşleşmeyen ya da iki ürünlü parçaya fiyat uydurulmaz,
+   `Gardırop Askısı` askı, `Serek Kulp` kulp). Eşleşmeyen ya da iki ürünlü parçaya fiyat uydurulmaz,
    ekranda `[FİYAT]` görünür; eksikler admin sayfasında (Katalog sağlığı) ve
    `[koshoy] catalog gap` logunda görünür (`catalog-alarm.server.ts`).
    Dolap ve kulp renkleri mağazanın renkleridir (`shop-colors.ts`, görünüşleri veri API'sinin

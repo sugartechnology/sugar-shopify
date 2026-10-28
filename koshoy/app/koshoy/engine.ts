@@ -147,7 +147,7 @@ function shopPartName(part: BomPart, series: string | undefined): string {
  * Shopify product title of one BOM part. Koshoy's shop has no SKUs: every
  * catalog part is its own product named by part name + shop colour + nominal size,
  * e.g. "Bakay LAKE BEYAZ 960x2304x640 mm" (body), "Acıbay KUMTAŞI 477x2237x0 mm"
- * (door leaf), "Kulp SİYAH" (handle). Drawer fronts are listed by nominal
+ * (door leaf), "Serek Kulp SİYAH" (handle). Drawer fronts are listed by nominal
  * width/band; the BOM keeps the 3 mm gap. `shopColor` overrides the line's
  * colour (checking what the shop sells in one colour).
  */
