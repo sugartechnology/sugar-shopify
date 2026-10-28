@@ -2,12 +2,13 @@
  * Items removed from the room photo (CONTRACT §2.9): POST /room-clean,
  * POST /room-clean-status, GET /room-file …&clean=.
  *
- * The customer picks items (photo-items.ts); decor-ai gets the original
- * photo (a signed link to Sugar S3) and every part of those items through
- * tag-service, and writes a cleaned photo, depth and furniture mask. One
- * KoshoyRoomClean row per request; the room points at the one asked for last
- * (activeCleanId) and the ready one in use (readyCleanId). Files are served
- * through /room-file, so the browser never sees where they were made.
+ * The customer picks items (photo-items.ts), writes what to remove, or both;
+ * decor-ai gets the original photo (a signed link to Sugar S3), the text and
+ * every part of the picked items through tag-service, picks the method and
+ * writes a cleaned photo, depth and furniture mask. One KoshoyRoomClean row
+ * per request; the room points at the one asked for last (activeCleanId) and
+ * the ready one in use (readyCleanId). Files are served through /room-file,
+ * so the browser never sees where they were made.
  */
 import type { KoshoyFile } from "../services/s3.server";
 import { parseStoredPhotoItems, toPhotoItemView, type PhotoItem } from "./photo-items";
@@ -26,17 +27,19 @@ import {
 import { stripImageMetadata } from "./strip-metadata.server";
 import { randomOpaqueId } from "./token.server";
 
-/** Distinct selections per room photo; asking for one again or bringing everything back is free. */
+/** Distinct requests per room photo; asking for one again or bringing everything back is free. */
 export const MAX_CLEANS_PER_ROOM = 5;
 /** How long decor-ai may read the room photo (queue wait included). */
 export const CLEAN_LINK_SECONDS = 15 * 60;
 /** decor-ai's message when the selection covers more than half of the photo. */
 const TOO_LARGE_PREFIX = "Selected area is too large";
+/** decor-ai's message when the asked items are still in the photo after two tries. */
+const NOT_REMOVED = "not_removed";
 
 export const CLEAN_FILE_NAMES = ["photo", "depth", "furniture"] as const;
 export type CleanFileName = (typeof CLEAN_FILE_NAMES)[number];
 
-export type CleanError = "clean_failed" | "too_large";
+export type CleanError = "clean_failed" | "too_large" | "not_removed";
 
 export interface KoshoyRoomCleanRow {
   id: string;
@@ -45,6 +48,8 @@ export interface KoshoyRoomCleanRow {
   shop: string;
   /** JSON: selected item ids (PhotoItemView.id), sorted */
   objectIds: string;
+  /** What the customer wrote, trimmed; null when they only picked items */
+  text: string | null;
   /** JSON: part numbers sent upstream, sorted */
   parts: string;
   status: string;
@@ -81,6 +86,8 @@ export interface CleanView {
   status: KoshoyJobStatus;
   error?: CleanError;
   objectIds: string[];
+  /** What the customer wrote; absent when they only picked items */
+  text?: string;
 }
 
 const ITEM_ID = /^\d{1,3}$/;
@@ -97,10 +104,12 @@ function idList(raw: string): string[] {
 
 export function cleanView(row: KoshoyRoomCleanRow): CleanView {
   const objectIds = idList(row.objectIds);
+  const text = row.text ? { text: row.text } : {};
   if (row.status === "failed") {
-    return { id: row.id, status: "failed", error: row.error === "too_large" ? "too_large" : "clean_failed", objectIds };
+    const error = row.error === "too_large" || row.error === "not_removed" ? row.error : "clean_failed";
+    return { id: row.id, status: "failed", error, objectIds, ...text };
   }
-  return { id: row.id, status: row.status === "ready" ? "ready" : "processing", objectIds };
+  return { id: row.id, status: row.status === "ready" ? "ready" : "processing", objectIds, ...text };
 }
 
 /** RoomView with the removable items and the item removal (CONTRACT §2.5, §2.9). */
@@ -124,11 +133,36 @@ export function sortedSelection(ids: readonly string[]): string[] {
   return [...new Set(ids)].sort((a, b) => Number(a) - Number(b));
 }
 
-function selectionKey(ids: readonly string[]): string {
-  return ids.join(",");
+/**
+ * Whether the customer's text names this item, so it is not also sent as one to keep ("koltuğu kaldır" and
+ * "Koltuk (solda)"). Turkish suffixes change the last letter (koltuk → koltuğu, sehpa → sehpayı): a word of the
+ * text starting with the label's first word without its last letter is a match. Short names need the whole word.
+ */
+export function namedIn(text: string, label: string): boolean {
+  const name = normalText(label).split(" ")[0] ?? "";
+  if (!text || !name) return false;
+  const stem = name.length > 3 ? name.slice(0, -1) : name;
+  return normalText(text)
+    .split(/[^\p{L}]+/u)
+    .some((word) => word.startsWith(stem));
+}
+
+/** Lower case, one space between words: "Koltuğu  ve SEHPAYI" is "koltuğu ve sehpayı". */
+function normalText(text: string): string {
+  return text.toLocaleLowerCase("tr-TR").replace(/\s+/g, " ").trim();
+}
+
+/** The same items (in any order) with the same text are the same request. */
+function requestKey(ids: readonly string[], text: string): string {
+  return `${ids.join(",")}|${normalText(text)}`;
+}
+
+function cleanKey(clean: KoshoyRoomCleanRow): string {
+  return requestKey(idList(clean.objectIds), clean.text ?? "");
 }
 
 function cleanError(upstream: string): CleanError {
+  if (upstream === NOT_REMOVED) return "not_removed";
   return upstream.startsWith(TOO_LARGE_PREFIX) ? "too_large" : "clean_failed";
 }
 
@@ -138,22 +172,23 @@ export type CleanRequestResult =
   | { ok: false; refused: "unknown_items" | "clean_limit" | "rate_limited" };
 
 /**
- * POST /room-clean on a ready room of the session:
- * - [] brings every item back (the original photo is in use again),
- * - a selection asked before (still processing or ready) is used again, free,
- * - a new selection (or one that failed before) starts a job when the room
- *   has room for it (MAX_CLEANS_PER_ROOM distinct selections) and the
+ * POST /room-clean on a ready room of the session (`text` already trimmed):
+ * - no items and no text brings every item back (the original photo is in use again),
+ * - a request asked before (still processing or ready) is used again, free,
+ * - a new request (or one that failed before) starts a job when the room
+ *   has room for it (MAX_CLEANS_PER_ROOM distinct requests) and the
  *   visitor has budget (`takeBudget`, called only then).
- * While a new selection is processing the previous ready one stays in use.
+ * While a new request is processing the previous ready one stays in use.
  */
 export async function requestClean(
   deps: KoshoyRoomDeps,
   room: KoshoyRoomRow,
-  objectIds: readonly string[],
+  request: { objectIds: readonly string[]; text: string },
   takeBudget: () => boolean,
 ): Promise<CleanRequestResult> {
-  const selection = sortedSelection(objectIds);
-  if (!selection.length) {
+  const selection = sortedSelection(request.objectIds);
+  const text = request.text;
+  if (!selection.length && !text) {
     const cleared = await deps.db.koshoyRoom.update({
       where: { id: room.id },
       data: { activeCleanId: null, readyCleanId: null },
@@ -165,9 +200,9 @@ export async function requestClean(
   const chosen = selection.map((id) => items.find((item) => item.id === id));
   if (chosen.some((item) => item === undefined)) return { ok: false, refused: "unknown_items" };
 
-  const key = selectionKey(selection);
+  const key = requestKey(selection, text);
   const cleans = await deps.db.koshoyRoomClean.findMany({ where: { roomId: room.id } });
-  const same = cleans.find((clean) => clean.status !== "failed" && selectionKey(idList(clean.objectIds)) === key);
+  const same = cleans.find((clean) => clean.status !== "failed" && cleanKey(clean) === key);
   if (same) {
     const reused = await deps.db.koshoyRoom.update({
       where: { id: room.id },
@@ -177,24 +212,35 @@ export async function requestClean(
   }
 
   // A refused request spends no budget: the room's cap is checked first.
-  const asked = new Set(cleans.map((clean) => selectionKey(idList(clean.objectIds))));
+  const asked = new Set(cleans.map(cleanKey));
   if (!asked.has(key) && asked.size >= MAX_CLEANS_PER_ROOM) return { ok: false, refused: "clean_limit" };
   if (!takeBudget()) return { ok: false, refused: "rate_limited" };
 
-  const clean = await startClean(deps, room, selection, chosen as PhotoItem[]);
+  const clean = await startClean(deps, room, { selection, text }, chosen as PhotoItem[], items);
   const started = await deps.db.koshoyRoom.update({ where: { id: room.id }, data: { activeCleanId: clean.id } });
   return { ok: true, room: started };
 }
 
-/** Starts the clean job; a refused start is a failed clean, so the customer is told. */
+/**
+ * Starts the clean job; a refused start is a failed clean, so the customer is told.
+ * decor-ai gets the customer's text, or else the picked items' names; the
+ * names of the items not picked as the ones to keep; the parts of the picked
+ * items to check the result. Twelve names fit in decor-ai's 300 characters.
+ */
 async function startClean(
   deps: KoshoyRoomDeps,
   room: KoshoyRoomRow,
-  selection: string[],
+  request: { selection: string[]; text: string },
+  chosen: readonly PhotoItem[],
   items: readonly PhotoItem[],
 ): Promise<KoshoyRoomCleanRow> {
   const tagService = await deps.tagService();
-  const parts = [...new Set(items.flatMap((item) => item.parts))].sort((a, b) => a - b);
+  const parts = [...new Set(chosen.flatMap((item) => item.parts))].sort((a, b) => a - b);
+  const text = request.text || chosen.map((item) => item.label.toLocaleLowerCase("tr-TR")).join(", ");
+  const keepText = items
+    .filter((item) => !chosen.includes(item) && !namedIn(request.text, item.label))
+    .map((item) => item.label)
+    .join(", ");
   const analysis = storedAnalysis(room);
   let jobId: string | null = null;
   let error: CleanError = "clean_failed";
@@ -205,7 +251,9 @@ async function startClean(
         depthUrl: analysis.fileUrls.depth,
         objectsUrl: analysis.fileUrls.objects,
         ...(analysis.fileUrls.furniture ? { furnitureUrl: analysis.fileUrls.furniture } : {}),
-        objectIds: parts,
+        ...(parts.length ? { objectIds: parts } : {}),
+        text,
+        ...(keepText ? { keepText } : {}),
         depthScale: analysis.depthScale,
         camera: analysis.camera,
         planes: analysis.planes,
@@ -225,7 +273,8 @@ async function startClean(
       roomId: room.id,
       sessionId: room.sessionId,
       shop: room.shop,
-      objectIds: JSON.stringify(selection),
+      objectIds: JSON.stringify(request.selection),
+      text: request.text || null,
       parts: JSON.stringify(parts),
       status: jobId ? "processing" : "failed",
       error: jobId ? null : error,

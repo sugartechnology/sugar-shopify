@@ -142,11 +142,13 @@ model KoshoyRoomClean {
   shop         String
   /// JSON: selected item ids (PhotoItemView.id), sorted
   objectIds    String
+  /// What the customer wrote to remove, trimmed; null = items picked only
+  text         String?
   /// JSON: object map part numbers sent upstream (every part of the selected items), sorted
   parts        String
   /// processing | ready | failed
   status       String
-  /// clean_failed | too_large
+  /// clean_failed | too_large | not_removed
   error        String?
   /// Clean job id upstream
   jobId        String?

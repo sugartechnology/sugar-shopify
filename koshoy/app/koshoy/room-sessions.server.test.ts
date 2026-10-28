@@ -249,6 +249,7 @@ describe("room delete", () => {
       sessionId: session.id,
       shop: SHOP,
       objectIds: "[]",
+      text: null,
       parts: "[]",
       status: "ready",
       error: null,

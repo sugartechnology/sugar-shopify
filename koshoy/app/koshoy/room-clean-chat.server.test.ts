@@ -88,6 +88,7 @@ function readyRugClean(t: Setup): KoshoyRoomCleanRow {
     sessionId: room.sessionId,
     shop: SHOP,
     objectIds: JSON.stringify(["4"]),
+    text: null,
     parts: JSON.stringify([4]),
     status: "ready",
     error: null,
@@ -146,6 +147,28 @@ describe("koshoy item removal in the chat", () => {
     assert.equal(t.rooms.rooms.get("room_1")!.activeCleanId, null);
   });
 
+  it("fills the card's text field with what the customer asked to remove", async () => {
+    const t = await setup();
+    const { events, bodies } = await turn(t, "Kanepeyi fotoğraftan kaldır", [
+      [call("c1", "offer_photo_cleanup", { preselect: ["2"], text: "  kanepe " })],
+      [call("c2", "offer_photo_cleanup", { text: "x".repeat(250) })],
+      [call("c3", "offer_photo_cleanup", { text: 7 })],
+      [say("Kartta kaldırmak istediğini görebilirsin.")],
+    ]);
+    assert.deepEqual(
+      events.filter((event) => event.type === "photo_items"),
+      [
+        { type: "photo_items", preselect: ["2"], text: "kanepe" },
+        { type: "photo_items", preselect: [], text: "x".repeat(200) },
+        { type: "photo_items", preselect: [] },
+      ],
+    );
+    assert.equal(results(bodies, 1)[0].payload.ok, true);
+    assert.equal(t.rooms.cleans.size, 0, "only the customer's button removes");
+    const tool = koshoyTools(true).find((item) => item.name === "offer_photo_cleanup")!;
+    assert.match(tool.description, /own words as text/);
+  });
+
   it("says why the card cannot open", async () => {
     const none = await setup({ withRoom: false });
     const noRoom = await turn(none, "Halıyı kaldır", [[call("c1", "offer_photo_cleanup")], [say("Önce bir oda fotoğrafı ekler misin?")]]);
@@ -173,6 +196,9 @@ describe("koshoy item removal in the chat", () => {
     const after = await turn(t, "Peki", [[say("Tamam.")]]);
     const cleaned = roomFacts(after.bodies[0].instructions)!;
     assert.deepEqual(cleaned.removed, ["Halı"]);
+    t.rooms.cleans.get("clean_1")!.text = "halıyı ve masadaki vazoyu";
+    const written = roomFacts((await turn(t, "Peki", [[say("Tamam.")]])).bodies[0].instructions)!;
+    assert.deepEqual(written.removed, ["Halı", "halıyı ve masadaki vazoyu"], "the picked names and what the customer wrote");
     assert.deepEqual(
       (cleaned.freeStretches as Array<Record<string, number>>).map((stretch) => stretch.widthCm),
       [200],
@@ -209,6 +235,14 @@ describe("koshoy item removal in the chat", () => {
       preselect: ["2", "4"],
     });
     assert.deepEqual(toPublicEvent({ type: "photo_items" }), { type: "photo_items", preselect: [] });
+    assert.deepEqual(toPublicEvent({ type: "photo_items", preselect: ["2"], text: "  kanepe  " }), {
+      type: "photo_items",
+      preselect: ["2"],
+      text: "kanepe",
+    });
+    assert.deepEqual(toPublicEvent({ type: "photo_items", text: "   " }), { type: "photo_items", preselect: [] });
+    assert.deepEqual(toPublicEvent({ type: "photo_items", text: { a: 1 } }), { type: "photo_items", preselect: [] });
+    assert.equal((toPublicEvent({ type: "photo_items", text: "y".repeat(300) }) as { text: string }).text.length, 200);
     assert.equal((toPublicEvent({ type: "photo_items", preselect: many }) as { preselect: string[] }).preselect.length, 12);
   });
 });

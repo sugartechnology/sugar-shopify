@@ -12,7 +12,7 @@ import {
   type DesignKind,
 } from "./engine";
 import { findFrontSeries } from "./cabinet-core";
-import { MAX_PHOTO_ITEMS } from "./photo-items";
+import { MAX_CLEAN_TEXT, MAX_PHOTO_ITEMS } from "./photo-items";
 import { MAX_LAYOUT_ITEMS } from "./room-layout";
 import { knownColorIds } from "./shop-colors";
 
@@ -150,8 +150,8 @@ export type PublicEvent =
   | { type: "photo"; roomId: string }
   /** /session only: a finished realistic picture, at its place in the thread (GET /render-file). */
   | { type: "render"; renderId: string }
-  /** offer_photo_cleanup: the storefront opens the item removal card, these items ticked (CONTRACT §2.9). */
-  | { type: "photo_items"; preselect: string[] }
+  /** offer_photo_cleanup: the storefront opens the item removal card, these items ticked, the text in its field (CONTRACT §2.9). */
+  | { type: "photo_items"; preselect: string[]; text?: string }
   /** Stage 4: photo / own measurements / go on without; `photo` false when the room feature is off. */
   | { type: "structure"; photo: boolean }
   /** Stage 6: what the customer approves (products, style, total). `single`: the one-product buyer. */
@@ -511,7 +511,8 @@ export function toPublicEvent(raw: unknown): PublicEvent | null {
     case "photo_items": {
       const ids = Array.isArray(row.preselect) ? row.preselect.map(opaqueId) : [];
       const preselect = [...new Set(ids.filter((id): id is string => id !== null))].slice(0, MAX_PHOTO_ITEMS);
-      return { type: "photo_items", preselect };
+      const text = shortText(row.text, MAX_CLEAN_TEXT);
+      return text ? { type: "photo_items", preselect, text } : { type: "photo_items", preselect };
     }
     case "structure":
       return { type: "structure", photo: row.photo === true };

@@ -31,8 +31,8 @@ export type RoomCleanJob =
   | { status: "expired" };
 
 /**
- * Input of decor-ai's room clean job (ortak sözleşme §1). Koshoy never sends
- * a method: decor-ai picks it.
+ * Input of decor-ai's room clean job (ortak sözleşme §1, metin §1). Koshoy
+ * never sends a method: decor-ai picks it.
  */
 export interface RoomCleanInput {
   /** The room photo, the same JPEG the analysis got */
@@ -41,8 +41,12 @@ export interface RoomCleanInput {
   /** The analysis object map (8 bit, pixel = part number) */
   objectsUrl: string;
   furnitureUrl?: string;
-  /** Part numbers to remove: every part of the selected items */
-  objectIds: number[];
+  /** Every part of the selected items: removed by the mask method, checked by the text method. Absent without items. */
+  objectIds?: number[];
+  /** What to remove, in Turkish: the customer's text, or the selected items' names */
+  text: string;
+  /** The names of the items not selected, so the model keeps them. Absent when there are none. */
+  keepText?: string;
   depthScale: { min: number; max: number };
   /** As Koshoy stores them (RoomView camera and planes); decor-ai reads fx, fy, cx, cy and the equations */
   camera: { fx: number; fy: number; cx: number; cy: number };
