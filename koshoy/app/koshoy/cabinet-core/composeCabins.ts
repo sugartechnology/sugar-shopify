@@ -53,6 +53,7 @@ export function cloneCabinComposition(
     hasPlinth: composition.hasPlinth,
     color: normalizeCabinColor(composition.color),
     ...(composition.frontSeries !== undefined ? { frontSeries: composition.frontSeries } : {}),
+    ...(composition.handleColor !== undefined ? { handleColor: composition.handleColor } : {}),
     widestUnits: cloneCabinUnits(composition.widestUnits ?? units),
   };
 }

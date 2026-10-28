@@ -8,7 +8,6 @@
 import {
   applyEditOp,
   BOM_PARTS,
-  CABIN_COLORS,
   CABIN_DEPTHS_MM,
   CABIN_HEIGHTS_MM,
   CABIN_TOTAL_WIDTH_SAFETY_MM,
@@ -25,6 +24,7 @@ import {
   toBom,
   unitWidthsForKind,
   type BomLine,
+  type BomPart,
   type CabinColorId,
   type CabinComposition,
   type CabinFitKind,
@@ -36,6 +36,8 @@ import {
   type PlanCabinetResult,
   type SkuConvention,
 } from "./cabinet-core";
+import { PART_NAMES } from "./part-catalog";
+import { shopColorOf } from "./shop-colors";
 
 export type {
   BomLine,
@@ -77,13 +79,6 @@ export const CABIN_FIT_KINDS = [
   "hanger",
 ] as const satisfies readonly CabinFitKind[];
 
-export const CABIN_COLOR_IDS: readonly CabinColorId[] = CABIN_COLORS.map((option) => option.id);
-
-/** Product-language colour names, straight from the core palette. */
-export const CABIN_COLOR_LABELS = Object.fromEntries(
-  CABIN_COLORS.map((option) => [option.id, option.label]),
-) as Record<CabinColorId, string>;
-
 /** CONTRACT §3 — unit is a 0-based index into composition.units. */
 export const EDIT_ACTIONS = [
   "add_fitting",
@@ -96,6 +91,7 @@ export const EDIT_ACTIONS = [
   "set_crown",
   "set_front_series",
   "set_color",
+  "set_handle",
 ] as const satisfies readonly EditOp["action"][];
 
 /**
@@ -136,56 +132,51 @@ export interface CabinetEngine {
 }
 
 /**
- * Shop colour in every part title. Since 28 Oct the shop lists each part in
- * LAKE BEYAZ and KUMTAŞI; the LAKE BEYAZ products are the original ones (same
- * variant ids as before the colour was added), so every 3D colour prices from them.
+ * Shop name of a part; doors and drawer fronts are named by their front series
+ * (shop-parts.json). A part or series missing there never matches a shop
+ * product, so its price shows [FİYAT] instead of borrowing another one's price.
  */
-const SHOP_PART_COLOR = "LAKE BEYAZ";
-
-/**
- * Shop name of each front series (`CABINET_RULES.frontSeries` ids); drawer
- * fronts add " Çekmece". A series missing here never matches a shop product,
- * so its price shows [FİYAT] instead of borrowing another series' price.
- */
-const SHOP_FRONT_NAMES: Record<string, string> = {
-  "kapak-16": "Acıbay",
-  "kapak-18": "Aruuke",
-};
-
-function shopFrontName(series: string | undefined): string {
-  const id = series ?? defaultFrontSeries().id;
-  return SHOP_FRONT_NAMES[id] ?? `Bilinmeyen kapak serisi ${id}`;
+function shopPartName(part: BomPart, series: string | undefined): string {
+  const front = part === "KAPAK" || part === "CEKMECE_ON";
+  const wanted = front ? series ?? defaultFrontSeries().id : undefined;
+  const row = PART_NAMES.find((item) => item.part === part && item.series === wanted);
+  return row?.name ?? `Bilinmeyen parça ${part} ${wanted ?? ""}`.trim();
 }
 
 /**
  * Shopify product title of one BOM part. Koshoy's shop has no SKUs: every
- * catalog part is its own product named by type + shop colour + nominal size,
- * e.g. "Bakay LAKE BEYAZ 960x2304x640 mm" (body), "Acıbay LAKE BEYAZ 477x2237x0 mm"
- * (door leaf). Drawer fronts are listed by nominal width/band; the BOM keeps the 3 mm gap.
+ * catalog part is its own product named by part name + shop colour + nominal size,
+ * e.g. "Bakay LAKE BEYAZ 960x2304x640 mm" (body), "Acıbay KUMTAŞI 477x2237x0 mm"
+ * (door leaf), "Kulp SİYAH" (handle). Drawer fronts are listed by nominal
+ * width/band; the BOM keeps the 3 mm gap. `shopColor` overrides the line's
+ * colour (checking what the shop sells in one colour).
  */
-export function koshoyPartTitle(line: BomLine): string {
-  const colorSize = (w: number, h: number, d: number) => `${SHOP_PART_COLOR} ${w}x${h}x${d} mm`;
+export function koshoyPartTitle(line: BomLine, shopColor = shopColorOf(line.color)): string {
+  const name = shopPartName(line.part, line.series);
+  const colorSize = (w: number, h: number, d: number) => `${shopColor} ${w}x${h}x${d} mm`;
   switch (line.part) {
     case "GOVDE":
       // Only bodies with plinth exist in the shop; a plinthless one stays unresolved.
-      return `Bakay ${colorSize(line.widthMm, line.heightMm, line.depthMm)}${line.plinth === false ? " (bazasız)" : ""}`;
+      return `${name} ${colorSize(line.widthMm, line.heightMm, line.depthMm)}${line.plinth === false ? " (bazasız)" : ""}`;
     case "KAPAK":
-      return `${shopFrontName(line.series)} ${colorSize(line.widthMm, line.heightMm, 0)}`;
+      return `${name} ${colorSize(line.widthMm, line.heightMm, 0)}`;
     case "CEKMECE_ON":
-      return `${shopFrontName(line.series)} Çekmece ${colorSize(line.widthMm + 3, line.heightMm + 3, 0)}`;
+      return `${name} ${colorSize(line.widthMm + 3, line.heightMm + 3, 0)}`;
     case "CEKMECE":
-      return `Sırgak ${colorSize(line.widthMm, line.heightMm, line.depthMm)}`;
+      return `${name} ${colorSize(line.widthMm, line.heightMm, line.depthMm)}`;
     case "RAF":
-      return `Tekçe ${colorSize(line.widthMm, 0, line.depthMm)}`;
+      return `${name} ${colorSize(line.widthMm, 0, line.depthMm)}`;
     case "TAC":
-      return `Tündük ${colorSize(line.widthMm, 25, line.depthMm)}`;
+      return `${name} ${colorSize(line.widthMm, 25, line.depthMm)}`;
     case "ASKI":
-      return `Gardırop Askısı ${line.widthMm}`;
+      return `${name} ${line.widthMm}`;
+    case "KULP":
+      return `${name} ${shopColor}`;
   }
 }
 
 export function createCabinetEngine(
-  partKey: (line: BomLine) => string = koshoyPartTitle,
+  partKey: (line: BomLine) => string = (line) => koshoyPartTitle(line),
 ): CabinetEngine {
   return {
     planCabinet,

@@ -1,0 +1,15 @@
+{
+  "_about": "Koshoy parça ürünlerinin mağazadaki adları. Ürün adı (ya da koshoy.parca metafield'i) bu listedeki bir ad + renk + ölçüden oluşur, ör. 'Bakay LAKE BEYAZ 960x2304x640 mm'. Sıra, boşluk ve büyük/küçük harf önemli değildir. Yeni kapak serisi = bir satır daha (series = 3D çekirdeğindeki CABINET_RULES.frontSeries id'si). anySize: ölçü adda yazsa da yazmasa da aynı parça (kulp).",
+  "partNames": [
+    { "name": "Bakay", "part": "GOVDE" },
+    { "name": "Acıbay", "part": "KAPAK", "series": "kapak-16" },
+    { "name": "Acıbay Çekmece", "part": "CEKMECE_ON", "series": "kapak-16" },
+    { "name": "Aruuke", "part": "KAPAK", "series": "kapak-18" },
+    { "name": "Aruuke Çekmece", "part": "CEKMECE_ON", "series": "kapak-18" },
+    { "name": "Sırgak", "part": "CEKMECE" },
+    { "name": "Tekçe", "part": "RAF" },
+    { "name": "Tündük", "part": "TAC" },
+    { "name": "Gardırop Askısı", "part": "ASKI" },
+    { "name": "Kulp", "part": "KULP", "anySize": true }
+  ]
+}

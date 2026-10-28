@@ -8,7 +8,8 @@
  * KoshoyJourneyData; nothing of it is a constant here.
  */
 import { CABINET_RULES } from "./cabinet-core";
-import { CABIN_COLOR_IDS, CABIN_COLOR_LABELS, DESIGN_KIND_LABELS, type DesignKind, type EditOp } from "./engine";
+import { DESIGN_KIND_LABELS, type DesignKind, type EditOp } from "./engine";
+import { bodyColorIds, colorLabel } from "./shop-colors";
 import { PRICE_PLACEHOLDER, toPublicEvent, type ChoiceOption, type PublicEvent } from "./events";
 import { applyDesignEdit, type KoshoyDesignDeps } from "./design-ops.server";
 import { formatTl } from "./pricing.server";
@@ -89,6 +90,7 @@ function styleOps(design: KoshoyDesign, style: Partial<KoshoyStyle>): EditOp[] {
   const ops: EditOp[] = [];
   if (style.panel) ops.push({ action: "set_color", target: "all", color: style.panel });
   if (style.front) ops.push({ action: "set_front_series", series: style.front });
+  if (style.handle) ops.push({ action: "set_handle", color: style.handle });
   if (style.crown) {
     for (const unit of tallUnitIndexes(design)) {
       ops.push({ action: "set_crown", unit, hasCrown: style.crown === "on" });
@@ -155,8 +157,8 @@ export async function styleChoices(
     }
   }
   if (decision === "panel") {
-    for (const id of CABIN_COLOR_IDS) {
-      entries.push({ value: id, label: CABIN_COLOR_LABELS[id], image: imageFor(data, designs, `panel_${id}`) });
+    for (const id of bodyColorIds()) {
+      entries.push({ value: id, label: colorLabel(id), image: imageFor(data, designs, `panel_${id}`) });
     }
   }
   if (decision === "front") {
@@ -248,10 +250,10 @@ export async function applyStyleDecision(
       : `${level.label}.`;
   }
   if (decision === "panel") {
-    const color = CABIN_COLOR_IDS.find((id) => id === value);
+    const color = bodyColorIds().find((id) => id === value);
     if (!color) return { ok: false, designs: [], summary: "" };
     change = { panel: color };
-    summary = `Renk: ${CABIN_COLOR_LABELS[color]}.`;
+    summary = `Renk: ${colorLabel(color)}.`;
   }
   if (decision === "front") {
     const series = CABINET_RULES.frontSeries.find((item) => item.id === value);
@@ -282,7 +284,7 @@ function styleLines(style: KoshoyStyle, data: KoshoyJourneyData, options: Journe
   const lines: Array<{ label: string; value: string }> = [];
   const level = data.levels.find((item) => item.id === style.level);
   if (level) lines.push({ label: "Bütçe", value: level.name });
-  if (style.panel) lines.push({ label: "Renk", value: CABIN_COLOR_LABELS[style.panel] });
+  if (style.panel) lines.push({ label: "Renk", value: colorLabel(style.panel) });
   const series = CABINET_RULES.frontSeries.find((item) => item.id === style.front);
   if (series) lines.push({ label: "Kapak", value: series.label });
   if (style.crown) lines.push({ label: "Uzun dolaplarda taç", value: style.crown === "on" ? "Var" : "Yok" });

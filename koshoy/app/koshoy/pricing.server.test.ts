@@ -23,16 +23,16 @@ const GOLDEN: CabinComposition = {
         { id: "fit-2", kind: "hanger" },
       ],
       hasDoor: true,
-      color: "wood",
+      color: "lake-beyaz",
     },
-    { id: "cabin-2", widthMm: 960, heightMm: 2304, fittings: [], hasDoor: false, color: "wood" },
+    { id: "cabin-2", widthMm: 960, heightMm: 2304, fittings: [], hasDoor: false, color: "lake-beyaz" },
   ],
   depthMm: 640,
   hasPlinth: true,
 };
 
 /** Shop part products: no SKUs, one default variant each, named by type + size. */
-function fakeAdmin(nodes: Array<{ id: string; title: string; price: string }>) {
+function fakeAdmin(nodes: Array<{ id: string; title: string; price: string; status?: string }>) {
   const calls: Array<Record<string, unknown> | undefined> = [];
   const admin: KoshoyAdminGraphql = {
     async graphql(_query, options) {
@@ -44,7 +44,7 @@ function fakeAdmin(nodes: Array<{ id: string; title: string; price: string }>) {
               pageInfo: { hasNextPage: false, endCursor: null },
               nodes: nodes.map((node) => ({
                 title: node.title,
-                status: "ACTIVE",
+                status: node.status ?? "ACTIVE",
                 variants: { nodes: [{ id: node.id, title: "Default Title", sku: "", price: node.price }] },
               })),
             },
@@ -156,10 +156,10 @@ describe("koshoy pricing", () => {
     assert.equal(variantGidToNumber("gid://shopify/ProductVariant/abc"), null);
   });
 
-  it("resolves parts by exact Shopify product title and caches the catalog", async () => {
+  it("resolves parts by structure, however the title is written, and caches the catalog", async () => {
     let now = 1_000;
     const { admin, calls } = fakeAdmin([
-      { id: "gid://shopify/ProductVariant/11", title: "Bakay LAKE BEYAZ 960x2304x640 mm", price: "6425.00" },
+      { id: "gid://shopify/ProductVariant/11", title: "lake beyaz  BAKAY 960 x 2304 x 640mm", price: "6425.00" },
       { id: "gid://shopify/ProductVariant/12", title: "Acıbay LAKE BEYAZ 477x2237x0 mm", price: "1069.43" },
       { id: "gid://shopify/ProductVariant/13", title: "Tekçe LAKE BEYAZ 960x0x640 mm", price: "573.28" },
       { id: "gid://shopify/ProductVariant/14", title: "Gardırop Askısı 960", price: "396.00" },
@@ -184,6 +184,27 @@ describe("koshoy pricing", () => {
     now += 6 * 60 * 1000;
     await pricer.quote(GOLDEN);
     assert.equal(calls.length, 2, "cache expires");
+  });
+
+  it("never guesses between two shop products for one part, and skips archived ones", async () => {
+    const seen: number[] = [];
+    const { admin } = fakeAdmin([
+      { id: "gid://shopify/ProductVariant/11", title: "Bakay LAKE BEYAZ 960x2304x640 mm", price: "6425.00" },
+      { id: "gid://shopify/ProductVariant/21", title: "Bakay LAKE BEYAZ 960x2304x640 mm", price: "1.00", status: "ARCHIVED" },
+      { id: "gid://shopify/ProductVariant/12", title: "Acıbay LAKE BEYAZ 477x2237x0 mm", price: "1069.43" },
+      { id: "gid://shopify/ProductVariant/22", title: "Acıbay LAKE BEYAZ 477x2237x0 mm", price: "999.00" },
+      { id: "gid://shopify/ProductVariant/13", title: "Tekçe LAKE BEYAZ 960x0x640 mm", price: "573.28" },
+      { id: "gid://shopify/ProductVariant/14", title: "Gardırop Askısı 960", price: "396.00" },
+    ]);
+    const resolver = createShopifySkuResolver(admin, "koshoy.myshopify.com", {
+      cache: new Map(),
+      onCatalog: (catalog) => seen.push(catalog.ambiguous.size),
+    });
+    const quote = await createKoshoyPricer(cabinetEngine, resolver).quote(GOLDEN);
+    assert.equal(quote.display, "[FİYAT]");
+    assert.deepEqual(quote.unresolved, ["Acıbay LAKE BEYAZ 477x2237x0 mm"]);
+    assert.equal(quote.lines[0].variantId, 11, "the archived twin is not a candidate");
+    assert.deepEqual(seen, [1], "the fresh catalog is reported once");
   });
 
   it("turns a failing Shopify lookup into [FİYAT] instead of throwing", async () => {

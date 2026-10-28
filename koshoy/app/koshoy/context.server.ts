@@ -11,6 +11,9 @@ import { createKoshoyS3 } from "../services/s3.server";
 import { createTagService, downloadResultFile } from "../services/tag-service.server";
 import { getCabinetEngine } from "./engine";
 import { createKoshoyBundler } from "./bundle.server";
+import { catalogGaps, clickUpTaskOpener, reportCatalogGaps, type KoshoyAlarmDb } from "./catalog-alarm.server";
+import { toKoshoyColors, useKoshoyColors } from "./shop-colors";
+import { offeredShopColors } from "./sku-audit.server";
 import type { KoshoyRequestContext } from "./handlers.server";
 import {
   createKoshoyPricer,
@@ -142,7 +145,19 @@ export async function koshoyContextFromProxy(
   // Shopify adds the signed-in customer to every App Proxy request (signed with the query).
   const customerId = new URL(request.url).searchParams.get("logged_in_customer_id")?.trim() || null;
   const device = deviceFromUserAgent(request.headers.get("user-agent"));
-  const resolver = createKoshoySkuResolver(shopAdmin, shop);
+  // Every fresh catalog read: offer the colours the shop sells, then report missing parts.
+  const resolver = createKoshoySkuResolver(shopAdmin, shop, (catalog) => {
+    koshoyData()
+      .snapshot()
+      .then((data) => {
+        useKoshoyColors(toKoshoyColors(data.colors, offeredShopColors(engine, catalog, data.colors)));
+        return reportCatalogGaps(shop, catalogGaps(engine, catalog), {
+          db: prisma as unknown as KoshoyAlarmDb,
+          openTask: clickUpTaskOpener(),
+        });
+      })
+      .catch((error) => console.error("[koshoy] catalog check failed", error));
+  });
 
   return {
     shop,

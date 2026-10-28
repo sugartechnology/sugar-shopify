@@ -1,7 +1,7 @@
 // generated — do not edit, run npm run sync:cabinet-core
 // source: 3d-room-designer/src/core/cabinet/templates.ts
 
-import { DEFAULT_CABIN_COLOR, isCabinColorId } from "./colors";
+import { defaultCabinColor, isCabinColorId } from "./colors";
 import { nextCabinUnitId, normalizeComposition } from "./composeCabins";
 import { crownByDefault, findFrontSeries } from "./rules";
 import {
@@ -318,7 +318,7 @@ export function planCabinet(input: PlanCabinetInput): PlanCabinetResult {
   }
   const template = CABIN_TEMPLATES[input.kind];
   const level = isDesignLevel(input.level) ? input.level : DEFAULT_DESIGN_LEVEL;
-  const color = isCabinColorId(input.color) ? input.color : DEFAULT_CABIN_COLOR;
+  const color = isCabinColorId(input.color) ? input.color : defaultCabinColor();
   const spec = template.levels[level];
   const heightMm = spec.heightMm ?? template.heightMm;
   const notes: string[] = [];

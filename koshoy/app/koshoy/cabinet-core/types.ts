@@ -48,7 +48,8 @@ export const DEFAULT_CABIN_SIZE: CabinSize = {
 
 export type CabinFitKind = "drawer160" | "drawer320" | "shelf" | "hanger";
 
-export type CabinColorId = "wood" | "ivory" | "blue";
+/** A colour of the page's palette (`setCabinColors`), e.g. "wood" or a shop colour. */
+export type CabinColorId = string;
 
 export interface CabinFitting {
   id: string;
@@ -77,6 +78,8 @@ export interface CabinComposition {
   color?: CabinColorId;
   /** Door / drawer-front series id (`CABINET_RULES.frontSeries`); missing = default. */
   frontSeries?: string;
+  /** One handle on every door leaf and drawer front, in this colour; missing = no handles. */
+  handleColor?: CabinColorId;
   widestUnits?: CabinUnit[];
 }
 

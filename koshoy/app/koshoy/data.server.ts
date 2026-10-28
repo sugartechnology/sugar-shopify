@@ -1,7 +1,7 @@
 /**
  * Journey data the store team (Akın) changes without a code change: room
- * sets, product kinds and their questions, budget levels, scope, texts and
- * info images. Six JSON documents in Koshoy's own database (KoshoyDataDoc),
+ * sets, product kinds and their questions, budget levels, scope, texts, info
+ * images and the look of the shop's colours. Seven JSON documents in Koshoy's own database (KoshoyDataDoc),
  * written only through the data API (data-api.server.ts, docs/veri-api.md)
  * and read by the turn code through `koshoyData().snapshot()`.
  *
@@ -13,8 +13,9 @@ import { randomUUID } from "node:crypto";
 import prisma from "../db.server";
 import { DESIGN_KIND_LABELS, DESIGN_KINDS, type DesignKind } from "./engine";
 import { KOSHOY_SCOPE } from "./rules";
+import { colorIdOf, DEFAULT_COLOR_LOOKS, shopColorKey, type ColorLook } from "./shop-colors";
 
-export const KOSHOY_DATA_KEYS = ["rooms", "kinds", "levels", "scope", "texts", "images"] as const;
+export const KOSHOY_DATA_KEYS = ["rooms", "kinds", "levels", "scope", "texts", "images", "colors"] as const;
 export type KoshoyDataKey = (typeof KOSHOY_DATA_KEYS)[number];
 
 /** Largest stored document (JSON bytes). */
@@ -97,6 +98,8 @@ export interface KoshoyDataDocs {
   scope: KoshoyDataScope;
   texts: KoshoyDataTexts;
   images: KoshoyDataImage[];
+  /** Look of each shop colour (shop-colors.ts); a shop colour without one is not offered. */
+  colors: ColorLook[];
 }
 
 export type KoshoyDataResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
@@ -213,6 +216,7 @@ export const KOSHOY_DATA_DEFAULTS: KoshoyDataDocs = {
     promiseLine: "Bunlar adresini aldığımızda netleşir; sepette göreceksin.",
   },
   images: [],
+  colors: DEFAULT_COLOR_LOOKS,
 };
 
 /** A fresh copy, so a caller changing a snapshot never changes the defaults. */
@@ -483,6 +487,27 @@ export function validateImages(value: unknown): KoshoyDataResult<KoshoyDataImage
   return result(errors, images);
 }
 
+const CSS_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+export function validateColors(value: unknown): KoshoyDataResult<ColorLook[]> {
+  const errors: string[] = [];
+  if (!Array.isArray(value)) return { ok: false, errors: ["colors bir liste olmalı: [ {renk}, {renk} ]."] };
+  const ids = new Set<string>();
+  const colors = readList(errors, "colors", "", value, 1, 30).map((raw, index) => {
+    const row = asRecord(raw);
+    const where = `Renk ${index + 1}`;
+    const shopColor = shopColorKey(readText(errors, where, "shopColor", row.shopColor, 40));
+    if (shopColor) noteDuplicate(errors, ids, where, "shopColor", colorIdOf(shopColor));
+    const label = readText(errors, where, "label", row.label, 40);
+    const css = typeof row.css === "string" && CSS_COLOR.test(row.css) ? row.css.toLowerCase() : "";
+    if (!css) errors.push(`${where}: "css" #rrggbb biçiminde bir renk kodu olmalı (ör. #f1eee7).`);
+    const use = readOneOf(errors, where, "use", row.use, ["body", "handle"] as const);
+    return { shopColor, label, css, use };
+  });
+  if (!colors.some((color) => color.use === "body")) errors.push('colors: en az bir "use": "body" (dolap rengi) olmalı.');
+  return result(errors, colors);
+}
+
 const VALIDATORS: { [K in KoshoyDataKey]: (value: unknown) => KoshoyDataResult<KoshoyDataDocs[K]> } = {
   rooms: validateRooms,
   kinds: validateKinds,
@@ -490,6 +515,7 @@ const VALIDATORS: { [K in KoshoyDataKey]: (value: unknown) => KoshoyDataResult<K
   scope: validateScope,
   texts: validateTexts,
   images: validateImages,
+  colors: validateColors,
 };
 
 export function isKoshoyDataKey(value: string): value is KoshoyDataKey {

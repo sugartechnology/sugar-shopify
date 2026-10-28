@@ -33,6 +33,7 @@ Anahtar dosyaya, belgeye, mesaja yazılmaz.
 | `scope` | Yapmadığımız ürünler ve hiç konuşulmayan konular |
 | `texts` | Sabit müşteri metinleri |
 | `images` | Bilgi resimleri (taç var/yok, kapak serisi, panel, kulp) |
+| `colors` | Mağaza renklerinin görünüşü: müşteri adı ve renk kodu |
 
 `PUT` bütün belgeyi değiştirir. Önce `GET` ile al, değiştir, geri gönder.
 
@@ -157,6 +158,35 @@ Anahtar dosyaya, belgeye, mesaja yazılmaz.
 [
   { "kind": "*", "option": "crown_on", "url": "https://image-s3.sm.mncdn.com/koshoy/tac-var.jpg" },
   { "kind": "gardirop", "option": "front_kapak-18", "url": "https://image-s3.sm.mncdn.com/koshoy/mat-kapak.jpg" }
+]
+```
+
+## colors
+
+Stüdyonun renkleri mağazanın renkleridir. Bu belge her rengin görünüşünü verir; hangi
+rengin müşteriye sunulacağını mağaza belirler:
+
+- **Dolap rengi** (`"use": "body"`): şablonların bütün parçaları mağazada bu renkte varsa sunulur.
+  İlk sıradaki sunulan renk varsayılandır. Eski tasarımların rengi (Ahşap, Kırık beyaz, Mavi) ona düşer.
+- **Kulp rengi** (`"use": "handle"`): mağazada bu renkte bir `Kulp` ürünü varsa sunulur. Hiç kulp
+  ürünü yoksa kulp sorulmaz, tasarımlarda kulp olmaz.
+- Mağazada olup burada görünüşü olmayan renk stüdyoda çıkmaz. Admin sayfası → Katalog sağlığı bunu gösterir.
+- Değişiklik en geç 5 dakikada (bir sonraki katalog okumasında) stüdyoya yansır.
+
+| Alan | Kural |
+|---|---|
+| liste | 1–30 renk, en az biri `"use": "body"`, aynı renk bir kez |
+| `shopColor` | Ürün adındaki renk, ör. `LAKE BEYAZ`, `KUMTAŞI`, `SİYAH` (büyük/küçük harf önemsiz) |
+| `label` | Müşterinin gördüğü ad, 1–40 karakter |
+| `css` | `#rrggbb` renk kodu (stüdyo ve 3D çizimi) |
+| `use` | `body` (dolap) ya da `handle` (kulp) |
+
+```json
+[
+  { "shopColor": "LAKE BEYAZ", "label": "Lake beyaz", "css": "#f1eee7", "use": "body" },
+  { "shopColor": "KUMTAŞI", "label": "Kumtaşı", "css": "#d6cab6", "use": "body" },
+  { "shopColor": "SİYAH", "label": "Siyah", "css": "#2b2b2b", "use": "handle" },
+  { "shopColor": "BEYAZ", "label": "Beyaz", "css": "#f5f5f3", "use": "handle" }
 ]
 ```
 

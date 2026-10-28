@@ -9,13 +9,12 @@ import {
   type LlmStreamEvent,
 } from "../services/llm-gateway.server";
 import {
-  CABIN_COLOR_IDS,
-  CABIN_COLOR_LABELS,
   DESIGN_KIND_LABELS,
   DESIGN_KINDS,
   type CabinColorId,
   type DesignKind,
 } from "./engine";
+import { bodyColorIds, colorIdInText, colorLabel } from "./shop-colors";
 import {
   errorEvent,
   PRICE_PLACEHOLDER,
@@ -534,7 +533,7 @@ export async function executeKoshoyTool(
   }
 
   if (call.name === "set_brief") {
-    const color = oneOf(args.color, CABIN_COLOR_IDS);
+    const color = oneOf(args.color, bodyColorIds());
     const room = briefText(args.room, BRIEF_FIELD_MAX.room);
     // The brief is replayed to the model on every hop: keep it short and flat.
     session.brief = {
@@ -627,7 +626,7 @@ export async function executeKoshoyTool(
     const kind = oneOf(args.kind, DESIGN_KINDS);
     if (!kind) return { payload: { ok: false, error: "unsupported_kind" } };
     ctx.publish({ type: "status", key: "placing" });
-    const created = await planStyledDesign(ctx, kind, widthMmFrom(args.targetWidthCm), oneOf(args.color, CABIN_COLOR_IDS));
+    const created = await planStyledDesign(ctx, kind, widthMmFrom(args.targetWidthCm), oneOf(args.color, bodyColorIds()));
     if (!created) return { payload: { ok: false, error: "design_limit", hint: DESIGN_LIMIT_HINT } };
     const { design, plan } = created;
     ctx.designIds.add(design.id);
@@ -666,7 +665,7 @@ export async function executeKoshoyTool(
     if (!asked.length && (await deps.store.listDesigns(session.id)).length) {
       return { payload: { ok: false, error: "set_exists", hint: SET_EXISTS_HINT } };
     }
-    const color = oneOf(args.color, CABIN_COLOR_IDS);
+    const color = oneOf(args.color, bodyColorIds());
     session.brief = { ...session.brief, room: session.brief.room || set.label };
     ctx.publish({ type: "status", key: "placing" });
     const planned: KoshoyDesign[] = [];
@@ -870,7 +869,7 @@ function withOpenDesign(message: string, designs: readonly KoshoyDesign[], activ
 
 /**
  * The same note on the customer's answer to ask_user: most turns end with a
- * question, so the customer's next request ("rengini mavi yap") arrives as
+ * question, so the customer's next request ("rengini değiştir") arrives as
  * that answer.
  */
 function withOpenDesignAnswers(
@@ -1051,11 +1050,7 @@ function widthCmFromText(text: string): number | undefined {
 }
 
 function colorFromText(text: string): CabinColorId | undefined {
-  const value = text.toLocaleLowerCase("tr-TR");
-  if (/beyaz|krem|açık renk/u.test(value)) return "ivory";
-  if (/mavi|lacivert/u.test(value)) return "blue";
-  if (/ahşap|meşe|ceviz|doğal/u.test(value)) return "wood";
-  return undefined;
+  return colorIdInText(text);
 }
 
 function mockPriceText(price: unknown, lead: string): string {
@@ -1065,10 +1060,9 @@ function mockPriceText(price: unknown, lead: string): string {
     : `${lead} ${display}.`;
 }
 
-const MOCK_COLOR_OPTIONS: ChoiceOption[] = CABIN_COLOR_IDS.map((id) => ({
-  id: `color_${id}`,
-  label: CABIN_COLOR_LABELS[id],
-}));
+function mockColorOptions(): ChoiceOption[] {
+  return bodyColorIds().map((id) => ({ id: `color_${id}`, label: colorLabel(id) }));
+}
 
 const MOCK_KIND_OPTIONS: ChoiceOption[] = (
   ["gardirop", "komodin", "tv_unitesi", "kitaplik"] as const
@@ -1104,7 +1098,7 @@ async function mockPlan(ctx: TurnContext, text: string, kind: (typeof DESIGN_KIN
     {
       id: "mock_ask_color",
       name: "ask_user",
-      arguments: { question: "Hangi renkte olsun?", options: MOCK_COLOR_OPTIONS },
+      arguments: { question: "Hangi renkte olsun?", options: mockColorOptions() },
     },
     ctx,
   );
@@ -1131,7 +1125,7 @@ async function runMockTurn(ctx: TurnContext, client: ClientInput) {
   if (client.type === "choice") {
     session.pendingAskUser = null;
     session.pendingTools = [];
-    const color = oneOf(/^color_(\w+)$/.exec(client.selected)?.[1], CABIN_COLOR_IDS);
+    const color = oneOf(/^color_([\w-]+)$/.exec(client.selected)?.[1], bodyColorIds());
     if (color && session.activeDesignId) {
       const edit = await runTool(
         {
@@ -1144,7 +1138,7 @@ async function runMockTurn(ctx: TurnContext, client: ClientInput) {
       publishText(
         ctx,
         edit.payload.ok
-          ? `Rengi ${CABIN_COLOR_LABELS[color].toLocaleLowerCase("tr-TR")} yaptım. ${mockPriceText(edit.payload.price, "Yeni fiyat")}`
+          ? `Rengi ${colorLabel(color).toLocaleLowerCase("tr-TR")} yaptım. ${mockPriceText(edit.payload.price, "Yeni fiyat")}`
           : "Bu rengi şu an uygulayamadım.",
       );
       return;

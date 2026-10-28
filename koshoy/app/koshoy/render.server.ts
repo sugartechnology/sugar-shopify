@@ -8,7 +8,8 @@
  */
 import type { KoshoyFile } from "../services/s3.server";
 import type { RenderJob } from "../services/tag-service.server";
-import { CABIN_COLOR_LABELS, DESIGN_KIND_LABELS, type CabinetEngine } from "./engine";
+import { DESIGN_KIND_LABELS, type CabinetEngine } from "./engine";
+import { colorLabel } from "./shop-colors";
 import { normalizeCabinColor } from "./cabinet-core";
 import { readyCleanPhotoUrl } from "./room-clean.server";
 import {
@@ -39,7 +40,7 @@ function cmText(mm: number): string {
 
 /**
  * Short product-language summary for the render prompt, e.g.
- * "3 kapaklı, 2 çekmeceli gardırop, ahşap, 192 cm genişlik, 230,4 cm yükseklik, 64 cm derinlik".
+ * "3 kapaklı, 2 çekmeceli gardırop, lake beyaz, 192 cm genişlik, 230,4 cm yükseklik, 64 cm derinlik".
  */
 export function cabinetDescription(engine: CabinetEngine, design: KoshoyDesign): string {
   const c = design.composition;
@@ -56,7 +57,7 @@ export function cabinetDescription(engine: CabinetEngine, design: KoshoyDesign):
   if (doors) features.push(`${doors} kapaklı`);
   if (drawers) features.push(`${drawers} çekmeceli`);
   const kind = DESIGN_KIND_LABELS[design.kind].toLocaleLowerCase("tr-TR");
-  const color = CABIN_COLOR_LABELS[normalizeCabinColor(c.color)].toLocaleLowerCase("tr-TR");
+  const color = colorLabel(normalizeCabinColor(c.color)).toLocaleLowerCase("tr-TR");
   return [
     [features.join(", "), kind].filter(Boolean).join(" "),
     color,

@@ -80,10 +80,12 @@ export {
 export type { FrontSeries } from "./rules";
 export {
   CABIN_COLORS,
-  DEFAULT_CABIN_COLOR,
   cabinColorHex,
+  cabinColors,
+  defaultCabinColor,
   isCabinColorId,
   normalizeCabinColor,
+  setCabinColors,
 } from "./colors";
 export type { CabinColorOption } from "./colors";
 export type { CabinBox, CabinDoorLeaf, CanAddFittingOptions, DrawerTubPanel, PlacedFitting } from "./fittings";
