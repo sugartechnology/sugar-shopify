@@ -94,6 +94,8 @@ export interface JourneyDesign {
 export interface JourneyLevel {
   id: string;
   label: string;
+  /** Short name for the room summary ("Bütçe: Fiyata göre"). */
+  name: string;
   crown: "auto" | "ask";
   front: "auto" | "ask";
 }

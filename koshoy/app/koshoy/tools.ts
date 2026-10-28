@@ -73,6 +73,32 @@ const EDIT_OP_SCHEMA = {
   additionalProperties: false,
 };
 
+/** ask_style; without handle colours in the shop the handle decision is not offered at all. */
+function askStyleTool(withHandle: boolean) {
+  const decisions = ["level", "panel", "front", "crown", ...(withHandle ? ["handle"] : [])];
+  return {
+    name: "ask_style",
+    description:
+      "Ask one room-level style decision. The server builds the choices (with pictures and each choice's total price) and applies the customer's pick to every product of the room by itself; never apply it again with edit_design. Call it alone, like ask_user.",
+    strict: false,
+    parameters: {
+      type: "object",
+      properties: {
+        decision: {
+          type: "string",
+          enum: decisions,
+          description: `level: how to choose (budget); panel: colour; front: door series; crown: crown on tall cabinets${
+            withHandle ? "; handle: handle colour" : ""
+          }`,
+        },
+        change: { type: "boolean", description: "The customer wants to change a decision already taken" },
+      },
+      required: ["decision"],
+      additionalProperties: false,
+    },
+  };
+}
+
 export const KOSHOY_TOOLS = [
   {
     name: "set_brief",
@@ -116,25 +142,7 @@ export const KOSHOY_TOOLS = [
       additionalProperties: false,
     },
   },
-  {
-    name: "ask_style",
-    description:
-      "Ask one room-level style decision. The server builds the choices (with pictures and each choice's total price) and applies the customer's pick to every product of the room by itself; never apply it again with edit_design. Call it alone, like ask_user.",
-    strict: false,
-    parameters: {
-      type: "object",
-      properties: {
-        decision: {
-          type: "string",
-          enum: ["level", "panel", "front", "crown", "handle"],
-          description: "level: how to choose (budget); panel: colour; front: door series; crown: crown on tall cabinets; handle: handle colour",
-        },
-        change: { type: "boolean", description: "The customer wants to change a decision already taken" },
-      },
-      required: ["decision"],
-      additionalProperties: false,
-    },
-  },
+  askStyleTool(true),
   {
     name: "plan_cabinet",
     description:
@@ -313,9 +321,14 @@ export const KOSHOY_TOOLS = [
   },
 ];
 
-/** The tool list sent to the model; without the room feature it is today's list. */
-export function koshoyTools(withRoom: boolean) {
-  return withRoom
+/**
+ * The tool list sent to the model; without the room feature it is today's
+ * list. Without handle colours in the shop, ask_style does not offer the
+ * handle decision at all, so the model never announces it.
+ */
+export function koshoyTools(withRoom: boolean, options: { handles?: boolean } = {}) {
+  const tools = withRoom
     ? KOSHOY_TOOLS
     : KOSHOY_TOOLS.filter((tool) => !KOSHOY_ROOM_TOOL_NAMES.includes(tool.name));
+  return options.handles ? tools : tools.map((tool) => (tool.name === "ask_style" ? askStyleTool(false) : tool));
 }

@@ -1229,6 +1229,43 @@ describe("koshoy journey: room first, then product by product, then the cart", (
     assert.deepEqual([ctx.session.journey.style.front, ctx.session.journey.style.crown], ["", ""]);
   });
 
+  it("keeps the style line with its sizes, never offers handles without handle colours, and names the budget", async () => {
+    const ctx = await setup();
+    await ctx.store.createDesign(ctx.session.id, {
+      kind: "gardirop",
+      label: "Gardırop",
+      composition: cabinetEngine.planCabinet({ kind: "gardirop" }).composition,
+    });
+    ctx.session.brief.room = "Yatak odası";
+    Object.assign(ctx.session.journey, { structure: "skip" });
+    Object.assign(ctx.session.journey.style, { level: "fiyatina_bakarak", panel: "ivory", crown: "off" });
+    const ask = scriptedStream([
+      [{ event: "tool_call", data: { callId: "s1", name: "ask_style", arguments: JSON.stringify({ decision: "front" }) } }],
+    ]);
+    await turn(ctx, ctx.session, { type: "message", text: "Kapak" }, { stream: ask.stream });
+    const decisions = (ask.bodies[0].tools as Array<{ name: string; parameters: { properties: { decision?: { enum: string[] } } } }>)
+      .find((tool) => tool.name === "ask_style")?.parameters.properties.decision?.enum;
+    assert.deepEqual(decisions, ["level", "panel", "front", "crown"], "no handle decision without handle colours");
+    const option = ctx.session.pendingAskUser?.options.find((item) => item.value === "style:front:kapak-16");
+    assert.ok(option);
+    const picked = await turn(ctx, ctx.session, { type: "choice", selected: option.id }, {
+      stream: scriptedStream([[{ event: "text", data: { text: "Tamam." } }]]).stream,
+    });
+    const texts = picked.filter((event) => event.type === "text").map((event) => (event.type === "text" ? event.text : "")).join("");
+    assert.match(texts, /Kapak: Standart kapak \(16 mm\)\./);
+    const summary = picked.find((event) => event.type === "room_summary");
+    assert.ok(summary?.type === "room_summary");
+    assert.deepEqual(summary.style[0], { label: "Bütçe", value: "Fiyata göre" });
+
+    const handle = scriptedStream([
+      [{ event: "tool_call", data: { callId: "s2", name: "ask_style", arguments: JSON.stringify({ decision: "handle" }) } }],
+      [{ event: "text", data: { text: "Tamam." } }],
+    ]);
+    await turn(ctx, ctx.session, { type: "message", text: "Kulp" }, { stream: handle.stream });
+    const [refused] = handle.bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>;
+    assert.equal(refused.payload.error, "no_handles");
+  });
+
   it("never lets a low cabinet lose its crown", async () => {
     const ctx = await setup();
     const komodin = await ctx.store.createDesign(ctx.session.id, {
