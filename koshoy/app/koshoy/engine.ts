@@ -14,6 +14,7 @@ import {
   CABIN_TOTAL_WIDTH_SAFETY_MM,
   CABIN_WIDTHS_MM,
   DEFAULT_SKU_CONVENTION,
+  defaultFrontSeries,
   DESIGN_KIND_LABELS,
   DESIGN_KINDS,
   DESIGN_LEVELS,
@@ -142,6 +143,21 @@ export interface CabinetEngine {
 const SHOP_PART_COLOR = "LAKE BEYAZ";
 
 /**
+ * Shop name of each front series (`CABINET_RULES.frontSeries` ids); drawer
+ * fronts add " Çekmece". A series missing here never matches a shop product,
+ * so its price shows [FİYAT] instead of borrowing another series' price.
+ */
+const SHOP_FRONT_NAMES: Record<string, string> = {
+  "kapak-16": "Acıbay",
+  "kapak-18": "Aruuke",
+};
+
+function shopFrontName(series: string | undefined): string {
+  const id = series ?? defaultFrontSeries().id;
+  return SHOP_FRONT_NAMES[id] ?? `Bilinmeyen kapak serisi ${id}`;
+}
+
+/**
  * Shopify product title of one BOM part. Koshoy's shop has no SKUs: every
  * catalog part is its own product named by type + shop colour + nominal size,
  * e.g. "Bakay LAKE BEYAZ 960x2304x640 mm" (body), "Acıbay LAKE BEYAZ 477x2237x0 mm"
@@ -154,9 +170,9 @@ export function koshoyPartTitle(line: BomLine): string {
       // Only bodies with plinth exist in the shop; a plinthless one stays unresolved.
       return `Bakay ${colorSize(line.widthMm, line.heightMm, line.depthMm)}${line.plinth === false ? " (bazasız)" : ""}`;
     case "KAPAK":
-      return `Acıbay ${colorSize(line.widthMm, line.heightMm, 0)}`;
+      return `${shopFrontName(line.series)} ${colorSize(line.widthMm, line.heightMm, 0)}`;
     case "CEKMECE_ON":
-      return `Acıbay Çekmece ${colorSize(line.widthMm + 3, line.heightMm + 3, 0)}`;
+      return `${shopFrontName(line.series)} Çekmece ${colorSize(line.widthMm + 3, line.heightMm + 3, 0)}`;
     case "CEKMECE":
       return `Sırgak ${colorSize(line.widthMm, line.heightMm, line.depthMm)}`;
     case "RAF":

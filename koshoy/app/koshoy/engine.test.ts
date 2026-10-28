@@ -75,6 +75,20 @@ describe("koshoy cabinet engine contract", () => {
     assert.equal(title("GOVDE", 480, 544, 480, { plinth: false }), "Bakay LAKE BEYAZ 480x544x480 mm (bazasız)");
   });
 
+  it("names fronts by their series and never borrows another series' title", () => {
+    const front = (part: string, widthMm: number, heightMm: number, series?: string) =>
+      koshoyPartTitle({ part, widthMm, heightMm, depthMm: 0, color: "ivory", qty: 1, series } as BomLine);
+    assert.equal(front("KAPAK", 477, 2237, "kapak-16"), "Acıbay LAKE BEYAZ 477x2237x0 mm");
+    assert.equal(front("KAPAK", 477, 2237, "kapak-18"), "Aruuke LAKE BEYAZ 477x2237x0 mm");
+    assert.equal(front("CEKMECE_ON", 477, 157, "kapak-18"), "Aruuke Çekmece LAKE BEYAZ 480x160x0 mm");
+    assert.equal(front("KAPAK", 477, 2237), "Acıbay LAKE BEYAZ 477x2237x0 mm", "no series = default series");
+    assert.equal(
+      front("KAPAK", 477, 2237, "kapak-20"),
+      "Bilinmeyen kapak serisi kapak-20 LAKE BEYAZ 477x2237x0 mm",
+      "an unknown series stays unresolved ([FİYAT])",
+    );
+  });
+
   it("keeps the part key swappable in one place", () => {
     const custom = createCabinetEngine((line) => `${line.part}-${line.widthMm}`);
     assert.deepEqual(custom.toBom(GOLDEN).map((line) => custom.skuFor(line)), ["GOVDE-960", "KAPAK-477", "RAF-960", "ASKI-960"]);
