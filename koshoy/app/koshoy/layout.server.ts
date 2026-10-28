@@ -34,7 +34,8 @@ import {
   type LayoutState,
   type LayoutTarget,
 } from "./layout-solver";
-import { parseMeasures, roundedCm } from "./room-measure.server";
+import { roomMeasuresNow } from "./room-clean.server";
+import { roundedCm } from "./room-measure.server";
 import { roomView, type KoshoyRoomDeps, type KoshoyRoomRow } from "./room.server";
 import type { KoshoyDesign } from "./store.server";
 
@@ -245,7 +246,8 @@ export async function sessionTarget(
     ? await deps.db.koshoyRoom.findFirst({ where: { id: session.roomId, sessionId: session.id } })
     : null;
   const room = row?.status === "ready" ? row : null;
-  const free = room ? parseMeasures(room.measures)?.free ?? [] : [];
+  // Items removed from the photo free their stretch of wall (CONTRACT §2.9).
+  const free = room ? (await roomMeasuresNow(deps.db, room))?.free ?? [] : [];
   return { target: fitStudioTarget(layoutTarget(room ? roomView(room) : null, free), designSizes(designs)), room };
 }
 

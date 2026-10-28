@@ -23,6 +23,7 @@ export const KOSHOY_TOOL_NAMES = [
   "quote",
   "switch_design",
   "show_doors",
+  "offer_photo_cleanup",
   "show_in_room",
   "render_room",
   "place_in_room",
@@ -36,6 +37,7 @@ export function isKoshoyToolName(name: string): name is KoshoyToolName {
 
 /** Offered only while the room photo feature is configured (Sugar S3 + gateway). */
 export const KOSHOY_ROOM_TOOL_NAMES: readonly string[] = [
+  "offer_photo_cleanup",
   "show_in_room",
   "render_room",
   "place_in_room",
@@ -241,6 +243,24 @@ export const KOSHOY_TOOLS = [
         open: { type: "boolean" },
       },
       required: ["open"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "offer_photo_cleanup",
+    description:
+      "Open the card where the customer picks items to remove from their room photo (the photoItems of the room facts); preselect ticks the ones you suggest by their id. It removes nothing: only the customer's button on the card does, so never say anything was removed. reason no_room: no ready room photo; no_items: nothing removable was found in it.",
+    strict: false,
+    parameters: {
+      type: "object",
+      properties: {
+        preselect: {
+          type: "array",
+          maxItems: 12,
+          items: { type: "string" },
+          description: "photoItems ids to tick on the card",
+        },
+      },
       additionalProperties: false,
     },
   },

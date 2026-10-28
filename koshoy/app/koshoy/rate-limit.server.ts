@@ -35,6 +35,8 @@ export const KOSHOY_LIMITS = {
   room: { limit: 1, windowMs: 60_000 },
   /** renders per visitor, counted apart from analyses */
   render: { limit: 2, windowMs: 60_000 },
+  /** new item removals from the room photo per visitor (asking for one again is free) */
+  roomClean: { limit: 1, windowMs: 60_000 },
   /** room/render status polls and file reads per session (each poll asks upstream) */
   roomRead: { limit: 120, windowMs: 60_000 },
   /** layout writes (drags, add, remove) per session */

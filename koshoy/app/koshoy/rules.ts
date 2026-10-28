@@ -100,9 +100,21 @@ const READY_ROOM_RULES: Record<string, KoshoyRule> = {
   },
 };
 
-export const KOSHOY_ROOM_RULES: readonly KoshoyRule[] = KOSHOY_RULES.map(
-  (rule) => READY_ROOM_RULES[rule.id] ?? rule,
-);
+/**
+ * Only with a ready room (CONTRACT §2.9): the assistant may offer to remove
+ * items from the photo; only the customer's button on the card removes them.
+ */
+const PHOTO_CLEANUP_RULE: KoshoyRule = {
+  id: "photo_cleanup",
+  text:
+    "Fotoğraftaki eşyaları (oda bilgisindeki photoItems) kaldırmayı önerebilir, offer_photo_cleanup ile kaldırma kartını açabilirsin; eşyaları yalnız müşteri karttaki düğmeyle kaldırır. " +
+    "Bir eşyayı kaldırdığını asla söylemezsin; kaldırılanlar (removed) fotoğrafta artık yoktur. Odanın ya da eşyaların ölçüsünü söylemezsin.",
+};
+
+export const KOSHOY_ROOM_RULES: readonly KoshoyRule[] = [
+  ...KOSHOY_RULES.map((rule) => READY_ROOM_RULES[rule.id] ?? rule),
+  PHOTO_CLEANUP_RULE,
+];
 
 /** The rules in force: with a ready room the photo rule tells how the room information is used. */
 export function koshoyRules(roomReady: boolean): readonly KoshoyRule[] {
@@ -131,13 +143,15 @@ const IN_SCOPE_WORDS =
 const OUT_OF_SCOPE_PHRASES = /tezgah|eviye|evye|mutfak\s+alt\s+dola[pb]|alt\s+mutfak\s+dola[pb]/iu;
 const OUT_OF_SCOPE_WORDS =
   /koltu[kğ]|kanepe|berjer|sandalye|yata[kğ](?!\s*oda)/iu;
+/** "Koltuğu kaldır": not asking for the product but to take it out of the room photo (§2.9); the model decides. */
+const REMOVE_FROM_PHOTO_WORDS = /kald[ıi]r|[çc][ıi]kar|(?<![\p{L}])sil|temizle|g[öo]t[üu]r/iu;
 
 /** "out" only when a clearly unsupported product is asked and nothing in scope is. */
 export function classifyScope(text: string): "in" | "out" | "unknown" {
   const value = text.toLocaleLowerCase("tr-TR");
   if (OUT_OF_SCOPE_PHRASES.test(value)) return "out";
   if (IN_SCOPE_WORDS.test(value)) return "in";
-  if (OUT_OF_SCOPE_WORDS.test(value)) return "out";
+  if (OUT_OF_SCOPE_WORDS.test(value)) return REMOVE_FROM_PHOTO_WORDS.test(value) ? "unknown" : "out";
   return "unknown";
 }
 

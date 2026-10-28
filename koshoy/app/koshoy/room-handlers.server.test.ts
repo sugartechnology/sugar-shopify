@@ -102,6 +102,12 @@ function fakeTagService() {
       if (state.readError) throw state.readError;
       return state.renderJob;
     },
+    async startRoomClean() {
+      throw new Error("not used here (room-clean-handlers.server.test.ts)");
+    },
+    async getRoomClean() {
+      throw new Error("not used here (room-clean-handlers.server.test.ts)");
+    },
   };
   return { service, calls, state };
 }

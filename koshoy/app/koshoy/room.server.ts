@@ -11,7 +11,9 @@ import type { KoshoyFile, KoshoyFileStore } from "../services/s3.server";
 import type { KoshoyTagService } from "../services/tag-service.server";
 import type { RoomPhotoRequest } from "./input";
 import type { KoshoyLayoutDb } from "./layout.server";
+import { photoItemsFromAnalysis, type PhotoItemView } from "./photo-items";
 import { decodeGreyPng, type GreyImage } from "./png.server";
+import type { CleanView, KoshoyRoomCleanDb } from "./room-clean.server";
 import { guessNoExifFov, type FovGuess } from "./room-fov";
 import { floorFrame } from "./room-layout";
 import { measureRoom, parseMeasures, type MetreRange, type RoomMeasures } from "./room-measure.server";
@@ -21,7 +23,8 @@ import { randomOpaqueId } from "./token.server";
 /** A job still "processing" after this long is given up (lost upstream). */
 export const KOSHOY_JOB_DEADLINE_MS = 10 * 60 * 1000;
 
-export const ROOM_FILE_NAMES = ["photo", "depth", "floor", "wall", "ceiling", "furniture"] as const;
+/** `objects`: the object map of the removable items (CONTRACT §2.9); not in RoomView.files. */
+export const ROOM_FILE_NAMES = ["photo", "depth", "floor", "wall", "ceiling", "furniture", "objects"] as const;
 export type RoomFileName = (typeof ROOM_FILE_NAMES)[number];
 type AnalysisFileName = Exclude<RoomFileName, "photo">;
 
@@ -49,6 +52,11 @@ export interface KoshoyRoomRow {
   scaleSource: string | null;
   /** JSON RoomMeasures (room-measure.server.ts); never sent to the browser as such */
   measures: string | null;
+  /** JSON PhotoItem[] (photo-items.ts); null for analyses without objects */
+  objects: string | null;
+  /** Item removal the customer asked for last, and the ready one in use (room-clean.server.ts) */
+  activeCleanId: string | null;
+  readyCleanId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -73,7 +81,7 @@ export interface KoshoyRenderRow {
 type NewRow<T> = Omit<T, "createdAt" | "updatedAt">;
 
 /** The slice of the Prisma client the room, render and layout flows use. */
-export interface KoshoyRoomDb extends KoshoyLayoutDb {
+export interface KoshoyRoomDb extends KoshoyLayoutDb, KoshoyRoomCleanDb {
   koshoyRoom: {
     create(args: { data: NewRow<KoshoyRoomRow> }): Promise<KoshoyRoomRow>;
     findFirst(args: { where: { id: string; sessionId: string } }): Promise<KoshoyRoomRow | null>;
@@ -143,6 +151,12 @@ export interface RoomView {
   files?: { photo: string } & Partial<Record<AnalysisFileName, string>>;
   /** Visible wall along the wall line (room-layout alongM); absent without a usable wall. */
   wall?: MetreRange;
+  /** Removable items (CONTRACT §2.9, room-clean.server.ts roomViewWithClean); absent for older analyses. */
+  objects?: PhotoItemView[];
+  /** The item removal asked for last. */
+  clean?: CleanView;
+  /** The ready removal whose files are in use; absent = the original photo. */
+  cleanReadyId?: string;
 }
 
 /* ---------------- whitelist of the analysis answer ---------------- */
@@ -217,7 +231,7 @@ function toFileUrls(raw: unknown): AnalysisFileUrls | null {
   const depth = httpsLink(row?.depth);
   if (!row || !depth) return null;
   const urls: AnalysisFileUrls = { depth };
-  for (const name of ["floor", "wall", "ceiling", "furniture"] as const) {
+  for (const name of ["floor", "wall", "ceiling", "furniture", "objects"] as const) {
     const link = httpsLink(row[name]);
     if (link) urls[name] = link;
   }
@@ -250,6 +264,8 @@ export function parseRoomAnalysis(result: unknown) {
     depthScale,
     fileUrls,
     scaleSource,
+    // Removable items only with their object map: without it nothing can be picked or removed.
+    objects: fileUrls.objects ? photoItemsFromAnalysis(row.objects) : null,
   };
 }
 
@@ -283,7 +299,7 @@ export function roomView(row: KoshoyRoomRow): RoomView {
   }
   const files: RoomView["files"] = { photo: roomFileLink(row.id, "photo") };
   for (const name of Object.keys(urls) as AnalysisFileName[]) {
-    files[name] = roomFileLink(row.id, name);
+    if (name !== "objects") files[name] = roomFileLink(row.id, name);
   }
   const view: RoomView = {
     id: row.id,
@@ -299,6 +315,17 @@ export function roomView(row: KoshoyRoomRow): RoomView {
   const wall = parseMeasures(row.measures)?.wall;
   if (wall) view.wall = { fromM: wall.fromM, toM: wall.toM };
   return view;
+}
+
+/** A ready room's stored analysis, through the same whitelist as roomView; null when unusable. */
+export function storedAnalysis(row: KoshoyRoomRow) {
+  const camera = toCamera(parseColumn(row.camera));
+  const depthScale = toDepthScale(parseColumn(row.depthScale));
+  const fileUrls = toFileUrls(parseColumn(row.fileUrls));
+  const width = pixels(row.width);
+  const height = pixels(row.height);
+  if (row.status !== "ready" || !camera || !depthScale || !fileUrls || !width || !height) return null;
+  return { width, height, camera, planes: toPlanes(parseColumn(row.planes)), depthScale, fileUrls };
 }
 
 /* ---------------- flow ---------------- */
@@ -358,6 +385,9 @@ export async function startRoom(
       fileUrls: null,
       scaleSource: null,
       measures: null,
+      objects: null,
+      activeCleanId: null,
+      readyCleanId: null,
     },
   });
 }
@@ -406,12 +436,13 @@ export async function refreshRoom(deps: KoshoyRoomDeps, row: KoshoyRoomRow): Pro
       fileUrls: JSON.stringify(analysis.fileUrls),
       scaleSource: analysis.scaleSource,
       measures: JSON.stringify(measures),
+      objects: analysis.objects ? JSON.stringify(analysis.objects) : null,
     },
   });
 }
 
 /** A mask or the depth map, decoded; null when it is missing or unreadable. */
-async function analysisImage(deps: KoshoyRoomDeps, url: string | undefined): Promise<GreyImage | null> {
+export async function analysisImage(deps: KoshoyRoomDeps, url: string | undefined): Promise<GreyImage | null> {
   if (!url) return null;
   try {
     const file = await deps.download(url);

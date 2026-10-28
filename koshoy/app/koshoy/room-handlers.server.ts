@@ -32,6 +32,7 @@ import {
   renderView,
   startRender,
 } from "./render.server";
+import { isCleanFileName, readCleanFile, roomViewWithClean } from "./room-clean.server";
 import {
   readRoomFile,
   refreshRoom,
@@ -148,7 +149,7 @@ export async function handleKoshoyRoomStatus(
       ? await enterRoom(ctx.room, sessionNow, designs)
       : await currentLayout(ctx.room, sessionNow, designs);
     return koshoyJson({
-      room: roomView(room),
+      room: await roomViewWithClean(ctx.room.db, room),
       layout: layoutView(layout, designs, target),
       events: layoutScenes(layout, designs),
     });
@@ -158,7 +159,7 @@ export async function handleKoshoyRoomStatus(
   }
 }
 
-/* ---------------- GET /room-file?room=&name= ---------------- */
+/* ---------------- GET /room-file?room=&name=[&clean=] ---------------- */
 
 export async function handleKoshoyRoomFile(
   request: Request,
@@ -172,12 +173,17 @@ export async function handleKoshoyRoomFile(
     const roomId = parseOpaqueId(query.get("room"));
     const name = roomFileName(query.get("name"));
     if (!roomId || !name) return koshoyStudioError("invalid_input");
+    // &clean=: that item removal's photo, depth or furniture mask (CONTRACT §2.9).
+    const cleanId = query.has("clean") ? parseOpaqueId(query.get("clean")) : null;
+    if (query.has("clean") && (!cleanId || !isCleanFileName(name))) return koshoyStudioError("invalid_input");
     if (!ctx.limits.roomRead.hit(session.id)) return koshoyStudioError("rate_limited");
 
     const room = await ctx.room.db.koshoyRoom.findFirst({
       where: { id: roomId, sessionId: session.id },
     });
-    const file = room ? await readRoomFile(ctx.room, room, name) : null;
+    let file: KoshoyFile | null = null;
+    if (room && cleanId && isCleanFileName(name)) file = await readCleanFile(ctx.room, room, cleanId, name);
+    else if (room) file = await readRoomFile(ctx.room, room, name);
     return file ? fileResponse(file) : koshoyStudioError("not_found");
   } catch (error) {
     console.error("[koshoy] room file failed", error);

@@ -162,7 +162,7 @@ export interface KoshoySessionState {
   pendingAskUser: { id: string; tool?: string; question: string; options: KoshoyPendingOption[] } | null;
   /** Tool payloads of the hop that ended with ask_user (every call id). */
   pendingTools: KoshoyPendingTool[];
-  /** Room whose photo the model conversation has already seen (sent once per room). */
+  /** Photo the model conversation has already seen: the room id, or "room:clean" after items were removed (room-clean-chat.server.ts). */
   photoSentRoomId: string | null;
   /** Stages, style decisions and approvals (journey.ts). */
   journey: KoshoyJourney;

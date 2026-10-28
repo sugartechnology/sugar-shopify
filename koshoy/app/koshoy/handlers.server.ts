@@ -43,7 +43,8 @@ import {
   readKoshoyToken,
 } from "./token.server";
 import { runKoshoyTurn, type KoshoyStreamFn } from "./turn.server";
-import { roomView, type KoshoyRoomDeps, type RoomView } from "./room.server";
+import { roomViewWithClean } from "./room-clean.server";
+import type { KoshoyRoomDeps, RoomView } from "./room.server";
 import type { KoshoyPhoneDeps } from "./phone-link.server";
 import type { KoshoyRoomSessionsDb } from "./room-sessions.server";
 import { approvalOf } from "./journey";
@@ -93,6 +94,8 @@ export interface KoshoyRequestContext extends KoshoyDesignDeps {
     layout: KoshoyRateLimiter;
     /** room list reads and room deletes, keyed by koshoyClientKey */
     rooms: KoshoyRateLimiter;
+    /** new item removals from the room photo, keyed by koshoyClientKey; unset = none start */
+    roomClean?: KoshoyRateLimiter;
   };
   busy: KoshoyBusyLock;
   /** Loaded lazily (shop metafields) only when a turn actually runs. */
@@ -146,6 +149,8 @@ const STATUS_BY_CODE: Record<KoshoyErrorCode, number> = {
   edit_rejected: 200,
   out_of_scope: 200,
   cart_failed: 200,
+  // Only /room-clean answers it (room-clean-handlers.server.ts).
+  clean_limit: 400,
 };
 
 const SSE_HEADERS = {
@@ -255,7 +260,7 @@ async function sessionRoom(
   const row = await ctx.room.db.koshoyRoom.findFirst({
     where: { id: session.roomId, sessionId: session.id },
   });
-  const view = row ? roomView(row) : null;
+  const view = row ? await roomViewWithClean(ctx.room.db, row) : null;
   return view?.status === "ready" ? view : null;
 }
 
