@@ -55,7 +55,7 @@ tool'ları modele sunulmaz, sohbet bugünkü gibi çalışır.
 ## Değişmez kurallar
 
 1. **Fiyat yalnız Shopify'dan gelir.** Dolabın parça listesi (`toBom`) Shopify ürün
-   adlarıyla eşleşir (mağazada SKU yok): `Bakay WxHxD mm` gövde, `Acıbay` kapak,
+   adlarıyla eşleşir (mağazada SKU yok): `Bakay LAKE BEYAZ WxHxD mm` gövde (renk adı parça adından sonra gelir), `Acıbay` kapak,
    `Acıbay Çekmece` çekmece önü, `Sırgak` çekmece, `Tekçe` raf, `Tündük` taç,
    `Gardırop Askısı W`. Eşleşmeyen parçaya fiyat uydurulmaz, ekranda `[FİYAT]` görünür.
 2. **Frontend'e backend izi gitmez.** Olaylar `events.ts` beyaz listesinden geçer;

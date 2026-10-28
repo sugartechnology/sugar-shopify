@@ -70,9 +70,9 @@ export function variantGidToNumber(gid: string): number | null {
 
 /** Spike numbers (MCP × 1.10); `*` matches any colour suffix. */
 export const KOSHOY_MOCK_PRICES: ReadonlyArray<{ pattern: string; price: string }> = [
-  { pattern: "Bakay 960x2304x640 mm", price: "6425.00" },
-  { pattern: "Acıbay 477x2237x0 mm", price: "1069.43" },
-  { pattern: "Tekçe 960x0x640 mm", price: "573.28" },
+  { pattern: "Bakay LAKE BEYAZ 960x2304x640 mm", price: "6425.00" },
+  { pattern: "Acıbay LAKE BEYAZ 477x2237x0 mm", price: "1069.43" },
+  { pattern: "Tekçe LAKE BEYAZ 960x0x640 mm", price: "573.28" },
   { pattern: "Gardırop Askısı 960", price: "396.00" },
 ];
 

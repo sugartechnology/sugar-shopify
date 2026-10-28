@@ -62,17 +62,17 @@ describe("koshoy cabinet engine contract", () => {
 
   it("maps BOM lines to Koshoy's Shopify part titles", () => {
     assert.deepEqual(engine.toBom(GOLDEN).map((line) => engine.skuFor(line)), [
-      "Bakay 960x2304x640 mm",
-      "Acıbay 477x2237x0 mm",
-      "Tekçe 960x0x640 mm",
+      "Bakay LAKE BEYAZ 960x2304x640 mm",
+      "Acıbay LAKE BEYAZ 477x2237x0 mm",
+      "Tekçe LAKE BEYAZ 960x0x640 mm",
       "Gardırop Askısı 960",
     ]);
     const title = (part: string, widthMm: number, heightMm: number, depthMm: number, extra = {}) =>
       koshoyPartTitle({ part, widthMm, heightMm, depthMm, color: "ivory", qty: 1, ...extra } as BomLine);
-    assert.equal(title("CEKMECE_ON", 477, 157, 0), "Acıbay Çekmece 480x160x0 mm", "drawer fronts by nominal size");
-    assert.equal(title("CEKMECE", 960, 320, 480), "Sırgak 960x320x480 mm");
-    assert.equal(title("TAC", 960, 25, 640), "Tündük 960x25x640 mm");
-    assert.equal(title("GOVDE", 480, 544, 480, { plinth: false }), "Bakay 480x544x480 mm (bazasız)");
+    assert.equal(title("CEKMECE_ON", 477, 157, 0), "Acıbay Çekmece LAKE BEYAZ 480x160x0 mm", "drawer fronts by nominal size");
+    assert.equal(title("CEKMECE", 960, 320, 480), "Sırgak LAKE BEYAZ 960x320x480 mm");
+    assert.equal(title("TAC", 960, 25, 640), "Tündük LAKE BEYAZ 960x25x640 mm");
+    assert.equal(title("GOVDE", 480, 544, 480, { plinth: false }), "Bakay LAKE BEYAZ 480x544x480 mm (bazasız)");
   });
 
   it("keeps the part key swappable in one place", () => {

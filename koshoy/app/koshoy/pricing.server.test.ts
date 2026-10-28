@@ -94,9 +94,9 @@ describe("koshoy pricing", () => {
     assert.deepEqual(
       quote.lines.map((line) => [line.sku, line.qty, line.unitCents]),
       [
-        ["Bakay 960x2304x640 mm", 2, 642500],
-        ["Acıbay 477x2237x0 mm", 2, 106943],
-        ["Tekçe 960x0x640 mm", 1, 57328],
+        ["Bakay LAKE BEYAZ 960x2304x640 mm", 2, 642500],
+        ["Acıbay LAKE BEYAZ 477x2237x0 mm", 2, 106943],
+        ["Tekçe LAKE BEYAZ 960x0x640 mm", 1, 57328],
         ["Gardırop Askısı 960", 1, 39600],
       ],
     );
@@ -115,7 +115,7 @@ describe("koshoy pricing", () => {
     const quote = await pricer.quote(GOLDEN);
     assert.equal(quote.display, "[FİYAT]");
     assert.equal(quote.totalCents, null);
-    assert.deepEqual(quote.unresolved.sort(), ["Acıbay 477x2237x0 mm", "Gardırop Askısı 960", "Tekçe 960x0x640 mm"]);
+    assert.deepEqual(quote.unresolved.sort(), ["Acıbay LAKE BEYAZ 477x2237x0 mm", "Gardırop Askısı 960", "Tekçe LAKE BEYAZ 960x0x640 mm"]);
     assert.ok(
       errors.mock.calls.some(
         (call) => call.arguments[0] === "[koshoy] unresolved sku" && Array.isArray(call.arguments[1]),
@@ -130,7 +130,7 @@ describe("koshoy pricing", () => {
     const plan = cabinetEngine.planCabinet({ kind: "gardirop" });
     const quote = await createKoshoyPricer(cabinetEngine, createMockSkuResolver()).quote(plan.composition);
     assert.equal(quote.display, "[FİYAT]");
-    assert.ok(quote.unresolved.includes("Acıbay 477x1597x0 mm"));
+    assert.ok(quote.unresolved.includes("Acıbay LAKE BEYAZ 477x1597x0 mm"));
   });
 
   it("builds /cart/add.js lines grouped under the design id", async () => {
@@ -159,9 +159,9 @@ describe("koshoy pricing", () => {
   it("resolves parts by exact Shopify product title and caches the catalog", async () => {
     let now = 1_000;
     const { admin, calls } = fakeAdmin([
-      { id: "gid://shopify/ProductVariant/11", title: "Bakay 960x2304x640 mm", price: "6425.00" },
-      { id: "gid://shopify/ProductVariant/12", title: "Acıbay 477x2237x0 mm", price: "1069.43" },
-      { id: "gid://shopify/ProductVariant/13", title: "Tekçe 960x0x640 mm", price: "573.28" },
+      { id: "gid://shopify/ProductVariant/11", title: "Bakay LAKE BEYAZ 960x2304x640 mm", price: "6425.00" },
+      { id: "gid://shopify/ProductVariant/12", title: "Acıbay LAKE BEYAZ 477x2237x0 mm", price: "1069.43" },
+      { id: "gid://shopify/ProductVariant/13", title: "Tekçe LAKE BEYAZ 960x0x640 mm", price: "573.28" },
       { id: "gid://shopify/ProductVariant/14", title: "Gardırop Askısı 960", price: "396.00" },
       // near-miss titles must be ignored
       { id: "gid://shopify/ProductVariant/99", title: "Gardırop Askısı 9600", price: "1.00" },

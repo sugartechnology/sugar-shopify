@@ -133,27 +133,34 @@ export interface CabinetEngine {
 }
 
 /**
+ * Shop colour in every part title. Since 28 Oct the shop lists each part in
+ * LAKE BEYAZ and KUMTAŞI; the LAKE BEYAZ products are the original ones (same
+ * variant ids as before the colour was added), so every 3D colour prices from them.
+ */
+const SHOP_PART_COLOR = "LAKE BEYAZ";
+
+/**
  * Shopify product title of one BOM part. Koshoy's shop has no SKUs: every
- * catalog part is its own product named by type + nominal size, e.g.
- * "Bakay 960x2304x640 mm" (body), "Acıbay 477x2237x0 mm" (door leaf).
- * Drawer fronts are listed by nominal width/band; the BOM keeps the 3 mm gap.
+ * catalog part is its own product named by type + shop colour + nominal size,
+ * e.g. "Bakay LAKE BEYAZ 960x2304x640 mm" (body), "Acıbay LAKE BEYAZ 477x2237x0 mm"
+ * (door leaf). Drawer fronts are listed by nominal width/band; the BOM keeps the 3 mm gap.
  */
 export function koshoyPartTitle(line: BomLine): string {
-  const mm = (w: number, h: number, d: number) => `${w}x${h}x${d} mm`;
+  const colorSize = (w: number, h: number, d: number) => `${SHOP_PART_COLOR} ${w}x${h}x${d} mm`;
   switch (line.part) {
     case "GOVDE":
       // Only bodies with plinth exist in the shop; a plinthless one stays unresolved.
-      return `Bakay ${mm(line.widthMm, line.heightMm, line.depthMm)}${line.plinth === false ? " (bazasız)" : ""}`;
+      return `Bakay ${colorSize(line.widthMm, line.heightMm, line.depthMm)}${line.plinth === false ? " (bazasız)" : ""}`;
     case "KAPAK":
-      return `Acıbay ${mm(line.widthMm, line.heightMm, 0)}`;
+      return `Acıbay ${colorSize(line.widthMm, line.heightMm, 0)}`;
     case "CEKMECE_ON":
-      return `Acıbay Çekmece ${mm(line.widthMm + 3, line.heightMm + 3, 0)}`;
+      return `Acıbay Çekmece ${colorSize(line.widthMm + 3, line.heightMm + 3, 0)}`;
     case "CEKMECE":
-      return `Sırgak ${mm(line.widthMm, line.heightMm, line.depthMm)}`;
+      return `Sırgak ${colorSize(line.widthMm, line.heightMm, line.depthMm)}`;
     case "RAF":
-      return `Tekçe ${mm(line.widthMm, 0, line.depthMm)}`;
+      return `Tekçe ${colorSize(line.widthMm, 0, line.depthMm)}`;
     case "TAC":
-      return `Tündük ${mm(line.widthMm, 25, line.depthMm)}`;
+      return `Tündük ${colorSize(line.widthMm, 25, line.depthMm)}`;
     case "ASKI":
       return `Gardırop Askısı ${line.widthMm}`;
   }
