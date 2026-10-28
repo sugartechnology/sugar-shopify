@@ -10,6 +10,6 @@
     { "name": "Tekçe", "part": "RAF" },
     { "name": "Tündük", "part": "TAC" },
     { "name": "Gardırop Askısı", "part": "ASKI" },
-    { "name": "Kulp", "part": "KULP", "anySize": true }
+    { "name": "Serek Kulp", "part": "KULP", "anySize": true }
   ]
 }

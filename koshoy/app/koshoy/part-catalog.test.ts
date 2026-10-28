@@ -27,6 +27,11 @@ describe("koshoy part catalog", () => {
     });
     assert.equal(readPartTitle("Bakay LAKE BEYAZ 480x544x480 mm (bazasız)")?.plinth, false);
     assert.equal(readPartTitle("Test"), null);
+    // The shop's handles (28 Oct): model name + size + colour.
+    assert.deepEqual(readPartTitle("Serek Kulp 128 Siyah"), {
+      part: "KULP", series: "", color: "SİYAH", size: "", plinth: true,
+    });
+    assert.equal(partKeyOfTitle("Serek Kulp 128 Beyaz"), partKeyOfTitle("Serek Kulp BEYAZ"));
   });
 
   it("gives the same key however the title is written", () => {

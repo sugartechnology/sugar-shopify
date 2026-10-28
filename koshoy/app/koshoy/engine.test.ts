@@ -71,7 +71,7 @@ describe("koshoy cabinet engine contract", () => {
     assert.equal(title("CEKMECE", 960, 320, 480), "Sırgak KUMTAŞI 960x320x480 mm");
     assert.equal(title("TAC", 960, 25, 640), "Tündük KUMTAŞI 960x25x640 mm");
     assert.equal(title("GOVDE", 480, 544, 480, { plinth: false }), "Bakay KUMTAŞI 480x544x480 mm (bazasız)");
-    assert.equal(title("KULP", 0, 0, 0, { color: "siyah" }), "Kulp SİYAH");
+    assert.equal(title("KULP", 0, 0, 0, { color: "siyah" }), "Serek Kulp SİYAH");
     assert.equal(title("GOVDE", 960, 2304, 640, { color: "wood" }), "Bakay LAKE BEYAZ 960x2304x640 mm", "old colours price as the default");
   });
 

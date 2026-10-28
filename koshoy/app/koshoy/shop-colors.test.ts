@@ -43,7 +43,7 @@ describe("koshoy shop colours", () => {
 
   it("offers a body colour only when the shop sells every template part in it, handles only when sold", () => {
     const engine = getCabinetEngine();
-    const complete = readPartCatalog(shopWith(["LAKE BEYAZ"], ["Kulp SİYAH 128 mm"]));
+    const complete = readPartCatalog(shopWith(["LAKE BEYAZ"], ["Serek Kulp 128 Siyah"]));
     const offered = offeredShopColors(engine, complete, DEFAULT_COLOR_LOOKS);
     assert.deepEqual([...offered.body], ["LAKE BEYAZ"]);
     assert.deepEqual([...offered.handles], ["SİYAH"]);
