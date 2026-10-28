@@ -37,6 +37,7 @@ const limits = {
   shopSession: createRateLimiter(KOSHOY_LIMITS.shopSession),
   room: createRateLimiter(KOSHOY_LIMITS.room),
   render: createRateLimiter(KOSHOY_LIMITS.render),
+  roomClean: createRateLimiter(KOSHOY_LIMITS.roomClean),
   roomRead: createRateLimiter(KOSHOY_LIMITS.roomRead),
   layout: createRateLimiter(KOSHOY_LIMITS.layout),
   rooms: createRateLimiter(KOSHOY_LIMITS.rooms),

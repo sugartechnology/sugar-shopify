@@ -1,7 +1,7 @@
 /**
  * tag-service calls of the room photo flow (server to server, shop API key,
- * same base URL as the LLM gateway): room analysis jobs and the
- * koshoy-render pipeline. Answers are reduced here to what Koshoy needs;
+ * same base URL as the LLM gateway): room analysis jobs, room clean jobs
+ * (items removed from the photo) and the koshoy-render pipeline. Answers are reduced here to what Koshoy needs;
  * nothing from them reaches the browser as is.
  */
 import { getLlmGatewayUrl } from "./llm-gateway.server";
@@ -21,6 +21,34 @@ export type RoomAnalysisJob =
   | { status: "failed" }
   | { status: "expired" };
 
+/** Upstream error text is kept only to tell "too large" apart; it never reaches the browser. */
+export type RoomCleanStartResult = { ok: true; jobId: string } | { ok: false; status: number; error: string };
+
+export type RoomCleanJob =
+  | { status: "processing" }
+  | { status: "completed"; result: unknown }
+  | { status: "failed"; error: string }
+  | { status: "expired" };
+
+/**
+ * Input of decor-ai's room clean job (ortak sözleşme §1). Koshoy never sends
+ * a method: decor-ai picks it.
+ */
+export interface RoomCleanInput {
+  /** The room photo, the same JPEG the analysis got */
+  imageUrl: string;
+  depthUrl: string;
+  /** The analysis object map (8 bit, pixel = part number) */
+  objectsUrl: string;
+  furnitureUrl?: string;
+  /** Part numbers to remove: every part of the selected items */
+  objectIds: number[];
+  depthScale: { min: number; max: number };
+  /** As Koshoy stores them (RoomView camera and planes); decor-ai reads fx, fy, cx, cy and the equations */
+  camera: { fx: number; fy: number; cx: number; cy: number };
+  planes: { floor?: unknown; wall?: unknown };
+}
+
 export type RenderJob =
   | { status: "processing" }
   | { status: "completed"; imageUrl: string; imageBase64: string; mimeType: string }
@@ -39,6 +67,8 @@ export interface KoshoyTagService {
   getRoomAnalysis(jobId: string): Promise<RoomAnalysisJob>;
   startRender(input: KoshoyRenderInput): Promise<StartResult>;
   getRender(jobId: string): Promise<RenderJob>;
+  startRoomClean(input: RoomCleanInput): Promise<RoomCleanStartResult>;
+  getRoomClean(jobId: string): Promise<RoomCleanJob>;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -93,6 +123,32 @@ export function createTagService(
       if (body.status === "failed") {
         console.error("[koshoy] room analysis failed upstream", text(body.error).slice(0, 200));
         return { status: "failed" };
+      }
+      return { status: "processing" };
+    },
+
+    async startRoomClean(input) {
+      const response = await call("/api/shopify/room-analysis/clean-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const body = await readJson(response);
+      const jobId = text(body.jobId);
+      if (response.ok && jobId && body.status !== "failed") return { ok: true, jobId };
+      return { ok: false, status: response.status, error: text(body.error).slice(0, 200) };
+    },
+
+    async getRoomClean(jobId) {
+      const response = await call(`/api/shopify/room-analysis/clean-jobs/${encodeURIComponent(jobId)}`);
+      if (response.status === 404) return { status: "expired" };
+      if (!response.ok) throw new Error(`room clean job read failed (${response.status})`);
+      const body = await readJson(response);
+      if (body.status === "completed") return { status: "completed", result: body.result };
+      if (body.status === "failed") {
+        const error = text(body.error).slice(0, 200);
+        console.error("[koshoy] room clean failed upstream", error);
+        return { status: "failed", error };
       }
       return { status: "processing" };
     },

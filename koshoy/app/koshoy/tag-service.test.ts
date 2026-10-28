@@ -81,6 +81,49 @@ describe("koshoy tag-service client", () => {
     assert.deepEqual(await tag.startRender(input), { ok: false, status: 400 });
   });
 
+  it("starts a room clean job with JSON links and reads it, keeping the upstream error only for us", async () => {
+    const { fetchFn, calls } = fakeFetch([
+      jsonAnswer(202, { jobId: "c-1", status: "processing" }),
+      jsonAnswer(200, { jobId: "c-1", status: "processing" }),
+      jsonAnswer(200, { jobId: "c-1", status: "completed", result: { photo: "https://x/photo.jpg" } }),
+      jsonAnswer(200, { jobId: "c-1", status: "failed", error: "Selected area is too large: 62% of the photo" }),
+      jsonAnswer(404, { jobId: "c-1", status: "expired" }),
+      jsonAnswer(400, { error: "objectIds is required" }),
+      jsonAnswer(503, { error: "busy" }),
+      jsonAnswer(502, {}),
+    ]);
+    const tag = createTagService("shop-key", fetchFn, BASE);
+    const input = {
+      imageUrl: "https://s/photo.jpg?X-Amz-Signature=1",
+      depthUrl: "https://a/depth.png",
+      objectsUrl: "https://a/objects.png",
+      furnitureUrl: "https://a/furniture.png",
+      objectIds: [2, 3],
+      depthScale: { min: 0.5, max: 6.2 },
+      camera: { fx: 1000, fy: 1000, cx: 800, cy: 600 },
+      planes: { floor: { normal: [0, -1, 0], equation: [0, -1, 0, 1.3] } },
+    };
+
+    assert.deepEqual(await tag.startRoomClean(input), { ok: true, jobId: "c-1" });
+    assert.equal(calls[0].url, `${BASE}/api/shopify/room-analysis/clean-jobs`);
+    assert.equal(calls[0].init.method, "POST");
+    assert.equal((calls[0].init.headers as Record<string, string>).Authorization, "Bearer shop-key");
+    assert.equal((calls[0].init.headers as Record<string, string>)["Content-Type"], "application/json");
+    assert.deepEqual(JSON.parse(String(calls[0].init.body)), input);
+
+    assert.deepEqual(await tag.getRoomClean("c-1"), { status: "processing" });
+    assert.equal(calls[1].url, `${BASE}/api/shopify/room-analysis/clean-jobs/c-1`);
+    assert.deepEqual(await tag.getRoomClean("c-1"), { status: "completed", result: { photo: "https://x/photo.jpg" } });
+    assert.deepEqual(await tag.getRoomClean("c-1"), {
+      status: "failed",
+      error: "Selected area is too large: 62% of the photo",
+    });
+    assert.deepEqual(await tag.getRoomClean("c-1"), { status: "expired" });
+    assert.deepEqual(await tag.startRoomClean(input), { ok: false, status: 400, error: "objectIds is required" });
+    assert.deepEqual(await tag.startRoomClean(input), { ok: false, status: 503, error: "busy" });
+    await assert.rejects(tag.getRoomClean("c-1"));
+  });
+
   it("downloads result files over https only", async () => {
     const { fetchFn, calls } = fakeFetch([
       () => new Response(new Uint8Array([1, 2]), { headers: { "Content-Type": "image/png" } }),

@@ -112,17 +112,57 @@ model KoshoyRoom {
   planes      String?
   /// JSON: {min, max} metres
   depthScale  String?
-  /// JSON: {depth, floor?, wall?, ceiling?, furniture?} links from the analysis
+  /// JSON: {depth, floor?, wall?, ceiling?, furniture?, objects?} links from the analysis
   fileUrls    String?
   /// Where the scale (field of view) came from: exif | user | hand_height | phone_26mm
   /// (the last two replace the 45° no-EXIF default, room-fov.ts); picks the measurement band
   scaleSource String?
   /// JSON: RoomMeasures (room-measure.server.ts), after the field-of-view correction
   measures    String?
+  /// JSON: removable items of the photo, PhotoItem[] (photo-items.ts); null for analyses without objects
+  objects     String?
+  /// KoshoyRoomClean the customer asked for last (POST /room-clean)
+  activeCleanId String?
+  /// KoshoyRoomClean whose files are in use (ready); null = the original photo
+  readyCleanId  String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  cleans      KoshoyRoomClean[]
 
   @@index([sessionId])
+}
+
+/// Items removed from a room photo (CONTRACT §2.9, room-clean.server.ts). One row
+/// per request of a selection; the files stay where decor-ai wrote them.
+model KoshoyRoomClean {
+  id           String     @id
+  roomId       String
+  room         KoshoyRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sessionId    String
+  shop         String
+  /// JSON: selected item ids (PhotoItemView.id), sorted
+  objectIds    String
+  /// JSON: object map part numbers sent upstream (every part of the selected items), sorted
+  parts        String
+  /// processing | ready | failed
+  status       String
+  /// clean_failed | too_large
+  error        String?
+  /// Clean job id upstream
+  jobId        String?
+  /// Links of the cleaned photo, depth and furniture mask (decor-ai S3)
+  photoUrl     String?
+  depthUrl     String?
+  furnitureUrl String?
+  /// JSON: RoomMeasures with the cleaned furniture mask; null = the room's own
+  measures     String?
+  /// Upstream method and model, for our records only; never sent to the browser
+  method       String?
+  model        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([roomId])
 }
 
 /// One photoreal render of a design in a room. Inputs and result in Sugar S3.

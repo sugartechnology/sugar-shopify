@@ -1,7 +1,8 @@
 /**
  * The room layout in the chat (CONTRACT v2 §6): the tools show_in_room,
- * render_room, place_in_room and remove_from_room, the room and layout
- * blocks of every hop, the room photo (once per room) and the layout
+ * render_room, place_in_room and remove_from_room (and offer_photo_cleanup,
+ * room-clean-chat.server.ts), the room and layout blocks of every hop, the
+ * room photo (once per room and item removal) and the layout
  * changes other tools cause (a new design enters the room, a wider design
  * pushes its neighbours). turn.server.ts calls these; it only offers the
  * tools while the room feature is configured.
@@ -24,10 +25,11 @@ import {
   layoutFactsForModel,
   settleAfterResize,
 } from "./layout.server";
+import { currentMeasures, readyClean } from "./room-clean.server";
+import { currentPhotoBytes, offerPhotoCleanup, photoFactsForModel, photoSeenKey } from "./room-clean-chat.server";
 import {
   fitFor,
   measureBand,
-  parseMeasures,
   roomFactsForModel,
   roundedCm,
   TIGHT_FIT_SENTENCE,
@@ -232,6 +234,7 @@ export async function runRoomTool(
   if (name === "place_in_room") return placeInRoom(ctx, args);
   if (name === "remove_from_room") return removeFromRoom(ctx, args);
   if (name === "show_in_room" || name === "render_room") return showOrRender(ctx, name, args);
+  if (name === "offer_photo_cleanup") return offerPhotoCleanup(ctx, args);
   return { ok: false, error: "unsupported_tool" };
 }
 
@@ -295,23 +298,31 @@ export async function roomHopContext(
   /** A ready room with a usable floor: room sizes may be told (approximately). */
   roomReady: boolean;
   layout: Record<string, unknown>;
-  /** Set only when this model conversation has not seen the room yet; mark it seen after a clean hop. */
-  photo: { contentBase64: string; mimeType: string; roomId: string } | null;
+  /**
+   * Set only when this model conversation has not seen the photo yet (a new
+   * room, or items removed from it); mark `seenKey` seen after a clean hop.
+   */
+  photo: { contentBase64: string; mimeType: string; seenKey: string } | null;
 }> {
   const { layout, target, room } = await currentLayout(ctx.room, ctx.session, designs);
   const roomReady = roomProblem(room, target) === null;
-  const measures = room && roomReady ? parseMeasures(room.measures) : null;
+  // With items removed, the model sees and measures the cleaned room (CONTRACT §2.9).
+  const clean = room ? await readyClean(ctx.room.db, room) : null;
+  const measures = room && roomReady ? currentMeasures(room, clean) : null;
   const sizes = designSizes(designs);
   let roomFacts: Record<string, unknown> | null = null;
   if (room && !roomReady) {
     // A photo without a usable floor: say so, never "upload a photo".
     roomFacts = { floor: HINTS.no_floor };
   } else if (room && measures) {
-    roomFacts = roomFactsForModel(
-      measures,
-      room.scaleSource,
-      designs.map((design) => ({ id: design.id, label: design.label, widthM: sizes.get(design.id)!.widthM })),
-    );
+    roomFacts = {
+      ...roomFactsForModel(
+        measures,
+        room.scaleSource,
+        designs.map((design) => ({ id: design.id, label: design.label, widthM: sizes.get(design.id)!.widthM })),
+      ),
+      ...photoFactsForModel(room, clean),
+    };
   }
   const layoutBlock = layoutFactsForModel(
     layout,
@@ -320,15 +331,16 @@ export async function roomHopContext(
     target.roomId !== null,
   );
 
-  let photo: { contentBase64: string; mimeType: string; roomId: string } | null = null;
-  if (withMessage && room && ctx.session.photoSentRoomId !== room.id) {
-    const file = await ctx.room.files.get(room.photoKey).catch((error) => {
+  let photo: { contentBase64: string; mimeType: string; seenKey: string } | null = null;
+  const seenKey = room ? photoSeenKey(room, clean) : null;
+  if (withMessage && room && seenKey && ctx.session.photoSentRoomId !== seenKey) {
+    const bytes = await currentPhotoBytes(ctx.room, room, clean).catch((error) => {
       console.error("[koshoy] room photo not read for the model", error);
       return null;
     });
-    if (file && file.bytes.length <= MAX_PHOTO_BYTES) {
-      const contentBase64 = Buffer.from(file.bytes).toString("base64");
-      photo = { contentBase64, mimeType: "image/jpeg", roomId: room.id };
+    if (bytes && bytes.length <= MAX_PHOTO_BYTES) {
+      const contentBase64 = Buffer.from(bytes).toString("base64");
+      photo = { contentBase64, mimeType: "image/jpeg", seenKey };
     }
   }
   return { room: roomFacts, roomReady, layout: layoutBlock, photo };

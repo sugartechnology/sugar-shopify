@@ -10,6 +10,7 @@ import type { KoshoyFile } from "../services/s3.server";
 import type { RenderJob } from "../services/tag-service.server";
 import { CABIN_COLOR_LABELS, DESIGN_KIND_LABELS, type CabinetEngine } from "./engine";
 import { normalizeCabinColor } from "./cabinet-core";
+import { readyCleanPhotoUrl } from "./room-clean.server";
 import {
   imageType,
   isOverdue,
@@ -109,7 +110,8 @@ export async function startRender(
   let jobId: string | null = null;
   try {
     const started = await tagService.startRender({
-      roomImageUrl: await link(input.room.photoKey),
+      // With items removed from the photo, the picture is made from the cleaned room (CONTRACT §2.9).
+      roomImageUrl: (await readyCleanPhotoUrl(deps.db, input.room)) ?? (await link(input.room.photoKey)),
       compositeImageUrl: await link(compositeKey),
       cabinetImageUrl: await link(cabinetKey),
       cabinetDescription: input.description,

@@ -47,6 +47,12 @@ function setup(options: { failUpload?: boolean } = {}) {
     async getRender() {
       return { status: "processing" };
     },
+    async startRoomClean() {
+      throw new Error("not used here");
+    },
+    async getRoomClean() {
+      throw new Error("not used here");
+    },
   };
   const objects = new Map<string, KoshoyFile>();
   const files: KoshoyFileStore = {

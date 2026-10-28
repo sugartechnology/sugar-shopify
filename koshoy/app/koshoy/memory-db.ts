@@ -4,6 +4,7 @@
  */
 import type { KoshoyLayoutRow } from "./layout.server";
 import type { KoshoyPhoneLinkDb, KoshoyPhoneLinkRow } from "./phone-link.server";
+import type { KoshoyRoomCleanRow } from "./room-clean.server";
 import { measureRoom } from "./room-measure.server";
 import type { KoshoyRenderRow, KoshoyRoomDb, KoshoyRoomRow, RoomPlanes } from "./room.server";
 import type { KoshoyRoomSessionsDb } from "./room-sessions.server";
@@ -130,8 +131,8 @@ export function createMemoryKoshoyDb(now: () => number = Date.now) {
 
 /**
  * In-memory KoshoyRoom / KoshoyRender tables (create, findFirst by id +
- * session, findMany by session, update) and KoshoyLayout (unique sessionId,
- * conditional updateMany).
+ * session, findMany by session, update), KoshoyRoomClean (by id + room, by
+ * room) and KoshoyLayout (unique sessionId, conditional updateMany).
  */
 export function createMemoryRoomDb(now: () => number = Date.now) {
   function table<Row extends { id: string; sessionId: string; createdAt: Date; updatedAt: Date }>() {
@@ -179,10 +180,32 @@ export function createMemoryRoomDb(now: () => number = Date.now) {
     },
   };
 
+  const cleans = new Map<string, KoshoyRoomCleanRow>();
+  const koshoyRoomClean: KoshoyRoomDb["koshoyRoomClean"] = {
+    async create({ data }) {
+      const row = { ...data, createdAt: new Date(now()), updatedAt: new Date(now()) };
+      cleans.set(row.id, row);
+      return { ...row };
+    },
+    async findFirst({ where }) {
+      const row = cleans.get(where.id);
+      return row && row.roomId === where.roomId ? { ...row } : null;
+    },
+    async findMany({ where }) {
+      return [...cleans.values()].filter((row) => row.roomId === where.roomId).map((row) => ({ ...row }));
+    },
+    async update({ where, data }) {
+      const row = cleans.get(where.id);
+      if (!row) throw new Error("record not found");
+      Object.assign(row, data, { updatedAt: new Date(now()) });
+      return { ...row };
+    },
+  };
+
   const koshoyRoom = table<KoshoyRoomRow>();
   const koshoyRender = table<KoshoyRenderRow>();
-  const db: KoshoyRoomDb = { koshoyRoom, koshoyRender, koshoyLayout };
-  return { db, rooms: koshoyRoom.rows, renders: koshoyRender.rows, layouts };
+  const db: KoshoyRoomDb = { koshoyRoom, koshoyRender, koshoyLayout, koshoyRoomClean };
+  return { db, rooms: koshoyRoom.rows, renders: koshoyRender.rows, layouts, cleans };
 }
 
 /**
@@ -290,6 +313,9 @@ export function sampleReadyRoom(id: string, sessionId: string, shop = "koshoy.my
     fileUrls: JSON.stringify({ depth: "https://x/depth.png" }),
     scaleSource: "exif",
     measures: JSON.stringify(measures),
+    objects: null,
+    activeCleanId: null,
+    readyCleanId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };

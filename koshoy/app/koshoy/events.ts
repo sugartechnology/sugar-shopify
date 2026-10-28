@@ -13,6 +13,7 @@ import {
   type DesignKind,
 } from "./engine";
 import { findFrontSeries } from "./cabinet-core";
+import { MAX_PHOTO_ITEMS } from "./photo-items";
 import { MAX_LAYOUT_ITEMS } from "./room-layout";
 
 export const KOSHOY_ERROR_CODES = [
@@ -23,6 +24,8 @@ export const KOSHOY_ERROR_CODES = [
   "edit_rejected",
   "out_of_scope",
   "cart_failed",
+  /** /room-clean only (CONTRACT §2.9): this photo had its 5 distinct item removals */
+  "clean_limit",
 ] as const;
 export type KoshoyErrorCode = (typeof KOSHOY_ERROR_CODES)[number];
 
@@ -145,6 +148,8 @@ export type PublicEvent =
   | { type: "photo"; roomId: string }
   /** /session only: a finished realistic picture, at its place in the thread (GET /render-file). */
   | { type: "render"; renderId: string }
+  /** offer_photo_cleanup: the storefront opens the item removal card, these items ticked (CONTRACT §2.9). */
+  | { type: "photo_items"; preselect: string[] }
   /** Stage 4: photo / own measurements / go on without; `photo` false when the room feature is off. */
   | { type: "structure"; photo: boolean }
   /** Stage 6: what the customer approves (products, style, total). `single`: the one-product buyer. */
@@ -498,6 +503,11 @@ export function toPublicEvent(raw: unknown): PublicEvent | null {
     case "render": {
       const renderId = opaqueId(row.renderId);
       return renderId ? { type: "render", renderId } : null;
+    }
+    case "photo_items": {
+      const ids = Array.isArray(row.preselect) ? row.preselect.map(opaqueId) : [];
+      const preselect = [...new Set(ids.filter((id): id is string => id !== null))].slice(0, MAX_PHOTO_ITEMS);
+      return { type: "photo_items", preselect };
     }
     case "structure":
       return { type: "structure", photo: row.photo === true };

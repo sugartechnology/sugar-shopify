@@ -275,6 +275,11 @@ describe("koshoy scope", () => {
     assert.equal(classifyScope("Bir de koltuk istiyorum"), "out");
     assert.equal(classifyScope("Yatağımın yanına ne olur?"), "out");
     assert.equal(classifyScope("Mutfak dolabı lazım"), "in", "only the worktop cabinets are out");
+    // Taking furniture out of the room photo is not a product request (§2.9)
+    assert.equal(classifyScope("Koltuğu kaldırır mısın?"), "unknown");
+    assert.equal(classifyScope("Fotoğraftan yatağı çıkar"), "unknown");
+    assert.equal(classifyScope("Sandalyeleri sil"), "unknown");
+    assert.equal(classifyScope("Bir de koltuk istiyorum"), "out", "asking for a sofa stays out");
     assert.equal(classifyScope("Mutfağa kiler dolabı istiyorum"), "in");
     assert.equal(classifyScope("Tezgahlı mutfak alt dolabı"), "out");
     assert.equal(classifyScope("Mutfak alt dolabı yapar mısınız"), "out");

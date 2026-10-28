@@ -978,7 +978,7 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
     }
     // Seen only once the model answered this hop without an error (a timeout
     // or a closed page throws above and leaves it unseen).
-    if (photo) session.photoSentRoomId = photo.roomId;
+    if (photo) session.photoSentRoomId = photo.seenKey;
 
     publishText(ctx, buffer);
 
