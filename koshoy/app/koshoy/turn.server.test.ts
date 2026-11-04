@@ -45,6 +45,7 @@ async function turn(
     mock?: boolean;
     signal?: AbortSignal;
     timeoutMs?: number;
+    upstreamGraceMs?: number;
     room?: KoshoyRoomDeps;
     customerId?: string | null;
   } = {},
@@ -64,6 +65,7 @@ async function turn(
       customerId: options.customerId === undefined ? "c1" : options.customerId,
       signal: options.signal,
       timeoutMs: options.timeoutMs,
+      upstreamGraceMs: options.upstreamGraceMs,
       room: options.room,
     },
     emit: (event) => events.push(event),
@@ -519,13 +521,86 @@ describe("koshoy turn loop", () => {
       return new Promise(() => {});
     };
     const started = Date.now();
-    const events = await turn(ctx, ctx.session, { type: "message", text: "Kitaplık" }, { stream: stalled, timeoutMs: 30 });
+    const events = await turn(ctx, ctx.session, { type: "message", text: "Kitaplık" }, {
+      stream: stalled,
+      timeoutMs: 30,
+      upstreamGraceMs: 50,
+    });
     assert.ok(Date.now() - started < 2000);
     assert.deepEqual(events.slice(-2), [{ type: "error", code: "unavailable" }, { type: "done" }]);
     assert.equal(seen.signal?.aborted, true, "the stream is told to cancel");
     const count = events.length;
     seen.onEvent?.({ event: "text", data: { text: "Geç gelen yanıt" } });
     assert.equal(events.length, count);
+  });
+
+  it("keeps the turn (and so the session lock) until a stopped gateway call ends", async () => {
+    const ctx = await setup();
+    let finish = () => {};
+    let ended = false;
+    const slow: KoshoyStreamFn = () =>
+      new Promise<void>((resolve) => {
+        finish = () => {
+          ended = true;
+          resolve();
+        };
+      });
+    const gone = new AbortController();
+    const events: PublicEvent[] = [];
+    const running = runKoshoyTurn({
+      client: { type: "message", text: "Kitaplık" },
+      session: ctx.session,
+      deps: {
+        store: ctx.store,
+        engine: cabinetEngine,
+        pricer: ctx.pricer,
+        apiKey: "shop-key",
+        mock: false,
+        stream: slow,
+        data: KOSHOY_DATA_DEFAULTS,
+        customerId: "c1",
+        signal: gone.signal,
+      },
+      emit: (event) => events.push(event),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    gone.abort();
+    let settled = false;
+    void running.then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(events.at(-1)?.type, "done", "the page is answered at once");
+    assert.equal(settled, false, "the turn waits for the gateway call");
+    finish();
+    await running;
+    assert.equal(ended, true);
+  });
+
+  it("asks again while the gateway still answers an earlier call of the conversation", async () => {
+    const ctx = await setup();
+    const busy = { event: "error", data: { message: "Bu konuşma için bir AI çağrısı zaten devam ediyor." } };
+    const { stream, bodies } = scriptedStream([[busy], [{ event: "text", data: { text: "Kitaplığı hazırlıyorum." } }]]);
+    const events = await turn(ctx, ctx.session, { type: "message", text: "Kitaplık" }, { stream });
+    assert.equal(bodies.length, 2);
+    assert.ok(!events.some((event) => event.type === "error"));
+    assert.ok(events.some((event) => event.type === "text" && event.text.includes("Kitaplığı hazırlıyorum")));
+  });
+
+  it("lets a later reply repeat the price on the card", async () => {
+    const ctx = await setup();
+    const plan = scriptedStream([
+      [{ event: "tool_call", data: { callId: "call_plan", name: "plan_cabinet", arguments: { kind: "kitaplik" } } }],
+      [{ event: "text", data: { text: "Hazır." } }],
+    ]);
+    const first = await turn(ctx, ctx.session, { type: "message", text: "Kitaplık" }, { stream: plan.stream });
+    const price = first.find((event) => event.type === "price");
+    assert.ok(price?.type === "price" && price.display.endsWith("TL"));
+    const ask = scriptedStream([[{ event: "text", data: { text: `Fiyatı ${price.display}.` } }]]);
+    const events = await turn(ctx, ctx.session, { type: "message", text: "Fiyatı ne kadardı?" }, { stream: ask.stream });
+    const reply = events.filter((event) => event.type === "text").at(-1);
+    assert.ok(reply?.type === "text");
+    assert.equal(reply.text, `Fiyatı ${price.display}.`);
   });
 
   it("stops between hops when the storefront goes away", async () => {

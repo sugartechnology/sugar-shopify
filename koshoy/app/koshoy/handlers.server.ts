@@ -25,6 +25,7 @@ import {
 } from "./input";
 import {
   hitAll,
+  KOSHOY_BUSY_WAIT_MS,
   koshoyClientKey,
   type KoshoyBusyLock,
   type KoshoyRateLimiter,
@@ -435,7 +436,10 @@ export async function handleKoshoyTurn(
     ) {
       return turnErrorResponse("rate_limited", json);
     }
-    if (!ctx.busy.acquire(found.id)) return turnErrorResponse("rate_limited", json);
+    // A second turn (a chip clicked as the first one ends) waits for the first.
+    if (!(await ctx.busy.wait(found.id, KOSHOY_BUSY_WAIT_MS, gone.signal))) {
+      return turnErrorResponse("rate_limited", json);
+    }
     lockedId = found.id;
     const session = await lockedSession(request, ctx, body, found.id);
     if (!session) {
@@ -475,7 +479,13 @@ export async function handleKoshoyTurn(
     if (json) {
       const events: PublicEvent[] = [];
       lockedId = "";
-      await run((event) => events.push(event));
+      // Answer at "done"; the turn may still hold the lock for its gateway call.
+      await new Promise<void>((resolve) => {
+        void run((event) => {
+          events.push(event);
+          if (event.type === "done") resolve();
+        }).finally(resolve);
+      });
       return koshoyJson({ events });
     }
 
@@ -483,16 +493,7 @@ export async function handleKoshoyTurn(
     const sse = new ReadableStream<Uint8Array>({
       start(controller) {
         let open = true;
-        const emit = (event: PublicEvent) => {
-          if (!open) return;
-          try {
-            controller.enqueue(encoder.encode(sseFrame(event)));
-          } catch {
-            open = false;
-            gone.abort();
-          }
-        };
-        void run(emit).finally(() => {
+        const close = () => {
           if (!open) return;
           open = false;
           try {
@@ -500,7 +501,20 @@ export async function handleKoshoyTurn(
           } catch {
             // client already gone
           }
-        });
+        };
+        const emit = (event: PublicEvent) => {
+          if (!open) return;
+          try {
+            controller.enqueue(encoder.encode(sseFrame(event)));
+          } catch {
+            open = false;
+            gone.abort();
+            return;
+          }
+          // The page is done at "done"; the turn may still hold the lock for its gateway call.
+          if (event.type === "done") close();
+        };
+        void run(emit).finally(close);
       },
       cancel() {
         gone.abort();
