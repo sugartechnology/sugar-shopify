@@ -133,6 +133,8 @@ export type PublicEvent =
       view: SceneView;
       /** Unit widths this kind allows (panel width steppers). */
       unitWidthsMm?: number[];
+      /** Per unit: fittings the panel cannot add any more, and why (full / hanger). */
+      blocked?: Array<Partial<Record<CabinFitKind, "full" | "hanger">>>;
     }
   | { type: "price"; designId: string; version: number; display: string }
   /** The whole set: sum of every design's price (2+ designs); [FİYAT] while one is not priced. */
@@ -439,9 +441,17 @@ export function toPublicEvent(raw: unknown): PublicEvent | null {
             (CABIN_WIDTHS_MM as readonly unknown[]).includes(value),
           )
         : [];
-      return widths.length
-        ? { type: "scene", designId, version: v, kind, label: name, view, unitWidthsMm: widths }
-        : { type: "scene", designId, version: v, kind, label: name, view };
+      const blocked = toBlocked(row.blocked, view.units.length);
+      return {
+        type: "scene",
+        designId,
+        version: v,
+        kind,
+        label: name,
+        view,
+        ...(widths.length ? { unitWidthsMm: widths } : {}),
+        ...(blocked ? { blocked } : {}),
+      };
     }
     case "price": {
       const designId = opaqueId(row.designId);
@@ -595,4 +605,17 @@ export function errorEvent(code: KoshoyErrorCode): PublicEvent {
 /** One SSE frame. Only call with an already serialized PublicEvent. */
 export function sseFrame(event: PublicEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+}
+
+/** Only known fitting kinds and reasons, one entry per unit. */
+function toBlocked(value: unknown, units: number): Array<Partial<Record<CabinFitKind, "full" | "hanger">>> | undefined {
+  if (!Array.isArray(value) || value.length !== units) return undefined;
+  return value.map((raw) => {
+    const row = asRecord(raw) ?? {};
+    const out: Partial<Record<CabinFitKind, "full" | "hanger">> = {};
+    for (const kind of CABIN_FIT_KINDS) {
+      if (row[kind] === "full" || row[kind] === "hanger") out[kind] = row[kind];
+    }
+    return out;
+  });
 }

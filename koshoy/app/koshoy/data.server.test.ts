@@ -5,6 +5,7 @@ import {
   KOSHOY_DATA_DEFAULTS,
   KOSHOY_DATA_KEYS,
   validateImages,
+  isProductName,
   validateKinds,
   validateKoshoyData,
   validateLevels,
@@ -229,5 +230,34 @@ describe("koshoy data store", () => {
     const snapshot = await store.snapshot();
     snapshot.rooms.length = 0;
     assert.ok(KOSHOY_DATA_DEFAULTS.rooms.length > 0);
+  });
+});
+
+describe("named products in kinds (keson, dresuar; ClickUp z8qu5d7v7w)", () => {
+  const kinds = () => structuredClone(KOSHOY_DATA_DEFAULTS.kinds);
+  it("defaults have keson on komodin and dresuar on şifonyer, and they validate", () => {
+    const rows = kinds();
+    assert.equal(rows.find((row) => row.kind === "komodin")?.products[0]?.id, "keson");
+    assert.equal(rows.find((row) => row.kind === "sifonyer")?.products[0]?.id, "dresuar");
+    assert.equal(validateKinds(rows).ok, true);
+  });
+  it("an old document without products still validates", () => {
+    const rows = kinds().map(({ products: _products, ...row }) => row);
+    const result = validateKinds(rows);
+    assert.ok(result.ok);
+    assert.ok(result.ok && result.value.every((row) => row.products.length === 0));
+  });
+  it("refuses a product that does not build or a bad name", () => {
+    const rows = kinds();
+    const keson = rows.find((row) => row.kind === "komodin")!.products[0];
+    keson.fittings = Array(9).fill("drawer160");
+    const tooMany = validateKinds(rows);
+    assert.equal(tooMany.ok, false);
+    assert.ok(!tooMany.ok && tooMany.errors.some((error) => /kurulamıyor/.test(error)));
+    const named = kinds();
+    named.find((row) => row.kind === "komodin")!.products[0].label = "Keson <b>";
+    assert.equal(validateKinds(named).ok, false);
+    assert.equal(isProductName("Keson"), true);
+    assert.equal(isProductName("Keson 2"), false);
   });
 });

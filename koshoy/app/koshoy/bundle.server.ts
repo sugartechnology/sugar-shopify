@@ -53,8 +53,9 @@ function partCount(quote: KoshoyQuote, part: string): number {
   return quote.lines.filter((line) => line.part === part).reduce((sum, line) => sum + line.qty, 0);
 }
 
-export function bundleTitle(kind: DesignKind, composition: CabinComposition, quote: KoshoyQuote): string {
-  const type = BUNDLE_TYPES[kind] ?? "Dolap";
+export function bundleTitle(kind: DesignKind, composition: CabinComposition, quote: KoshoyQuote, name = ""): string {
+  // A named product ("Keson") keeps its name in the cart and the order (ClickUp z8qu5d7v7w).
+  const type = name && name !== DESIGN_KIND_LABELS[kind] ? titleCase(name) : (BUNDLE_TYPES[kind] ?? "Dolap");
   const widthMm = composition.units.reduce((sum, unit) => sum + unit.widthMm, 0);
   const doors = partCount(quote, "KAPAK");
   const drawers = partCount(quote, "CEKMECE_ON");
@@ -105,6 +106,8 @@ export function bundleSpec(
   composition: CabinComposition,
   quote: KoshoyQuote,
   designId: string,
+  /** Product name from the design label; the kind's type when missing. */
+  name = "",
 ): BundleSpec | null {
   if (quote.totalCents === null || quote.unresolved.length || !quote.lines.length) return null;
   const merged = new Map<number, number>();
@@ -116,7 +119,7 @@ export function bundleSpec(
   if (merged.size > 30) return null;
   return {
     designId,
-    title: bundleTitle(kind, composition, quote),
+    title: bundleTitle(kind, composition, quote, name),
     productType: BUNDLE_TYPES[kind] ?? "Dolap",
     components: [...merged].map(([variantId, quantity]) => ({
       variantId,

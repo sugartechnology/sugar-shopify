@@ -12,8 +12,12 @@ import {
   DESIGN_KIND_LABELS,
   DESIGN_KINDS,
   type CabinColorId,
+  type CabinFitKind,
   type DesignKind,
+  type PlanInput,
 } from "./engine";
+import { PART_NAMES } from "./part-catalog";
+import { isProductName, namedProductPlan, type KoshoyDataDocs, type KoshoyNamedProduct } from "./data.server";
 import { bodyColorIds, colorIdInText, colorLabel } from "./shop-colors";
 import {
   errorEvent,
@@ -472,6 +476,57 @@ interface PlannedItem {
   widthMm?: number;
 }
 
+const INVALID_NAME_HINT =
+  "Ürün adı yalnız harf ve boşluk olabilir (en çok 30 karakter) ve mağaza dilinde olmalı; müşterinin söylediği sade adı kullan.";
+
+/** Shop part names (Bakay, Acıbay…) never become a customer-facing product name. */
+function hasPartName(name: string): boolean {
+  const words = name.toLocaleLowerCase("tr-TR").split(/\s+/);
+  // Only the brand-like first word ("Serek Kulp" → serek); "çekmece", "askısı" are ordinary words.
+  return PART_NAMES.some((row) => words.includes(row.name.toLocaleLowerCase("tr-TR").split(/\s+/)[0]) && row.name.split(/\s+/)[0] !== "Gardırop");
+}
+
+/** A named product of the data (keson, dresuar…) with the kind it is built on. */
+function findNamedProduct(data: KoshoyDataDocs, id: string): { kind: DesignKind; product: KoshoyNamedProduct } | null {
+  if (!id) return null;
+  for (const row of data.kinds) {
+    const product = row.products.find((item) => item.id === id);
+    if (product) return { kind: row.kind, product };
+  }
+  return null;
+}
+
+/**
+ * Plan input for a named product or a cabinet the customer named himself
+ * (ClickUp z8qu5d7v7w): their name on the label, sizes and drawers as asked.
+ * null when the given name is not a clean product name.
+ */
+function customPlan(kind: DesignKind, product: KoshoyNamedProduct | undefined, args: Record<string, unknown>): Partial<PlanInput> | null {
+  const name = str(args.name).trim();
+  if (name && (!isProductName(name) || checkReply(name, []).issues.length || hasPartName(name))) return null;
+  const heightMm = widthMmFrom(args.heightCm);
+  const depthMm = widthMmFrom(args.depthCm);
+  const drawers = Number.isInteger(args.drawers) ? Math.min(Math.max(Number(args.drawers), 0), 8) : undefined;
+  const door = typeof args.door === "boolean" ? args.door : undefined;
+  const base: Partial<PlanInput> = product ? namedProductPlan(kind, product) : {};
+  const interior =
+    drawers !== undefined || door !== undefined
+      ? {
+          fittings: drawers !== undefined
+            ? Array<CabinFitKind>(drawers).fill("drawer160")
+            : (product?.fittings ?? []).filter((fit) => fit !== "shelf"),
+          hasDoor: door ?? product?.door ?? false,
+        }
+      : base.interior;
+  return {
+    ...base,
+    ...(name ? { name: name.charAt(0).toLocaleUpperCase("tr-TR") + name.slice(1) } : {}),
+    ...(heightMm ? { heightMm } : {}),
+    ...(depthMm ? { depthMm } : {}),
+    ...(interior ? { interior } : {}),
+  };
+}
+
 /** "4 raflı" = 4 compartments; anything else is ignored. */
 function compartmentsFrom(value: unknown): number | undefined {
   const count = Number(value);
@@ -513,11 +568,14 @@ async function planStyledDesign(
   targetWidthMm: number | undefined,
   color: CabinColorId | undefined,
   compartments?: number,
+  /** A named product's or the customer's own size, interior and name. */
+  extra: Partial<PlanInput> = {},
 ) {
   const { session, deps } = ctx;
   const created = await createPlannedDesign(deps, session, {
+    ...extra,
     kind,
-    targetWidthMm,
+    targetWidthMm: targetWidthMm ?? extra.targetWidthMm,
     ...(compartments ? { compartments } : {}),
     color: color ?? (session.journey.style.panel || session.brief.color || undefined),
   });
@@ -631,8 +689,11 @@ export async function executeKoshoyTool(
   }
 
   if (call.name === "plan_cabinet") {
-    const kind = oneOf(args.kind, DESIGN_KINDS);
+    const named = findNamedProduct(deps.data, str(args.product));
+    const kind = named?.kind ?? oneOf(args.kind, DESIGN_KINDS);
     if (!kind) return { payload: { ok: false, error: "unsupported_kind" } };
+    const extra = customPlan(kind, named?.product, args);
+    if (!extra) return { payload: { ok: false, error: "invalid_name", hint: INVALID_NAME_HINT } };
     ctx.publish({ type: "status", key: "placing" });
     const created = await planStyledDesign(
       ctx,
@@ -640,6 +701,7 @@ export async function executeKoshoyTool(
       widthMmFrom(args.targetWidthCm),
       oneOf(args.color, bodyColorIds()),
       compartmentsFrom(args.compartments),
+      extra,
     );
     if (!created) return { payload: { ok: false, error: "design_limit", hint: DESIGN_LIMIT_HINT } };
     const { design, plan } = created;
@@ -867,9 +929,20 @@ function publishText(ctx: TurnContext, raw: string) {
  */
 function deadEndNudge(ctx: TurnContext, lastText: string): string | null {
   if (ctx.shown.has("choice")) return null;
-  if (ctx.askMissed || /:\s*$/.test(lastText)) return ASK_AGAIN_NUDGE;
+  if (ctx.askMissed || /:\s*$/.test(lastText) || isChoiceQuestion(lastText)) return ASK_AGAIN_NUDGE;
   if (!ctx.textSent && !ctx.shown.has("scene")) return SILENT_TURN_NUDGE;
   return null;
+}
+
+/**
+ * A closing question that asks the customer to pick ("Hangisini tercih
+ * edersin?") is a choice; without chips there is nothing to pick from. A
+ * yes / no or open question ("Rengini değiştirmek ister misin?") is not.
+ */
+export function isChoiceQuestion(text: string): boolean {
+  const last = text.trim().split(/(?<=[.!?])\s+/).pop() ?? "";
+  if (!/\?\s*$/.test(last)) return false;
+  return /(^|\s)(hangi(si|sini|sine|sinde)?|tercih eder|seçer misin|seçersin|şunlardan)/.test(last.toLocaleLowerCase("tr-TR"));
 }
 
 /**
@@ -941,7 +1014,10 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
       tag: KOSHOY_CHAT_TAG,
       jobId: session.id,
       instructions: koshoyInstructions(instructionInput),
-      tools: koshoyTools(Boolean(roomContext), { handles: Boolean(deps.handles?.handles.length) }),
+      tools: koshoyTools(Boolean(roomContext), {
+        handles: Boolean(deps.handles?.handles.length),
+        products: deps.data.kinds.flatMap((row) => row.products.map((product) => product.id)),
+      }),
       thinkingLevel: "low",
     };
     const platform = process.env.KOSHOY_CHAT_PLATFORM?.trim();

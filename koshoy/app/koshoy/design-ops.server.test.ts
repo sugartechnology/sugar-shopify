@@ -34,3 +34,16 @@ describe("applyDesignEdit: crown when a body grows tall", () => {
     assert.equal(result.warnings.includes("crown_removed"), false);
   });
 });
+
+describe("design names survive edits (keson)", () => {
+  it("keeps the planned name in the label after a width change", async () => {
+    const { designLabel, designName } = await import("./design-ops.server");
+    const plan = cabinetEngine.planCabinet({ kind: "komodin", name: "Keson" });
+    assert.equal(plan.label, "Keson 48 cm");
+    const wider = cabinetEngine.applyEditOp(plan.composition, { action: "set_total_width", widthMm: 960 }, "komodin");
+    assert.ok(wider.ok);
+    assert.equal(designLabel("komodin", wider.composition, plan.label), "Keson 96 cm");
+    assert.equal(designName("komodin", "Komodin 48 cm"), "Komodin");
+    assert.equal(designName("komodin", ""), "Komodin");
+  });
+});

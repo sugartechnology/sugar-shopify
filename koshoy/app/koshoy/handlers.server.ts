@@ -60,6 +60,7 @@ import {
 } from "./layout.server";
 import {
   applyDesignEdit,
+  designName,
   designSummaries,
   designsEvent,
   editSummaryText,
@@ -685,7 +686,7 @@ export async function handleKoshoyCart(
 
     // The parts are not sold on the storefront; the cart gets one bundle
     // product built from them (see bundle.server.ts).
-    const spec = bundleSpec(design.kind, design.composition, quote, design.id);
+    const spec = bundleSpec(design.kind, design.composition, quote, design.id, designName(design.kind, design.label));
     if (!spec) {
       return koshoyJson({ ok: false, error: "cart_failed", lines: [], display: quote.display });
     }

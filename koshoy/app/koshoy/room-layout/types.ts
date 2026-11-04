@@ -27,8 +27,8 @@ export type RoomLayout = { version: number; roomId: string | null; items: Layout
 /** Görünen duvarın uçları, `alongM` cinsinden. */
 export type WallBounds = { fromM: number; toM: number };
 
-/** Odada en çok bu kadar tasarım (Fatih, 21 Ekim). */
-export const MAX_LAYOUT_ITEMS = 8;
+/** Odada en çok bu kadar tasarım (Fatih, 21 Ekim: 8; 4 Kasım: 12, sohbetteki sınırla aynı). */
+export const MAX_LAYOUT_ITEMS = 12;
 
 /** Analiz yokken studio'daki virtual wall: 8 m. */
 export const STUDIO_WALL: WallBounds = { fromM: -4, toM: 4 };

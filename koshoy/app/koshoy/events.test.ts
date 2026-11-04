@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { publicEvents, sseFrame, toPublicEvent } from "./events";
+import { KOSHOY_MAX_LAYOUT_ITEMS, publicEvents, sseFrame, toPublicEvent } from "./events";
 
 describe("koshoy public event whitelist", () => {
   it("rebuilds a scene with only contract fields", () => {
@@ -172,8 +172,8 @@ describe("koshoy public event whitelist", () => {
     assert.equal(bad({ surface: "wall", alongM: 51 }), null, "|m| ≤ 50");
     assert.equal(bad({ surface: "floor", xM: 0, forwardM: 1, rotDeg: 181 }), null, "rotDeg −180..180");
     assert.equal(bad({ surface: "ceiling" }), null);
-    const nine = Array.from({ length: 9 }, (_, i) => ({ designId: `d${i}`, place: null }));
-    assert.equal(toPublicEvent({ type: "layout", version: 1, items: nine }), null, "at most 8");
+    const tooMany = Array.from({ length: KOSHOY_MAX_LAYOUT_ITEMS + 1 }, (_, i) => ({ designId: `d${i}`, place: null }));
+    assert.equal(toPublicEvent({ type: "layout", version: 1, items: tooMany }), null, "at most KOSHOY_MAX_LAYOUT_ITEMS");
   });
 
   it("passes the layout target: wall with its ends, or floor", () => {
@@ -218,5 +218,28 @@ describe("koshoy public event whitelist", () => {
     });
     assert.ok(scene?.type === "scene");
     assert.deepEqual(scene.unitWidthsMm, [320, 480, 640]);
+  });
+});
+
+describe("scene.blocked (Faz 0, 4 Nov: panel + buttons refused silently)", () => {
+  it("passes known kinds and reasons per unit, drops the rest", async () => {
+    const { blockedAdds } = await import("./design-ops.server");
+    const { cabinetEngine } = await import("./engine");
+    const plan = cabinetEngine.planCabinet({ kind: "vestiyer" });
+    const design = { id: "d1", version: 1, kind: "vestiyer", label: plan.label, composition: plan.composition } as never;
+    const blocked = blockedAdds(design);
+    // A top hanger: nothing goes above it.
+    assert.equal(blocked[0].shelf, "hanger");
+    const event = toPublicEvent({
+      type: "scene",
+      designId: "d1",
+      version: 1,
+      kind: "vestiyer",
+      label: "Vestiyer 64 cm",
+      view: plan.composition,
+      blocked: [{ shelf: "full", hanger: "nope", sofa: "full" }],
+    });
+    assert.ok(event && event.type === "scene");
+    assert.deepEqual(event.blocked, [{ shelf: "full" }]);
   });
 });
