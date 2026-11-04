@@ -26,7 +26,7 @@ import {
   type ChoiceOption,
   type PublicEvent,
 } from "./events";
-import { parseEditOp, type ClientInput, type JourneyAction } from "./input";
+import { measureCm, parseEditOp, type ClientInput, type JourneyAction } from "./input";
 import { koshoyInstructions, koshoyModelContext } from "./instructions";
 import {
   checkReply,
@@ -622,6 +622,20 @@ export async function executeKoshoyTool(
     return { payload: { ok: true } };
   }
 
+  if (call.name === "set_room_measure") {
+    // Typed in the chat instead of the card (ClickUp z8qu5da8cg); only while the card is asked.
+    const view = await journeyView(deps, session, deps.data, deps.handles);
+    if (view.stage !== "room_structure") return { payload: { ok: false, error: "not_now", hint: stageNote(view, session, deps.data) } };
+    const wallCm = measureCm(args.wallCm);
+    if (wallCm === null) return { payload: { ok: false, error: "invalid_measure", hint: MEASURE_RANGE_HINT } };
+    const ceilingCm = args.ceilingCm === undefined ? null : measureCm(args.ceilingCm);
+    if (args.ceilingCm !== undefined && ceilingCm === null) {
+      return { payload: { ok: false, error: "invalid_measure", hint: MEASURE_RANGE_HINT } };
+    }
+    saveRoomMeasure(ctx, wallCm, ceilingCm, "chat");
+    return { payload: { ok: true, hint: MEASURE_SAVED_HINT } };
+  }
+
   if (call.name === "ask_style") {
     const decision = oneOf(args.decision, STYLE_DECISIONS);
     if (!decision) return { payload: { ok: false, error: "invalid_decision" } };
@@ -1016,6 +1030,7 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
       instructions: koshoyInstructions(instructionInput),
       tools: koshoyTools(Boolean(roomContext), {
         handles: Boolean(deps.handles?.handles.length),
+        measure: view.stage === "room_structure",
         products: deps.data.kinds.flatMap((row) => row.products.map((product) => product.id)),
       }),
       thinkingLevel: "low",
@@ -1266,6 +1281,19 @@ async function runMockTurn(ctx: TurnContext, client: ClientInput) {
 
 /* ---------------- journey buttons and cards ---------------- */
 
+const MEASURE_SAVED_HINT = "Ürünler sığmıyorsa küçült; ölçüyü müşteriye söyleme.";
+const MEASURE_RANGE_HINT =
+  "Ölçü santimetre olmalı, 30 ile 2000 arası (5 m = 500). Ölçü anlaşılmadıysa müşteriye bir kez sor; sayıyı geri söyleme.";
+
+/** The room measurement from the card or the chat: the structure stage is done. */
+function saveRoomMeasure(ctx: TurnContext, wallCm: number, ceilingCm: number | null, source: "card" | "chat") {
+  const { journey } = ctx.session;
+  journey.structure = "measure";
+  journey.measure = { wallCm, ceilingCm };
+  ctx.journeyChanged = true;
+  ctx.deps.track?.("structure_measure", { source });
+}
+
 /**
  * Runs a journey button (journey.ts) and returns what the model is told,
  * in the customer's words; null when the model is not asked (the screen
@@ -1286,11 +1314,8 @@ async function runJourneyAction(
     return "Ölçü vermeden devam edelim.";
   }
   if (input.action === "measure" && input.wallCm) {
-    journey.structure = "measure";
-    journey.measure = { wallCm: input.wallCm, ceilingCm: input.ceilingCm ?? null };
-    ctx.journeyChanged = true;
-    deps.track?.("structure_measure");
-    return "[Sistem notu] Müşteri kendi duvar ölçüsünü yazdı (oda bilgisinde). Ürünler sığmıyorsa küçült; ölçüyü müşteriye söyleme.";
+    saveRoomMeasure(ctx, input.wallCm, input.ceilingCm ?? null, "card");
+    return `[Sistem notu] Müşteri kendi duvar ölçüsünü yazdı (oda bilgisinde). ${MEASURE_SAVED_HINT}`;
   }
   if (input.action === "approve_room") {
     const view = await journeyView(deps, session, deps.data, deps.handles);

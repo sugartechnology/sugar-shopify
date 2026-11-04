@@ -34,6 +34,7 @@ export const KOSHOY_TOOL_NAMES = [
   "render_room",
   "place_in_room",
   "remove_from_room",
+  "set_room_measure",
 ] as const;
 export type KoshoyToolName = (typeof KOSHOY_TOOL_NAMES)[number];
 
@@ -123,6 +124,27 @@ function askStyleTool(withHandle: boolean) {
     },
   };
 }
+
+/**
+ * The customer's room measurement typed in the chat (ClickUp z8qu5da8cg).
+ * Offered only at the room structure stage, so a product size said later is
+ * never taken for the room.
+ */
+const SET_ROOM_MEASURE_TOOL = {
+  name: "set_room_measure",
+  description:
+    "Store the room measurement the customer typed in the chat, the same as the measure card: the length of the wall the furniture goes on and, if given, the ceiling height, both in centimetres (5 m = 500, 2,8 m = 280). With two wall lengths and no word on which wall the furniture goes on, ask first with ask_user (options without numbers: Uzun duvar / Kısa duvar). Never say the measurement back.",
+  strict: false,
+  parameters: {
+    type: "object",
+    properties: {
+      wallCm: { type: "number", description: "Length of the wall the furniture goes on, cm (30–2000)" },
+      ceilingCm: { type: "number", description: "Ceiling height, cm (30–2000); leave out when not given" },
+    },
+    required: ["wallCm"],
+    additionalProperties: false,
+  },
+};
 
 function toolList(withHandle: boolean, products: readonly string[]) {
   return [
@@ -393,7 +415,14 @@ function toolList(withHandle: boolean, products: readonly string[]) {
  * without the room feature it is today's list. Without handle colours in the
  * shop, ask_style does not offer the handle decision at all, so the model never announces it.
  */
-export function koshoyTools(withRoom: boolean, options: { handles?: boolean; products?: readonly string[] } = {}) {
-  const tools = toolList(Boolean(options.handles), options.products ?? []);
+export function koshoyTools(
+  withRoom: boolean,
+  options: { handles?: boolean; products?: readonly string[]; measure?: boolean } = {},
+) {
+  const tools = [
+    ...toolList(Boolean(options.handles), options.products ?? []),
+    // Only at the room structure stage (journey.server.ts stageNote).
+    ...(options.measure ? [SET_ROOM_MEASURE_TOOL] : []),
+  ];
   return withRoom ? tools : tools.filter((tool) => !KOSHOY_ROOM_TOOL_NAMES.includes(tool.name));
 }

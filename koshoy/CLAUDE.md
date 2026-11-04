@@ -27,7 +27,7 @@ bağımsız bir alt klasördür: kendi `package.json`, Prisma (SQLite) ve
 tema (sohbet) → /apps/koshoy/studio/turn → app/koshoy/turn.server.ts
   → LLM_GATEWAY_URL (tagservice /api/shopify/shopping/responses/stream, tag koshoy-chat)
   → server tool'ları: set_brief, ask_user, ask_style, plan_cabinet, plan_room, edit_design, quote,
-    switch_design, show_doors (+ oda özelliği açıkken: show_in_room, render_room, place_in_room, remove_from_room)
+    switch_design, show_doors, set_room_measure (yalnız yapı aşamasında) (+ oda özelliği açıkken: show_in_room, render_room, place_in_room, remove_from_room)
   → beyaz liste olaylar (events.ts) → tema
 ```
 
