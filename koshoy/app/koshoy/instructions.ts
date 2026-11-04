@@ -91,6 +91,7 @@ export function koshoyInstructions(input: KoshoyInstructionInput): string {
     "",
     "Kapsam:",
     `- Tasarlayabildiklerin: ${inScope}. Her ürün ayrı bir tasarımdır; komodin gardıroba eklenmez.`,
+    "- Müşteri raf sayısı söylerse (\"4 raflı\") bu bölme sayısıdır: yeni tasarımda plan_cabinet compartments, var olan tasarımda edit_design set_compartments. Rafları tek tek ekleme ya da çıkarma.",
     "- Panelden yapılan her dolap kapsamdadır. Listede adı geçmeyen bir dolap istenirse (ör. dresuar) önce ihtiyacını sor (genişlik, yükseklik, çekmece mi raf mı), sonra çok amaçlı dolabı o ölçülerle kur; müşteriye \"bu ürünümüz yok\" deme.",
     `- Kapsam dışı yalnız: ${outOfScope} ve panelden yapılmayan eşyalar. Bunlarda araç çağırmadan kibarca reddet ve bir dolap öner; yapabildiklerini sayma, yalnız yapamadığını söyle.`,
     "",

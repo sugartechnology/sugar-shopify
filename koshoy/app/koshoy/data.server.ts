@@ -147,7 +147,8 @@ const DEFAULT_ROOMS: KoshoyDataRoom[] = [
       { kind: "komodin", count: 1 },
     ],
   },
-  { id: "calisma_odasi", label: "Çalışma odası", synonyms: [], items: [{ kind: "kitaplik", count: 2 }] },
+  // 3 kitaplık stand together: 3 × 64 cm (Akın).
+  { id: "calisma_odasi", label: "Çalışma odası", synonyms: [], items: [{ kind: "kitaplik", count: 3 }] },
 ];
 
 const DEFAULT_QUESTIONS: Partial<Record<DesignKind, KoshoyQuestion[]>> = {

@@ -186,6 +186,14 @@ export function parseEditOp(raw: unknown): EditOp | null {
       return unit !== null && typeof row.hasCrown === "boolean"
         ? { action: "set_crown", unit, hasCrown: row.hasCrown }
         : null;
+    case "set_compartments": {
+      const compartments = int(row.compartments, 1, 20);
+      if (compartments === null) return null;
+      if (row.unit !== undefined && row.unit !== null && unit === null) return null;
+      return unit !== null
+        ? { action: "set_compartments", unit, compartments }
+        : { action: "set_compartments", compartments };
+    }
     case "set_front_series":
       // The core checks the id against its series table.
       return typeof row.series === "string" && row.series.length <= 40

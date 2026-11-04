@@ -1,5 +1,6 @@
 /**
- * Catalog alarm: after every catalog read, the parts our templates need are
+ * Catalog alarm: after every catalog read, every part the configurator can
+ * produce (requiredCatalogSkus: part × size × colour, not only templates) is
  * checked against the shop. When the list of problems changes it is logged
  * once ("[koshoy] catalog gap") and, with KOSHOY_ALARM_CLICKUP_TOKEN set,
  * opened as one ClickUp task in KoshoyBugs, so a data change in the shop is
@@ -8,10 +9,10 @@
  */
 import type { CabinetEngine } from "./engine";
 import { findPart, partKeyOfTitle, type PartCatalog } from "./part-catalog";
-import { requiredTemplateSkus } from "./sku-audit.server";
+import { requiredCatalogSkus } from "./sku-audit.server";
 
 export interface CatalogGap {
-  /** Part title our templates need. */
+  /** Part title the configurator can need. */
   title: string;
   /** missing: no shop product; twins: more than one, so none is used. */
   problem: "missing" | "twins";
@@ -19,7 +20,7 @@ export interface CatalogGap {
 
 export function catalogGaps(engine: CabinetEngine, catalog: PartCatalog): CatalogGap[] {
   const gaps: CatalogGap[] = [];
-  for (const row of requiredTemplateSkus(engine)) {
+  for (const row of requiredCatalogSkus(engine)) {
     if (findPart(catalog, row.sku)) continue;
     const twins = catalog.ambiguous.has(partKeyOfTitle(row.sku) ?? "");
     gaps.push({ title: row.sku, problem: twins ? "twins" : "missing" });
@@ -45,19 +46,24 @@ export interface CatalogAlarmDeps {
   openTask?: (name: string, markdown: string) => Promise<void>;
 }
 
+/** A ClickUp task stays readable: the full list is on the admin page. */
+const ALARM_MAX_LINES = 50;
+
 const PROBLEM_TEXT: Record<CatalogGap["problem"], string> = {
   missing: "mağazada yok",
   twins: "iki ürün var, hangisi bilinmiyor",
 };
 
 function alarmText(shop: string, gaps: CatalogGap[]): { name: string; markdown: string } {
-  const lines = gaps.map((gap) => `- \`${gap.title}\` — ${PROBLEM_TEXT[gap.problem]}`);
+  const shown = gaps.slice(0, ALARM_MAX_LINES);
+  const lines = shown.map((gap) => `- \`${gap.title}\` — ${PROBLEM_TEXT[gap.problem]}`);
+  if (gaps.length > shown.length) lines.push(`- … ve ${gaps.length - shown.length} parça daha (admin sayfası → Katalog sağlığı, ya da CSV)`);
   return {
     name: `Koshoy katalog: ${gaps.length} parça fiyatlanamıyor`,
     markdown: [
       `Mağaza: ${shop}`,
       "",
-      "Koshoy şablonlarının kullandığı bu parçalar mağazada bulunamadı. Bu parçaları içeren tasarımlarda fiyat yerine [FİYAT] görünür, sepete eklenmez.",
+      "Koshoy'un tasarlayabileceği bu parçalar mağazada bulunamadı. Bu parçaları içeren tasarımlarda fiyat yerine [FİYAT] görünür, sepete eklenmez.",
       "",
       ...lines,
       "",

@@ -472,6 +472,12 @@ interface PlannedItem {
   widthMm?: number;
 }
 
+/** "4 raflı" = 4 compartments; anything else is ignored. */
+function compartmentsFrom(value: unknown): number | undefined {
+  const count = Number(value);
+  return Number.isInteger(count) && count >= 1 && count <= 20 ? count : undefined;
+}
+
 function widthMmFrom(cm: unknown): number | undefined {
   const value = Number(cm);
   return Number.isFinite(value) && value > 0 ? Math.round(value * 10) : undefined;
@@ -480,7 +486,7 @@ function widthMmFrom(cm: unknown): number | undefined {
 /**
  * One planned design per product. Kinds that stand together on one wall
  * (joinSameKind, e.g. kitaplık) become one design as wide as all of them,
- * so the core splits it into equal bodies: 2 kitaplık → 3 × 64 cm.
+ * so the core splits it into equal bodies: 3 kitaplık → 3 × 64 cm.
  */
 function designsToPlan(ctx: TurnContext, items: ReadonlyArray<PlannedItem>): Array<{ kind: DesignKind; widthMm?: number }> {
   const out: Array<{ kind: DesignKind; widthMm?: number }> = [];
@@ -506,11 +512,13 @@ async function planStyledDesign(
   kind: DesignKind,
   targetWidthMm: number | undefined,
   color: CabinColorId | undefined,
+  compartments?: number,
 ) {
   const { session, deps } = ctx;
   const created = await createPlannedDesign(deps, session, {
     kind,
     targetWidthMm,
+    ...(compartments ? { compartments } : {}),
     color: color ?? (session.journey.style.panel || session.brief.color || undefined),
   });
   if (!created) return null;
@@ -626,7 +634,13 @@ export async function executeKoshoyTool(
     const kind = oneOf(args.kind, DESIGN_KINDS);
     if (!kind) return { payload: { ok: false, error: "unsupported_kind" } };
     ctx.publish({ type: "status", key: "placing" });
-    const created = await planStyledDesign(ctx, kind, widthMmFrom(args.targetWidthCm), oneOf(args.color, bodyColorIds()));
+    const created = await planStyledDesign(
+      ctx,
+      kind,
+      widthMmFrom(args.targetWidthCm),
+      oneOf(args.color, bodyColorIds()),
+      compartmentsFrom(args.compartments),
+    );
     if (!created) return { payload: { ok: false, error: "design_limit", hint: DESIGN_LIMIT_HINT } };
     const { design, plan } = created;
     ctx.designIds.add(design.id);
@@ -735,7 +749,7 @@ export async function executeKoshoyTool(
     const op = parseEditOp(args.op);
     if (!op) return { payload: { ok: false, error: "invalid_op" } };
     ctx.publish({ type: "status", key: "placing" });
-    const result = await applyDesignEdit(deps, session.id, design, op);
+    const result = await applyDesignEdit(deps, session.id, design, op, session.journey.style.crown);
     if (!result.ok) {
       // Product-language reason only; engine codes stay on the server.
       return { payload: { ok: false, error: "rejected", hint: editRejectHint(result.reason) } };

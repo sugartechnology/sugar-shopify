@@ -12,6 +12,7 @@ import {
   CABIN_HEIGHTS_MM,
   CABIN_TOTAL_WIDTH_SAFETY_MM,
   CABIN_WIDTHS_MM,
+  CABINET_RULES,
   DEFAULT_SKU_CONVENTION,
   defaultFrontSeries,
   DESIGN_KIND_LABELS,
@@ -66,6 +67,9 @@ export {
   unitWidthsForKind,
 };
 
+/** Front series ids of the core (kapak-16, kapak-18). */
+export const CABINET_FRONT_SERIES_IDS: readonly string[] = CABINET_RULES.frontSeries.map((series) => series.id);
+
 export type PlanLevel = DesignLevel;
 export const PLAN_LEVELS = DESIGN_LEVELS;
 export type PlanInput = PlanCabinetInput;
@@ -89,6 +93,7 @@ export const EDIT_ACTIONS = [
   "set_depth",
   "set_door",
   "set_crown",
+  "set_compartments",
   "set_front_series",
   "set_color",
   "set_handle",

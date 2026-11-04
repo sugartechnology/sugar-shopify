@@ -36,7 +36,7 @@ describe("koshoy data defaults", () => {
 
   it("rooms start from the 23 Oct room sets (Akın corrects them through the data API)", () => {
     assert.equal(KOSHOY_DATA_DEFAULTS.rooms.length, 7);
-    assert.deepEqual(KOSHOY_DATA_DEFAULTS.rooms.find((room) => room.id === "calisma_odasi")?.items, [{ kind: "kitaplik", count: 2 }]);
+    assert.deepEqual(KOSHOY_DATA_DEFAULTS.rooms.find((room) => room.id === "calisma_odasi")?.items, [{ kind: "kitaplik", count: 3 }]);
   });
 
   it("kinds cover every design kind; only kitaplik joins the same kind", () => {

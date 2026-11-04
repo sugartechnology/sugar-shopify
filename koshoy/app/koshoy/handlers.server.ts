@@ -553,7 +553,7 @@ export async function handleKoshoyEdit(
     if (!design) return koshoyErrorResponse("invalid_input");
     if (design.version !== ref.version) return rejectedEdit(ctx, design);
 
-    const result = await applyDesignEdit(ctx, session.id, design, op);
+    const result = await applyDesignEdit(ctx, session.id, design, op, session.journey.style.crown);
     if (!result.ok) {
       const latest =
         result.reason === "stale" ? await ctx.store.getDesign(session.id, design.id) : design;
