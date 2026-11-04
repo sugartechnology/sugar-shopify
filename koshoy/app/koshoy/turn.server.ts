@@ -91,6 +91,11 @@ export const KOSHOY_MAX_HOPS = 16;
 export const KOSHOY_CHAT_TAG = "koshoy-chat";
 /** Whole-turn deadline; a stalled upstream must not hold the session lock. */
 export const KOSHOY_TURN_TIMEOUT_MS = 90_000;
+/** How long a stopped turn keeps the session lock for its still-running gateway call. */
+export const KOSHOY_UPSTREAM_GRACE_MS = 120_000;
+/** The gateway still busy with this conversation: ask again this many times, this far apart. */
+const GATEWAY_BUSY_RETRIES = 6;
+const GATEWAY_BUSY_WAIT_MS = 2_000;
 const BRIEF_FIELD_MAX = { room: 60, style: 60, notes: 160 } as const;
 
 /**
@@ -112,6 +117,8 @@ export interface KoshoyTurnDeps extends KoshoyDesignDeps {
   /** Aborted when the storefront goes away (request closed / SSE cancelled). */
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Tests: KOSHOY_UPSTREAM_GRACE_MS. */
+  upstreamGraceMs?: number;
   /** Room photo feature (Sugar S3 + gateway configured): the room tools and blocks are on. */
   room?: KoshoyRoomDeps;
   /** Akın's journey data (data.server.ts snapshot): rooms, questions, levels, texts, pictures. */
@@ -157,6 +164,8 @@ interface TurnContext {
   stageAtStart: JourneyStage | null;
   /** Stage cards already sent this turn (by content), so none is sent twice. */
   cardsShown: Set<string>;
+  /** The last gateway call; it may still run after the turn was stopped. */
+  upstream: Promise<void> | null;
   publish(raw: unknown): void;
 }
 
@@ -226,6 +235,43 @@ function throwIfStopped(stop: TurnStop) {
   if (stop.signal.aborted) throw new KoshoyTurnStopped(stop.timedOut());
 }
 
+/** Waits ms, or less when the turn is stopped (then throws like throwIfStopped). */
+async function waitUnlessStopped(stop: TurnStop, ms: number) {
+  throwIfStopped(stop);
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(done, ms);
+    stop.signal.addEventListener("abort", done, { once: true });
+    function done() {
+      clearTimeout(timer);
+      stop.signal.removeEventListener("abort", done);
+      resolve();
+    }
+  });
+  throwIfStopped(stop);
+}
+
+/** The gateway refuses a call while another one of the same conversation runs. */
+export function isGatewayBusy(error: unknown): boolean {
+  const message = typeof error === "string" ? error : str(asRecord(error).message);
+  return message.includes("zaten devam ediyor");
+}
+
+/**
+ * A stopped turn (page gone, timeout) leaves the gateway call running; the
+ * session lock is held until it ends, so the next turn does not hit it.
+ */
+async function waitForUpstream(ctx: TurnContext) {
+  if (!ctx.upstream) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    ctx.upstream.catch(() => {}),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ctx.deps.upstreamGraceMs ?? KOSHOY_UPSTREAM_GRACE_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
 /**
  * Runs one model hop until it ends or the turn is stopped. Events arriving
  * after a stop are ignored, so a stalled upstream cannot keep the turn open.
@@ -234,6 +280,7 @@ async function streamUntilStopped(
   stop: TurnStop,
   run: (onEvent: (event: LlmStreamEvent) => void, signal: AbortSignal) => Promise<void>,
   onEvent: (event: LlmStreamEvent) => void,
+  onStart?: (hop: Promise<void>) => void,
 ) {
   throwIfStopped(stop);
   let live = true;
@@ -249,6 +296,7 @@ async function streamUntilStopped(
       if (live) onEvent(event);
     }, stop.signal);
     hop.catch(() => {});
+    onStart?.(hop);
     await Promise.race([hop, stopped]);
   } finally {
     live = false;
@@ -441,7 +489,20 @@ async function quoteAndPublish(ctx: TurnContext, design: KoshoyDesign, withScene
   const quote = await ctx.deps.pricer.quote(design.composition);
   if (withScene) ctx.publish(sceneEvent(design));
   ctx.publish(priceEvent(design, quote));
+  pricesIn(quote.display, ctx.prices);
   return quote;
+}
+
+/** Every design's current price becomes a price the reply may quote; a pricing failure only skips it. */
+async function allowShownPrices(ctx: TurnContext, designs: readonly KoshoyDesign[]) {
+  for (const design of designs) {
+    try {
+      const quote = await ctx.deps.pricer.quote(design.composition);
+      pricesIn(quote.display, ctx.prices);
+    } catch (error) {
+      console.warn("[koshoy] price for reply check failed", error);
+    }
+  }
 }
 
 /**
@@ -1021,6 +1082,9 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
     // Design facts only; the brief holds customer words, not system numbers.
     // Room sizes are never allowed: they are not said to the customer.
     numbersIn(koshoyModelContext(instructionInput).designs, ctx.allowed);
+    // The prices on the customer's cards may be quoted again, even when no
+    // tool priced them in this turn (the model remembers them).
+    await allowShownPrices(ctx, designs);
 
     const body: Record<string, unknown> = {
       sessionId: session.modelSessionId,
@@ -1050,22 +1114,33 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
     let upstreamError: unknown = null;
     let missingToolOutput = false;
 
-    await streamUntilStopped(
-      ctx.stop,
-      (onEvent, signal) => stream(deps.apiKey, body, onEvent, signal),
-      ({ event, data }) => {
-        if (event === "error") {
-          if (!recovered && isMissingToolOutput(data)) {
-            missingToolOutput = true;
+    // The gateway still answering an earlier call of this conversation (a
+    // turn whose page went away) refuses before it starts: wait and ask again.
+    for (let attempt = 0; ; attempt += 1) {
+      upstreamError = null;
+      await streamUntilStopped(
+        ctx.stop,
+        (onEvent, signal) => stream(deps.apiKey, body, onEvent, signal),
+        ({ event, data }) => {
+          if (event === "error") {
+            if (!recovered && isMissingToolOutput(data)) {
+              missingToolOutput = true;
+              return;
+            }
+            upstreamError = data ?? "error";
             return;
           }
-          upstreamError = data ?? "error";
-          return;
-        }
-        buffer += textFromEvent(event, data);
-        calls.push(...collectKoshoyToolCalls(event, data));
-      },
-    );
+          buffer += textFromEvent(event, data);
+          calls.push(...collectKoshoyToolCalls(event, data));
+        },
+        (hop) => {
+          ctx.upstream = hop;
+        },
+      );
+      if (!isGatewayBusy(upstreamError) || attempt >= GATEWAY_BUSY_RETRIES) break;
+      console.warn("[koshoy] gateway busy, retrying");
+      await waitUnlessStopped(ctx.stop, GATEWAY_BUSY_WAIT_MS);
+    }
 
     if (missingToolOutput && !recovered) {
       recovered = true;
@@ -1077,7 +1152,8 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
     }
     if (upstreamError) {
       console.error("[koshoy] upstream error", upstreamError);
-      ctx.publish(errorEvent("unavailable"));
+      // Still busy after the retries: "wait a moment", not "cannot answer".
+      ctx.publish(errorEvent(isGatewayBusy(upstreamError) ? "rate_limited" : "unavailable"));
       return;
     }
     // Seen only once the model answered this hop without an error (a timeout
@@ -1526,6 +1602,7 @@ export async function runKoshoyTurn(input: {
     journeyChanged: false,
     stageAtStart: null,
     cardsShown: new Set<string>(),
+    upstream: null,
     publish(raw) {
       const event = toPublicEvent(raw);
       if (!event || doneSent) return;
@@ -1581,4 +1658,6 @@ export async function runKoshoyTurn(input: {
     console.error("[koshoy] set total failed", error);
   }
   ctx.publish({ type: "done" });
+  // Resolving releases the session lock (handlers.server.ts).
+  await waitForUpstream(ctx);
 }

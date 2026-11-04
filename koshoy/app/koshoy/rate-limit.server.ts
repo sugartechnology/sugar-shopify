@@ -13,8 +13,14 @@ export interface KoshoyRateLimiter {
 
 export interface KoshoyBusyLock {
   acquire(key: string): boolean;
+  /** Like acquire, but waits up to ms for the key to be released; false when it was not. */
+  wait(key: string, ms: number, signal?: AbortSignal): Promise<boolean>;
   release(key: string): void;
 }
+
+/** How long a second turn waits for the session's running turn. */
+export const KOSHOY_BUSY_WAIT_MS = 20_000;
+const BUSY_POLL_MS = 200;
 
 const MAX_KEYS = 10_000;
 
@@ -135,6 +141,14 @@ export function createBusyLock(): KoshoyBusyLock {
     acquire(key) {
       if (busy.has(key)) return false;
       busy.add(key);
+      return true;
+    },
+    async wait(key, ms, signal) {
+      const deadline = Date.now() + ms;
+      while (!this.acquire(key)) {
+        if (signal?.aborted || Date.now() >= deadline) return false;
+        await new Promise((resolve) => setTimeout(resolve, BUSY_POLL_MS));
+      }
       return true;
     },
     release(key) {
