@@ -60,7 +60,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 const PRODUCT_ACTIONS: readonly JourneyAction[] = ["approve", "approve_same", "change", "later", "remove", "revisit"];
 const MEASURE_CM = { min: 30, max: 2000 };
 
-function measureCm(value: unknown): number | null {
+/** A room measurement in cm within the card's limits, rounded; null otherwise. */
+export function measureCm(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= MEASURE_CM.min && value <= MEASURE_CM.max
     ? Math.round(value)
     : null;

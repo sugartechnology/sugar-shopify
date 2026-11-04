@@ -1317,3 +1317,88 @@ describe("koshoy journey: room first, then product by product, then the cart", (
     assert.match(String(result.payload.hint), /taç/);
   });
 });
+
+describe("koshoy journey: room measurement typed in the chat (ClickUp z8qu5da8cg)", () => {
+  beforeEach(() => {
+    mock.method(console, "error", () => {});
+    mock.method(console, "warn", () => {});
+  });
+  afterEach(() => mock.restoreAll());
+
+  const tool = (name: string, args: Record<string, unknown>): Hop => [
+    { event: "tool_call", data: { callId: `call_${name}`, name, arguments: JSON.stringify(args) } },
+  ];
+  const toolNames = (body: Record<string, unknown>) =>
+    (body.tools as Array<{ name: string }>).map((item) => item.name);
+
+  async function plannedRoom() {
+    const ctx = await setup();
+    const tracked: Array<{ name: string; props?: Record<string, string | number> }> = [];
+    const run = async (client: ClientInput, hops: Hop[]) => {
+      const { stream, bodies } = scriptedStream(hops);
+      const events: PublicEvent[] = [];
+      await runKoshoyTurn({
+        client,
+        session: ctx.session,
+        deps: {
+          store: ctx.store,
+          engine: cabinetEngine,
+          pricer: ctx.pricer,
+          apiKey: "k",
+          mock: false,
+          stream,
+          data: KOSHOY_DATA_DEFAULTS,
+          customerId: "c1",
+          track: (name, props) => tracked.push({ name, props }),
+        },
+        emit: (event) => events.push(event),
+      });
+      return { events, bodies };
+    };
+    const first = await run({ type: "message", text: "Yatak odamı döşeyelim", intent: "room", card: "yatak" }, [
+      tool("plan_room", { room: "yatak_odasi" }),
+      [{ event: "text", data: { text: "Yatak odan için seti hazırladım." } }],
+    ]);
+    return { ctx, run, tracked, first };
+  }
+
+  it("is offered only at the structure stage", async () => {
+    const { first, run } = await plannedRoom();
+    assert.ok(!toolNames(first.bodies[0]).includes("set_room_measure"), "not before the set");
+    const { bodies } = await run({ type: "message", text: "odam 5×4 m" }, [[{ event: "text", data: { text: "Tamam." } }]]);
+    assert.ok(toolNames(bodies[0]).includes("set_room_measure"));
+  });
+
+  it("stores the measurement like the card and moves on to style", async () => {
+    const { ctx, run, tracked } = await plannedRoom();
+    const { events } = await run({ type: "message", text: "odam 5 metre duvar, yükseklik 2,8" }, [
+      tool("set_room_measure", { wallCm: 500, ceilingCm: 280 }),
+      tool("ask_style", { decision: "level" }),
+    ]);
+    assert.equal(ctx.session.journey.structure, "measure");
+    assert.deepEqual(ctx.session.journey.measure, { wallCm: 500, ceilingCm: 280 });
+    assert.ok(tracked.some((row) => row.name === "structure_measure" && row.props?.source === "chat"));
+    assert.ok(events.some((event) => event.type === "choice"), "style is asked next");
+    assert.ok(!JSON.stringify(events).includes("500"), "the measurement is never said back");
+  });
+
+  it("refuses a measurement out of range and outside the structure stage", async () => {
+    const { ctx, run } = await plannedRoom();
+    const bad = await run({ type: "message", text: "odam 50 m" }, [
+      tool("set_room_measure", { wallCm: 5000 }),
+      [{ event: "text", data: { text: "Ölçüyü bir kez daha yazar mısın?" } }],
+    ]);
+    const answer = (bad.bodies[1].toolResults as Array<{ payload: { ok: boolean; error?: string } }>)[0].payload;
+    assert.deepEqual([answer.ok, answer.error], [false, "invalid_measure"]);
+    assert.equal(ctx.session.journey.measure, null);
+
+    ctx.session.journey.structure = "skip";
+    const late = await run({ type: "message", text: "duvarım 3 metre" }, [
+      tool("set_room_measure", { wallCm: 300 }),
+      [{ event: "text", data: { text: "Tamam." } }],
+    ]);
+    const lateAnswer = (late.bodies[1].toolResults as Array<{ payload: { ok: boolean; error?: string } }>)[0].payload;
+    assert.deepEqual([lateAnswer.ok, lateAnswer.error], [false, "not_now"]);
+    assert.equal(ctx.session.journey.measure, null);
+  });
+});

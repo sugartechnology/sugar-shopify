@@ -453,7 +453,7 @@ export function stageNote(
       return `Aşama: oda. Oda belli değilse ask_user ile sor.${set}`;
     }
     case "room_structure":
-      return "Aşama: odanın yapısı. Ekranda fotoğraf / ölçü / ölçüsüz devam kartı var; müşterinin seçmesini bekle, başka soru sorma.";
+      return "Aşama: odanın yapısı. Ekranda fotoğraf / ölçü / ölçüsüz devam kartı var; müşterinin seçmesini bekle, başka soru sorma. Müşteri oda ölçüsünü sohbete yazarsa set_room_measure ile kaydet; kartı yeniden önerme.";
     case "room_style": {
       const next = view.missingStyle[0];
       const rest = view.missingStyle.slice(1).map((decision) => DECISION_NAMES[decision]).join(", ");
