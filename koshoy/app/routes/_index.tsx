@@ -13,13 +13,13 @@ import { koshoyData } from "../koshoy/data.server";
 import { readPartCatalog } from "../koshoy/part-catalog";
 import { shopColorKey } from "../koshoy/shop-colors";
 import {
-  AUDIT_PROBLEM_TEXT,
   auditSkus,
   fetchShopVariants,
   offeredShopColors,
   requiredCatalogSkus,
   type ShopVariant,
 } from "../koshoy/sku-audit.server";
+import { AUDIT_PROBLEM_TEXT } from "../koshoy/audit-text";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
