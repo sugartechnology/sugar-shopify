@@ -4,7 +4,7 @@
 # Live config stays in shopify.app.toml; never point this file at koshoy.sugartech.io.
 # https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "KOSHOY_DEV_CLIENT_ID"
+client_id = "ec4b640763cca14fe8f1c704822867fb"
 name = "Koshoy Dev"
 application_url = "https://koshoy-dev.sugartech.io"
 embedded = true

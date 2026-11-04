@@ -66,6 +66,14 @@ function readSettings(): S3Settings | null {
   return ready ? settings : null;
 }
 
+/**
+ * Dev line: its database is a copy of live, so its rows point at live files.
+ * KOSHOY_S3_NO_DELETE=1 makes delete a no-op there; live leaves it unset.
+ */
+function keepFiles(): boolean {
+  return (process.env.KOSHOY_S3_NO_DELETE ?? "").trim() === "1";
+}
+
 function isMissing(error: unknown): boolean {
   const name = (error as { name?: string } | null)?.name;
   return name === "NoSuchKey" || name === "NotFound";
@@ -125,11 +133,13 @@ export function createKoshoyS3(): KoshoyFileStore | null {
     },
 
     async delete(key) {
+      if (keepFiles()) return console.info(`[koshoy] S3 delete skipped (KOSHOY_S3_NO_DELETE): ${key}`);
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
     },
 
     async deleteFolder(prefix) {
       if (!isDeletableFolder(prefix)) throw new Error(`refused to delete folder "${prefix}"`);
+      if (keepFiles()) return console.info(`[koshoy] S3 folder delete skipped (KOSHOY_S3_NO_DELETE): ${prefix}`);
       let token: string | undefined;
       do {
         const page = await client.send(

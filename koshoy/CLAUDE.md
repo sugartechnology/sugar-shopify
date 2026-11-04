@@ -115,9 +115,12 @@ uygular), girişsiz 30 gün, hesaplı 180 gün.
   `feature/koshoy-backend`'e PR → canlı.
 - Yalnız dev'de set edilen env: `KOSHOY_BUNDLE_EXTRA_TAG=koshoy-dev` (paketler ayrı
   bulunur), `KOSHOY_PREVIEW_THEME_ID` (telefon QR'ı dev temasını açar),
-  `KOSHOY_S3_PREFIX=koshoy-studio-dev/`. Dev, canlı tagservice gateway'ini kullanır.
-- Dev app'i mağazaya kurmadan ÖNCE dev veritabanında `ShopCredential` satırı olmalı;
-  yoksa kurulum tagservice'e yeni anahtar kaydeder ve canlının anahtarını ezebilir.
+  `KOSHOY_S3_PREFIX=koshoy-studio-dev/`, `KOSHOY_S3_NO_DELETE=1` (kopyalanan satırlar
+  canlının S3 dosyalarını gösterir; dev'de "Sil" onları silmesin). Dev, canlı tagservice
+  gateway'ini kullanır.
+- Dev'de `SHOPIFY_SERVICE_SECRET` YOKTUR: dev tagservice'e anahtar kaydedemez, canlının
+  anahtarını ezemez. Gateway anahtarı canlıdan kopyalanan `ShopCredential` satırından gelir;
+  bu yüzden Dev app'i mağazaya kurmadan ÖNCE veri kopyası yapılır.
 - Canlı → dev veri kopyası yalnız okuyarak yapılır; döküm `_ciktilar` altına girmez.
 
 ## Yeni özellik eklerken (giriş, hesap, kayıtlı tasarım, entegrasyon…)
