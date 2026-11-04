@@ -3,7 +3,7 @@ import { describe, it, mock } from "node:test";
 import { getCabinetEngine } from "./engine";
 import { catalogGaps, clickUpTaskOpener, reportCatalogGaps, type KoshoyAlarmDb } from "./catalog-alarm.server";
 import { readPartCatalog, type ShopVariant } from "./part-catalog";
-import { requiredTemplateSkus } from "./sku-audit.server";
+import { requiredCatalogSkus } from "./sku-audit.server";
 
 function memoryDb(): KoshoyAlarmDb {
   const rows = new Map<string, string>();
@@ -32,9 +32,9 @@ const variant = (id: number, productTitle: string): ShopVariant => ({
 });
 
 describe("koshoy catalog alarm", () => {
-  it("lists every template part the shop cannot price, twins apart", () => {
+  it("lists every part the configurator can need and the shop cannot price, twins apart", () => {
     const engine = getCabinetEngine();
-    const [first, second, ...rest] = requiredTemplateSkus(engine).map((row) => row.sku);
+    const [first, second, ...rest] = requiredCatalogSkus(engine).map((row) => row.sku);
     const catalog = readPartCatalog([
       variant(1, first),
       variant(2, second),

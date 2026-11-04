@@ -3,7 +3,7 @@
 
 import { defaultCabinColor, isCabinColorId } from "./colors";
 import { nextCabinUnitId, normalizeComposition } from "./composeCabins";
-import { crownByDefault, findFrontSeries } from "./rules";
+import { crownByDefault, findFrontSeries, maxShelves } from "./rules";
 import {
   CABIN_GRID_MM,
   CABIN_TOTAL_WIDTH_SAFETY_MM,
@@ -98,6 +98,12 @@ export interface PlanCabinetInput {
   color?: CabinColorId;
   /** Front series id (`CABINET_RULES.frontSeries`); unknown or missing = default. */
   frontSeries?: string;
+  /**
+   * Open compartments per body, as the customer counts them ("4 raflı" = 4
+   * compartments = 3 shelves). Drawers stay; bodies with a hanger keep their
+   * template shelves. Capped by `maxShelves`.
+   */
+  compartments?: number;
 }
 
 export interface PlanCabinetResult {
@@ -216,8 +222,9 @@ const CABIN_TEMPLATES: Record<DesignKind, CabinTemplate> = {
       premium: { units: [{ fittings: ["drawer160", "drawer160"], hasDoor: false }] },
     },
   },
+  // One 64 cm body: a 96 cm default became 64 + 32 (Akın, ClickUp z8qu5d9am3).
   kitaplik: {
-    widthMm: 960,
+    widthMm: 640,
     heightMm: 1984,
     depthMm: 320,
     hasPlinth: true,
@@ -324,9 +331,10 @@ export function planCabinet(input: PlanCabinetInput): PlanCabinetResult {
   const notes: string[] = [];
   const widths = unitWidthsForKind(input.kind);
   const totalMm = planTotalWidthMm(input.targetWidthMm, template.widthMm, widths, notes);
-  const units = splitTotalWidthMm(totalMm, widths).map((widthMm, index) =>
-    planUnit(index, widthMm, heightMm, spec.units[index % spec.units.length], color),
-  );
+  const units = splitTotalWidthMm(totalMm, widths).map((widthMm, index) => {
+    const interior = withCompartments(spec.units[index % spec.units.length], heightMm, input.compartments, notes);
+    return planUnit(index, widthMm, heightMm, interior, color);
+  });
   const series = findFrontSeries(input.frontSeries);
   const composition = normalizeComposition({
     units,
@@ -428,6 +436,40 @@ function planTotalWidthMm(
     notes.push(`Genişlik ${formatCm(targetMm)} cm → ${formatCm(totalMm)} cm${parts}`);
   }
   return totalMm;
+}
+
+/**
+ * Most open compartments a body of this height takes over these drawers
+ * (`maxShelves` free shelves + 1; with drawers the closing shelf takes one).
+ */
+export function maxCompartments(heightMm: number, fittings: readonly CabinFitKind[]): number {
+  const drawerSteps = fittings.reduce(
+    (sum, kind) => sum + (kind === "drawer320" ? 2 : kind === "drawer160" ? 1 : 0),
+    0,
+  );
+  return Math.max(0, maxShelves(heightMm, drawerSteps) - (drawerSteps > 0 ? 1 : 0)) + 1;
+}
+
+/**
+ * Free shelves = compartments − 1, after the drawers. The closing shelf over
+ * the drawers is added by the layout and is not counted here.
+ */
+function withCompartments(
+  interior: UnitInterior,
+  heightMm: number,
+  compartments: number | undefined,
+  notes: string[],
+): UnitInterior {
+  if (compartments === undefined || !Number.isFinite(compartments)) return interior;
+  if (interior.fittings.includes("hanger")) return interior;
+  const drawers = interior.fittings.filter((kind) => kind !== "shelf");
+  const wanted = Math.max(0, Math.round(compartments) - 1);
+  const shelves = Math.min(wanted, maxCompartments(heightMm, drawers) - 1);
+  if (shelves < wanted) {
+    const note = `En çok ${shelves + 1} bölme sığıyor`;
+    if (!notes.includes(note)) notes.push(note);
+  }
+  return { ...interior, fittings: [...drawers, ...Array<CabinFitKind>(shelves).fill("shelf")] };
 }
 
 function planUnit(

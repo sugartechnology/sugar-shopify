@@ -57,7 +57,7 @@ function editOpSchema() {
   return {
     type: "object",
     description:
-      "One panel intent. unit = 0-based cabinet index from the left. Sizes are millimetres and snap to the nearest catalog value; a height with no catalog value near it is refused. set_crown puts the crown (taç, the top cover of low cabinets) on or off a cabinet.",
+      "One panel intent. unit = 0-based cabinet index from the left. Sizes are millimetres and snap to the nearest catalog value; a height with no catalog value near it is refused. set_crown puts the crown (taç, the top cover of low cabinets) on or off a cabinet. For a shelf count the customer names use set_compartments, never add/remove shelves one by one.",
     properties: {
       action: { type: "string", enum: actions },
       unit: { type: "integer", description: "0-based cabinet index, left to right" },
@@ -71,6 +71,12 @@ function editOpSchema() {
       depthMm: { type: "integer", description: CABIN_DEPTHS_MM.join(", ") },
       hasDoor: { type: "boolean" },
       hasCrown: { type: "boolean" },
+      compartments: {
+        type: "integer",
+        minimum: 1,
+        maximum: 20,
+        description: "set_compartments: open compartments as the customer counts shelves (\"4 raflı\" = 4; the server lays out 3 shelf parts over the drawers). No unit = every cabinet without a hanger.",
+      },
       series: {
         type: "string",
         enum: CABINET_RULES.frontSeries.map((series) => series.id),
@@ -173,6 +179,12 @@ function toolList(withHandle: boolean) {
         properties: {
           kind: { type: "string", enum: [...DESIGN_KINDS] },
           targetWidthCm: { type: "number", description: "Wanted total width in cm, if the customer gave one" },
+          compartments: {
+            type: "integer",
+            minimum: 1,
+            maximum: 20,
+            description: "Open compartments per body when the customer counts shelves: \"4 raflı\" = 4 compartments (the server puts 3 shelf parts). Never add the shelves one by one with edit_design.",
+          },
           color: bodyColorSchema(),
         },
         required: ["kind"],

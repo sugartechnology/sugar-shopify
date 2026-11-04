@@ -260,18 +260,38 @@ export async function applyDesignEdit(
   sessionId: string,
   design: KoshoyDesign,
   op: EditOp,
+  /** The room style's crown (journey): "on" keeps the crown of a body that grows tall. */
+  roomCrown: "" | "on" | "off" = "",
 ): Promise<DesignEditResult> {
   const result = deps.engine.applyEditOp(design.composition, op, design.kind);
   if (!result.ok) {
     if (result.reason === "no_change") return { ok: true, design, changed: false, warnings: [] };
     return { ok: false, reason: result.reason };
   }
+  let composition = result.composition;
+  let warnings = result.warnings ?? [];
+  if (roomCrown === "on" && warnings.includes("crown_removed")) {
+    composition = keepCrowns(deps, design, composition);
+    warnings = warnings.filter((warning) => warning !== "crown_removed");
+  }
   const updated = await deps.store.updateDesign(sessionId, design, {
-    label: designLabel(design.kind, result.composition),
-    composition: result.composition,
+    label: designLabel(design.kind, composition),
+    composition,
   });
   if (!updated) return { ok: false, reason: "stale" };
-  return { ok: true, design: updated, changed: true, warnings: result.warnings ?? [] };
+  return { ok: true, design: updated, changed: true, warnings };
+}
+
+/** Puts the crown back on the bodies a height change took it off (same unit ids). */
+function keepCrowns(deps: KoshoyDesignDeps, design: KoshoyDesign, next: KoshoyDesign["composition"]) {
+  const hadCrown = new Set(design.composition.units.filter((unit) => unit.hasCrown).map((unit) => unit.id));
+  let composition = next;
+  next.units.forEach((unit, index) => {
+    if (!hadCrown.has(unit.id) || unit.hasCrown) return;
+    const result = deps.engine.applyEditOp(composition, { action: "set_crown", unit: index, hasCrown: true }, design.kind);
+    if (result.ok) composition = result.composition;
+  });
+  return composition;
 }
 
 /**
@@ -308,6 +328,10 @@ function editActionText(op: EditOp, design: KoshoyDesign): string {
       return op.hasDoor ? `${nth(op.unit)}ye kapak eklendi.` : `${nth(op.unit)}nin kapağı çıkarıldı.`;
     case "set_crown":
       return op.hasCrown ? `${nth(op.unit)}ye taç eklendi.` : `${nth(op.unit)}nin tacı çıkarıldı.`;
+    case "set_compartments":
+      return op.unit === undefined
+        ? `Raflar ${op.compartments} bölme oldu.`
+        : `${nth(op.unit)} ${op.compartments} bölme oldu.`;
     case "set_front_series":
       return `Kapaklar ${frontSeriesOf(op.series).label.toLocaleLowerCase("tr-TR")} oldu.`;
     case "set_color": {

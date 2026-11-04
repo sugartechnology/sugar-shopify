@@ -1,6 +1,7 @@
 /**
  * Embedded admin home: install status, LLM gateway key, and the catalog health
- * (template parts vs. the shop's part products, matched by structure).
+ * (every part × size × colour the configurator can produce vs. the shop's part
+ * products, matched by structure).
  */
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
@@ -12,10 +13,11 @@ import { koshoyData } from "../koshoy/data.server";
 import { readPartCatalog } from "../koshoy/part-catalog";
 import { shopColorKey } from "../koshoy/shop-colors";
 import {
+  AUDIT_PROBLEM_TEXT,
   auditSkus,
   fetchShopVariants,
   offeredShopColors,
-  requiredTemplateSkus,
+  requiredCatalogSkus,
   type ShopVariant,
 } from "../koshoy/sku-audit.server";
 
@@ -30,7 +32,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.error("[koshoy] sku audit: product read failed", error);
     variantsError = "Ürünler okunamadı.";
   }
-  const audit = auditSkus(requiredTemplateSkus(getCabinetEngine()), variants);
+  // Every part × size × colour the configurator can produce; problems first.
+  const audit = auditSkus(requiredCatalogSkus(getCabinetEngine()), variants).sort(
+    (a, b) => Number(Boolean(b.problem)) - Number(Boolean(a.problem)),
+  );
   const catalog = readPartCatalog(variants);
   const unread = catalog.unread.map((variant) => variant.productTitle);
   // Colours: which look is offered, and shop colours that have no look yet.
@@ -75,7 +80,7 @@ export default function Index() {
         Katalog sağlığı: {found}/{audit.length} parça bulundu, {audit.length - found - twins} eksik, {twins} iki ürünlü
       </h2>
       <p>
-        Tasarım şablonlarının kullandığı parçalar. Mağazadaki ürün adı yapısına göre okunur (parça, seri, renk, ölçü);
+        Stüdyonun üretebileceği bütün parça × ölçü × renk birleşimleri (yalnız şablonlar değil); eksikler üstte. Mağazadaki ürün adı yapısına göre okunur (parça, seri, renk, ölçü);
         ad sırası, boşluk ve büyük/küçük harf önemli değildir. Eksik ya da iki ürünlü parçada fiyat "[FİYAT]" görünür.
       </p>
       <table style={{ borderCollapse: "collapse", width: "100%" }}>
@@ -84,7 +89,7 @@ export default function Index() {
             <th style={cell}>Beklenen parça</th>
             <th style={cell}>Parça</th>
             <th style={cell}>Durum</th>
-            <th style={cell}>Kullanan şablonlar</th>
+            <th style={cell}>Örnek gövde</th>
           </tr>
         </thead>
         <tbody>
@@ -99,7 +104,7 @@ export default function Index() {
                   ? `✅ ${row.found.productTitle} · ${row.found.price}`
                   : row.candidates.length > 1
                     ? `⚠️ iki ürün: ${row.candidates.map((item) => item.productTitle).join(" | ")}`
-                    : "❌ yok"}
+                    : `❌ ${row.problem ? AUDIT_PROBLEM_TEXT[row.problem] : "yok"}`}
               </td>
               <td style={cell}>{row.usedBy.join(", ")}</td>
             </tr>

@@ -39,7 +39,7 @@ import {
   nearestWidth,
 } from "./grid";
 import { crownRequired, findFrontSeries } from "./rules";
-import { splitUnitsForKind, unitWidthsForKind, type DesignKind } from "./templates";
+import { maxCompartments, splitUnitsForKind, unitWidthsForKind, type DesignKind } from "./templates";
 import type {
   CabinColorId,
   CabinComposition,
@@ -59,6 +59,11 @@ export type EditOp =
   | { action: "set_depth"; depthMm: number }
   | { action: "set_door"; unit: number; hasDoor: boolean }
   | { action: "set_crown"; unit: number; hasCrown: boolean }
+  /**
+   * Open compartments as the customer counts them ("4 raflı" = 4 = 3 shelves
+   * over the drawers). No unit = every body without a hanger.
+   */
+  | { action: "set_compartments"; unit?: number; compartments: number }
   /** Door / drawer-front series of the whole design (`CABINET_RULES.frontSeries`). */
   | { action: "set_front_series"; series: string }
   /** Handle colour of the whole design (one handle per door leaf and drawer front); null = none. */
@@ -281,6 +286,8 @@ function applyOp(
       return doorOp(c, op.unit, op.hasDoor);
     case "set_crown":
       return crownOp(c, op.unit, op.hasCrown);
+    case "set_compartments":
+      return compartmentsOp(c, op.unit, op.compartments);
     case "set_front_series":
       return seriesOp(c, op.series);
     case "set_handle":
@@ -331,6 +338,39 @@ function addDrawerOp(
   if (trimFittings(size, fittings).length !== fittings.length) return "no_room";
   if (unit.hasDoor && !canHaveDoor(size, fittings)) return "door_too_short";
   return withUnit(c, unit, { ...unit, fittings });
+}
+
+function compartmentsOp(
+  c: CabinComposition,
+  index: unknown,
+  compartments: unknown,
+): CabinComposition | EditRejectReason {
+  if (typeof compartments !== "number" || !Number.isInteger(compartments)) return "invalid_value";
+  if (compartments < 1 || compartments > 20) return "invalid_value";
+  const hasHanger = (unit: CabinUnit) => (unit.fittings ?? []).some((item) => item.kind === "hanger");
+  let targets: CabinUnit[];
+  if (index === undefined || index === null) {
+    targets = c.units.filter((unit) => !hasHanger(unit));
+    if (!targets.length) return "above_hanger";
+  } else {
+    const unit = unitAt(c, index);
+    if (!unit) return "invalid_unit";
+    if (hasHanger(unit)) return "above_hanger";
+    targets = [unit];
+  }
+  let next = c;
+  for (const unit of targets) {
+    // Drawers stay at the bottom; the free shelves are laid out again.
+    const kept = (unit.fittings ?? []).filter((item) => item.kind !== "shelf" || isAutoShelfId(item.id));
+    const drawers = kept.filter((item) => isDrawerKind(item.kind)).map((item) => item.kind);
+    if (compartments > maxCompartments(unit.heightMm, drawers)) return "no_room";
+    const fittings = [...kept];
+    for (let i = 1; i < compartments; i++) {
+      fittings.push({ id: nextFittingId([...(unit.fittings ?? []), ...fittings]), kind: "shelf", color: unit.color });
+    }
+    next = withUnit(next, unit, { ...unit, fittings });
+  }
+  return next;
 }
 
 function removeFittingOp(
