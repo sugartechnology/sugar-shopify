@@ -42,12 +42,9 @@ export interface SkuAuditRow extends RequiredSku {
   problem: "" | "twins" | "colour" | "size" | "part";
 }
 
-export const AUDIT_PROBLEM_TEXT: Record<Exclude<SkuAuditRow["problem"], "">, string> = {
-  twins: "iki ürün var, hangisi bilinmiyor",
-  colour: "bu renkte yok (başka renkte var)",
-  size: "bu ölçü yok (parçanın başka ölçüleri var)",
-  part: "bu renkte bu parçadan hiç ürün yok",
-};
+import { AUDIT_PROBLEM_TEXT } from "./audit-text";
+
+export { AUDIT_PROBLEM_TEXT };
 
 function bodyLookIds(): string[] {
   return koshoyColors().all.filter((color) => color.use === "body").map((color) => color.id);
