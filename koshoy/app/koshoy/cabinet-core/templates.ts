@@ -9,6 +9,8 @@ import {
   CABIN_TOTAL_WIDTH_SAFETY_MM,
   CABIN_WIDTHS_MM,
   mmToCm,
+  nearestDepth,
+  nearestHeight,
 } from "./grid";
 import type {
   CabinColorId,
@@ -104,6 +106,13 @@ export interface PlanCabinetInput {
    * template shelves. Capped by `maxShelves`.
    */
   compartments?: number;
+  /** Body height / depth instead of the template's; snapped to the catalog with a note. */
+  heightMm?: number;
+  depthMm?: number;
+  /** Interior of every body instead of the level's (fittings bottom → top). */
+  interior?: { fittings: readonly CabinFitKind[]; hasDoor: boolean };
+  /** Product name for the label ("Keson"); the kind's label when missing. */
+  name?: string;
 }
 
 export interface PlanCabinetResult {
@@ -326,9 +335,10 @@ export function planCabinet(input: PlanCabinetInput): PlanCabinetResult {
   const template = CABIN_TEMPLATES[input.kind];
   const level = isDesignLevel(input.level) ? input.level : DEFAULT_DESIGN_LEVEL;
   const color = isCabinColorId(input.color) ? input.color : defaultCabinColor();
-  const spec = template.levels[level];
-  const heightMm = spec.heightMm ?? template.heightMm;
+  const spec = input.interior ? { units: [input.interior] } : template.levels[level];
   const notes: string[] = [];
+  const heightMm = snappedSize(input.heightMm, spec.heightMm ?? template.heightMm, nearestHeight, "Yükseklik", notes);
+  const depthMm = snappedSize(input.depthMm, template.depthMm, nearestDepth, "Derinlik", notes);
   const widths = unitWidthsForKind(input.kind);
   const totalMm = planTotalWidthMm(input.targetWidthMm, template.widthMm, widths, notes);
   const units = splitTotalWidthMm(totalMm, widths).map((widthMm, index) => {
@@ -338,14 +348,17 @@ export function planCabinet(input: PlanCabinetInput): PlanCabinetResult {
   const series = findFrontSeries(input.frontSeries);
   const composition = normalizeComposition({
     units,
-    depthMm: template.depthMm,
+    depthMm,
     hasPlinth: template.hasPlinth,
     color,
     ...(series ? { frontSeries: series.id } : {}),
   });
+  // A wanted interior that does not fit is trimmed by the layout: say so.
+  const trimmed = composition.units.some((unit, i) => (unit.fittings?.length ?? 0) < units[i].fittings.length);
+  if (trimmed) notes.push("İç düzenin hepsi bu ölçüye sığmadı");
   return {
     composition,
-    label: `${DESIGN_KIND_LABELS[input.kind]} ${formatCm(totalMm)} cm`,
+    label: `${input.name?.trim() || DESIGN_KIND_LABELS[input.kind]} ${formatCm(totalMm)} cm`,
     notes,
   };
 }
@@ -408,6 +421,20 @@ export function splitUnitsForKind(
     });
   }
   return normalizeComposition({ ...composition, units, widestUnits: undefined });
+}
+
+/** A wanted size snapped to the catalog; a note when it moved. */
+function snappedSize(
+  wantedMm: number | undefined,
+  defaultMm: number,
+  snap: (mm: number) => number,
+  name: string,
+  notes: string[],
+): number {
+  if (typeof wantedMm !== "number" || !Number.isFinite(wantedMm) || wantedMm <= 0) return defaultMm;
+  const mm = snap(wantedMm);
+  if (mm !== wantedMm) notes.push(`${name} ${formatCm(wantedMm)} cm → ${formatCm(mm)} cm`);
+  return mm;
 }
 
 function planTotalWidthMm(

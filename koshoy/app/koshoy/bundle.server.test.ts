@@ -72,6 +72,14 @@ describe("bundle names (store content guide §4.1)", () => {
     assert.equal(bundleTitle("cok_amacli_dolap", oneUnit, quoteOf({ GOVDE: 1, KAPAK: 1 })), "Dolap 48 cm, 1 Kapaklı – Kumtaşı");
   });
 
+  it("a named product keeps its name (keson, ClickUp z8qu5d7v7w)", () => {
+    assert.equal(
+      bundleTitle("komodin", oneUnit, quoteOf({ GOVDE: 1, CEKMECE_ON: 3 }), "Keson"),
+      "Keson 48 cm, 3 Çekmeceli – Kumtaşı",
+    );
+    assert.equal(bundleTitle("komodin", oneUnit, quoteOf({ GOVDE: 1, CEKMECE_ON: 3 }), "Komodin"), bundleTitle("komodin", oneUnit, quoteOf({ GOVDE: 1, CEKMECE_ON: 3 })));
+  });
+
   it("no doors: drawer count, open shelves", () => {
     assert.equal(
       bundleTitle("sifonyer", oneUnit, quoteOf({ GOVDE: 1, CEKMECE_ON: 1, RAF: 2 })),

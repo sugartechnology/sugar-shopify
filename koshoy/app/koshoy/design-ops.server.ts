@@ -3,6 +3,8 @@
  * (/edit, /cart): create, edit, price, and the events/summaries they yield.
  */
 import {
+  CABIN_FIT_KINDS,
+  cabinetEngine,
   CABIN_HEIGHTS_MM,
   CABIN_TOTAL_WIDTH_SAFETY_MM,
   CABIN_WIDTHS_MM,
@@ -112,8 +114,18 @@ function totalWidthMm(composition: CabinComposition): number {
   return composition.units.reduce((sum, unit) => sum + unit.widthMm, 0);
 }
 
-export function designLabel(kind: DesignKind, composition: CabinComposition): string {
-  return `${DESIGN_KIND_LABELS[kind]} ${cmText(totalWidthMm(composition))} cm`;
+/**
+ * "Keson 48 cm". The name is the one the design was planned with (a named
+ * product or the customer's own word), read back from its label so an edit
+ * keeps it; the kind's label otherwise.
+ */
+export function designLabel(kind: DesignKind, composition: CabinComposition, previousLabel = ""): string {
+  return `${designName(kind, previousLabel)} ${cmText(totalWidthMm(composition))} cm`;
+}
+
+/** The product name of a design label ("Keson 48 cm" → "Keson"). */
+export function designName(kind: DesignKind, label: string): string {
+  return label.replace(/\s+[\d.,]+\s*cm$/u, "").trim() || DESIGN_KIND_LABELS[kind];
 }
 
 export function designSummaries(
@@ -137,8 +149,27 @@ export function sceneEvent(design: KoshoyDesign): PublicEvent | null {
     label: design.label,
     view: design.composition,
     unitWidthsMm: unitWidthsForKind(design.kind),
+    blocked: blockedAdds(design),
   });
 }
+
+/**
+ * Per unit, the fittings the panel's "+" buttons can no longer add and why
+ * (Faz 0, 4 Nov: they stayed enabled and refused silently): "full" = no room
+ * or capacity, "hanger" = it would go above a hanger.
+ */
+export function blockedAdds(design: KoshoyDesign, engine: CabinetEngine = cabinetEngine): BlockedAdds[] {
+  return design.composition.units.map((_, unit) => {
+    const blocked: BlockedAdds = {};
+    for (const kind of CABIN_FIT_KINDS) {
+      const result = engine.applyEditOp(design.composition, { action: "add_fitting", unit, kind }, design.kind);
+      if (!result.ok) blocked[kind] = result.reason === "above_hanger" ? "hanger" : "full";
+    }
+    return blocked;
+  });
+}
+
+export type BlockedAdds = Partial<Record<CabinFitKind, "full" | "hanger">>;
 
 export function priceEvent(design: KoshoyDesign, quote: KoshoyQuote): PublicEvent | null {
   return toPublicEvent({
@@ -275,7 +306,7 @@ export async function applyDesignEdit(
     warnings = warnings.filter((warning) => warning !== "crown_removed");
   }
   const updated = await deps.store.updateDesign(sessionId, design, {
-    label: designLabel(design.kind, composition),
+    label: designLabel(design.kind, composition, design.label),
     composition,
   });
   if (!updated) return { ok: false, reason: "stale" };

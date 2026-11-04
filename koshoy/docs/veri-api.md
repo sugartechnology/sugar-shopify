@@ -83,6 +83,15 @@ Anahtar dosyaya, belgeye, mesaja yazılmaz.
 | `level` | `room`: dış ölçüyü değiştirir, oda onayından önce sorulur. `product`: iç düzen, ürün ürün onayda sorulur. |
 | `options` | 2–4 seçenek |
 | `hint` | Asistana kısa talimat, müşteri görmez. En çok 120 karakter. |
+| `products` | İsteğe bağlı, en çok 10. Bu türün kurallarıyla kurulan **adlı ürünler** (ör. komodin altında "Keson", şifonyer altında "Dresuar"). Adı sekmede, sohbette, sepette ve siparişte görünür. |
+| `products[].id` | Asistanın kullandığı kimlik (küçük harf, Türkçe harfsiz) |
+| `products[].label` | Müşteriye görünen ad; yalnız harf ve boşluk, en çok 30 |
+| `products[].widthMm` / `heightMm` / `depthMm` | Varsayılan dış ölçü (mm); yükseklik ve derinlik katalog ölçüsü olmalı |
+| `products[].fittings` | Her gövdenin içi, alttan üste: `drawer160` (küçük çekmece), `drawer320` (büyük çekmece), `shelf`, `hanger` |
+| `products[].door` | Çekmecelerin üstündeki alana kapak |
+| `products[].note` | Asistana kısa not (ör. "tekerleği yok"), en çok 160 |
+
+Adlı ürün kaydedilmeden önce kurulur: iç düzen sığmazsa ya da kapak katalog ölçüsüne oturmazsa kaydedilmez, hata söylenir.
 
 ```json
 [
@@ -100,6 +109,25 @@ Anahtar dosyaya, belgeye, mesaja yazılmaz.
           { "id": "kutuda", "label": "Kutuda", "hint": "derinlik 48 cm" },
           { "id": "kutusuz", "label": "Kutusuz", "hint": "derinlik 32 cm" }
         ]
+      }
+    ],
+    "products": []
+  },
+  {
+    "kind": "komodin",
+    "label": "Komodin",
+    "synonyms": [],
+    "joinSameKind": false,
+    "questions": [],
+    "products": [
+      {
+        "id": "keson",
+        "label": "Keson",
+        "synonyms": ["masa altı çekmece"],
+        "widthMm": 480, "heightMm": 544, "depthMm": 480,
+        "fittings": ["drawer160", "drawer160", "drawer160"],
+        "door": false,
+        "note": "Masa altına ya da yanına giren çekmeceli dolap; tekerleği yok, bazalı."
       }
     ]
   }

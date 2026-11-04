@@ -290,6 +290,17 @@ function layoutFreeFittings(
       hangTop[topGap - 1] = zoneTop;
     }
   }
+  // A hanger lowered from the top carries its own shelf above it (Akın, ClickUp
+  // z8qu5d6hfr): that shelf sits a whole number of steps under the top panel,
+  // counted from the top (2304: shelf 2128, rod 2026.32), never on the
+  // bottom-up grid (which gave 2008 / 1906.32).
+  const last = items.length - 1;
+  if (last > 0 && items[last].kind === "shelf" && items[last - 1].kind === "hanger") {
+    const g = gapCount - 2;
+    const steps = Math.max(1, Math.floor((cavity.max.y - shelfY[g] + 1e-6) / SHELF_GRID_MM));
+    shelfY[g] = cavity.max.y - SHELF_GRID_MM * steps;
+    hangTop[g] = shelfY[g];
+  }
   for (const g of hangerGaps) {
     if (gapTop(g) - gapBottom(g) < HANGER_MIN_ZONE_MM) return undefined;
   }
@@ -444,7 +455,14 @@ function hangerZoneParts(size: CabinSize, list: readonly CabinFitting[]): CabinF
   const hangers = list.filter((item) => item.kind === "hanger").length;
   if (hangers === 0) return [];
   const cavity = cabinCavity(size);
-  const zoneBottom = cavity.max.y - CABINET_RULES.hangerZoneMm * hangers;
+  const placedList = layoutFittings(size, list);
+  // A lowered hanger's own shelf (last, right above the top hanger) closes the
+  // zone instead of the top panel; it is not a part in the zone (Akın, z8qu5d6hfr).
+  const last = list.length - 1;
+  const attached =
+    last > 0 && list[last].kind === "shelf" && list[last - 1].kind === "hanger" ? list[last].id : "";
+  const zoneTop = attached ? (placedList.find((p) => p.id === attached)?.min.y ?? cavity.max.y) : cavity.max.y;
+  const zoneBottom = zoneTop - CABINET_RULES.hangerZoneMm * hangers;
   const between = new Set<string>();
   list.forEach((item, i) => {
     if (item.kind === "shelf" && list[i - 1]?.kind === "hanger" && list[i + 1]?.kind === "hanger") {
@@ -452,8 +470,8 @@ function hangerZoneParts(size: CabinSize, list: readonly CabinFitting[]): CabinF
     }
   });
   const parts: CabinFitKind[] = [];
-  for (const placed of layoutFittings(size, list)) {
-    if (placed.kind === "hanger" || between.has(placed.id)) continue;
+  for (const placed of placedList) {
+    if (placed.kind === "hanger" || between.has(placed.id) || placed.id === attached) continue;
     // A drawer counts by its box (the front is outside the body).
     const top = isDrawerKind(placed.kind)
       ? Math.max(...drawerTubPanels(placed).map((panel) => panel.max.y))

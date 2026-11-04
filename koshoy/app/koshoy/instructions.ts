@@ -2,7 +2,7 @@
  * Turkish system instructions for the koshoy-chat model. Rules and scope are
  * read from rules.ts so the prompt and the output guard never drift apart.
  */
-import { PRICE_PLACEHOLDER } from "./events";
+import { KOSHOY_MAX_LAYOUT_ITEMS, PRICE_PLACEHOLDER } from "./events";
 import { koshoyRules } from "./rules";
 import { designBriefForModel, designForModel } from "./design-ops.server";
 import type { KoshoyJourney } from "./journey";
@@ -46,7 +46,7 @@ export function koshoyModelContext(input: KoshoyInstructionInput) {
 
 /** Tool use with the room photo feature on (show_in_room, place_in_room, …). */
 const ROOM_TOOL_LINES = [
-  "- Tasarımı odaya (ya da fotoğraf yoksa stüdyodaki duvarın önüne) yerleştirmek ya da yerini değiştirmek için place_in_room, odadan çıkarmak için remove_from_room çağır. Odada en çok 8 tasarım durabilir.",
+  `- Tasarımı odaya (ya da fotoğraf yoksa stüdyodaki duvarın önüne) yerleştirmek ya da yerini değiştirmek için place_in_room, odadan çıkarmak için remove_from_room çağır. Odada en çok ${KOSHOY_MAX_LAYOUT_ITEMS} tasarım durabilir.`,
   "- Müşteri fotoğraftaki bir şeye göre yer söylerse (\"pencerenin soluna\") fotoğrafta o şeyin kenarını bul, yatay yerini 0 (sol kenar) ile 1 (sağ kenar) arasında photoX olarak ver: at photo_x, dolabın sağ kenarı oraya gelecekse align right_edge, sol kenarı gelecekse left_edge.",
   "- Odadaki tasarımı fotoğrafın üstünde göstermek için show_in_room, gerçekçi görsel için render_room çağır.",
   "- Oda bilgisini yerleşim ve ölçü seçimi için kullan; müşteriye oda ya da duvar ölçüsü hiç söyleme, yalnız ürün ölçüsü söyle.",
@@ -74,6 +74,12 @@ export function koshoyInstructions(input: KoshoyInstructionInput): string {
   const context = koshoyModelContext(input);
   const { data, journey } = input;
   const inScope = data.kinds.map((row) => row.label).join(", ");
+  const named = data.kinds.flatMap((row) =>
+    row.products.map((product) => {
+      const also = product.synonyms.length ? ` (${product.synonyms.join(", ")})` : "";
+      return `${product.label}${also}: plan_cabinet product "${product.id}"${product.note ? `; ${product.note}` : ""}`;
+    }),
+  );
   const outOfScope = data.scope.outOfScope.join(", ");
   const measure = journey.measure
     ? `Müşterinin kendi ölçüsü (yalnız ürünleri sığdırmak için; müşteriye söyleme): duvar ${journey.measure.wallCm} cm${
@@ -92,7 +98,9 @@ export function koshoyInstructions(input: KoshoyInstructionInput): string {
     "Kapsam:",
     `- Tasarlayabildiklerin: ${inScope}. Her ürün ayrı bir tasarımdır; komodin gardıroba eklenmez.`,
     "- Müşteri raf sayısı söylerse (\"4 raflı\") bu bölme sayısıdır: yeni tasarımda plan_cabinet compartments, var olan tasarımda edit_design set_compartments. Rafları tek tek ekleme ya da çıkarma.",
-    "- Panelden yapılan her dolap kapsamdadır. Listede adı geçmeyen bir dolap istenirse (ör. dresuar) önce ihtiyacını sor (genişlik, yükseklik, çekmece mi raf mı), sonra çok amaçlı dolabı o ölçülerle kur; müşteriye \"bu ürünümüz yok\" deme.",
+    ...(named.length ? [`- Adlı ürünler (kendi ölçüsü ve iç düzeniyle gelir; müşteri ölçü verirse onu da geçir): ${named.join(" · ")}.`] : []),
+    "- Panelden yapılan her dolap kapsamdadır. Listede adı geçmeyen bir dolap istenirse önce ihtiyacını sor (genişlik, yükseklik, derinlik, çekmece mi raf mı, kapak), sonra plan_cabinet'i en yakın türle ama müşterinin söylediği adla (name) ve o ölçü ve çekmecelerle kur. İstenen ürünü başka bir ürünün adıyla sunma (keson \"komodin\" ya da \"çok amaçlı dolap\" değildir).",
+    "- Panel dışı parça yapamayız (tekerlek, cam, ayna, metal ayak); istenirse bunu açıkça söyle, dolabı onsuz öner.",
     `- Kapsam dışı yalnız: ${outOfScope} ve panelden yapılmayan eşyalar. Bunlarda araç çağırmadan kibarca reddet ve bir dolap öner; yapabildiklerini sayma, yalnız yapamadığını söyle.`,
     "",
     "Akış (bütünden parçaya: önce oda, sonra ürün ürün, sonra sepet):",
@@ -111,7 +119,7 @@ export function koshoyInstructions(input: KoshoyInstructionInput): string {
     "- Yeni bir ürün için plan_cabinet çağır. Ölçüyü ve iç düzeni sistem belirler; sistem ölçüyü yuvarladıysa notu kısaca aktar.",
     "- Var olan tasarımı değiştirmek için edit_design çağır. unit soldan sağa 0'dan başlayan gövde sırasıdır; müşteriye \"1. gövde\" gibi anlat.",
     `- Fiyat için quote çağır ve dönen fiyat metnini aynen yaz. Fiyat ${PRICE_PLACEHOLDER} ise fiyatın henüz hazır olmadığını söyle.`,
-    "- Başka bir tasarıma geçmek için switch_design çağır. Aşağıda yalnız aktif tasarımın ayrıntıları var; başka bir tasarımı değiştirmeden önce ona geç. Müşteri tasarımlar arasında ekranın üstündeki sekmelerden de geçebilir.",
+    "- Başka bir tasarıma geçmek için switch_design çağır. Aşağıda yalnız aktif tasarımın ayrıntıları var; başka bir tasarımı değiştirmeden önce ona geç. Müşteri başka bir tasarımı adıyla ya da ölçüsüyle anarsa (\"48 cm'lik dolabı değiştir\") switch_design'ı sen çağır, isteği uygula ve geçtiğini kısaca söyle; müşteriye sekme değiştirmesini söyleme. Adını anmadığı istek ekranda açık tasarım içindir.",
     "- Müşterinin mesajının başındaki [Ekranda açık tasarım: …] notu (ask_user cevabında openDesign), müşterinin o an baktığı tasarımdır. Ürün adı geçmeyen istekler (\"rengini değiştir\", \"bir çekmece ekle\") bu tasarım içindir; sohbette daha önce başka tasarım konuşulmuş olsa da.",
     "- Müşteri sorduğun soruya cevap yerine yeni bir istek yazarsa (\"rengini değiştir\") önce o isteği araçla yap. Bir değişikliği yaptığını yalnız edit_design başarılı döndüyse söyle.",
     "- Başka bir tasarımı yalnız müşteri adını söylerse (\"gardırobu beyaz yap\") değiştir; edit_design'a onun designId'sini ver, ekran ona geçer. allDesigns'ı yalnız müşteri bütün seti isterse (\"hepsini\", \"bütün set\") kullan.",

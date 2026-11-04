@@ -124,7 +124,7 @@ function askStyleTool(withHandle: boolean) {
   };
 }
 
-function toolList(withHandle: boolean) {
+function toolList(withHandle: boolean, products: readonly string[]) {
   return [
     {
       name: "set_brief",
@@ -172,12 +172,23 @@ function toolList(withHandle: boolean) {
     {
       name: "plan_cabinet",
       description:
-        "Create a NEW design for one product. The server picks sizes and interior from templates and snaps to the catalog; never invent sizes. Returns the design summary, snapping notes and the price text.",
+        "Create a NEW design for one product. The server picks sizes and interior from templates and snaps to the catalog; never invent sizes. A named product from the system facts (product) brings its own size and interior. For a cabinet not in the list, pass the closest kind plus the customer's name for it (name) and the sizes and interior the customer gave. Returns the design summary, snapping notes and the price text.",
       strict: false,
       parameters: {
         type: "object",
         properties: {
           kind: { type: "string", enum: [...DESIGN_KINDS] },
+          ...(products.length
+            ? { product: { type: "string", enum: [...products], description: "Named product id from the system facts (e.g. keson)" } }
+            : {}),
+          name: {
+            type: "string",
+            description: "The customer's name for a cabinet that is not in the list (\"Konsol\"): letters only, at most 30. It is shown on the tab and in the cart.",
+          },
+          heightCm: { type: "number", description: "Wanted body height in cm, if the customer gave one" },
+          depthCm: { type: "number", description: "Wanted depth in cm, if the customer gave one" },
+          drawers: { type: "integer", minimum: 0, maximum: 8, description: "Small drawers per body (bottom), if the customer wants drawers" },
+          door: { type: "boolean", description: "A door over the space above the drawers" },
           targetWidthCm: { type: "number", description: "Wanted total width in cm, if the customer gave one" },
           compartments: {
             type: "integer",
@@ -382,7 +393,7 @@ function toolList(withHandle: boolean) {
  * without the room feature it is today's list. Without handle colours in the
  * shop, ask_style does not offer the handle decision at all, so the model never announces it.
  */
-export function koshoyTools(withRoom: boolean, options: { handles?: boolean } = {}) {
-  const tools = toolList(Boolean(options.handles));
+export function koshoyTools(withRoom: boolean, options: { handles?: boolean; products?: readonly string[] } = {}) {
+  const tools = toolList(Boolean(options.handles), options.products ?? []);
   return withRoom ? tools : tools.filter((tool) => !KOSHOY_ROOM_TOOL_NAMES.includes(tool.name));
 }

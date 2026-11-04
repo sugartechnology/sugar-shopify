@@ -15,7 +15,7 @@ import {
   type DesignSize,
   type LayoutTarget,
 } from "./layout-solver";
-import { changeLayout, readLayout, updateLayout } from "./layout.server";
+import { changeLayout, KOSHOY_MAX_LAYOUT_ITEMS, readLayout, updateLayout } from "./layout.server";
 import type { LayoutItemView, LayoutPlaceView } from "./events";
 import { createMemoryRoomDb, sampleReadyRoom } from "./memory-db";
 import { floorRow, floorToImage, imageXToAlong } from "./room-layout";
@@ -85,14 +85,16 @@ describe("koshoy room layout", () => {
     );
   });
 
-  it("holds at most 8 designs and refuses a cabinet the wall cannot take", () => {
-    const many = new Map<string, DesignSize>(Array.from({ length: 9 }, (_, i) => [`d${i}`, metre(0.5)]));
+  it("holds at most KOSHOY_MAX_LAYOUT_ITEMS (12) designs and refuses a cabinet the wall cannot take", () => {
+    const max = KOSHOY_MAX_LAYOUT_ITEMS;
+    assert.equal(max, 12);
+    const many = new Map<string, DesignSize>(Array.from({ length: max + 1 }, (_, i) => [`d${i}`, metre(0.5)]));
     let items: LayoutItemView[] = [];
-    for (let i = 0; i < 8; i += 1) items = applyLayoutOp(items, { op: "add", designId: `d${i}` }, STUDIO_TARGET, many).items;
-    assert.equal(items.length, 8);
-    const ninth = applyLayoutOp(items, { op: "add", designId: "d8" }, STUDIO_TARGET, many);
-    assert.equal(ninth.outcome, "layout_full");
-    assert.equal(ninth.items.length, 8);
+    for (let i = 0; i < max; i += 1) items = applyLayoutOp(items, { op: "add", designId: `d${i}` }, STUDIO_TARGET, many).items;
+    assert.equal(items.length, max);
+    const over = applyLayoutOp(items, { op: "add", designId: `d${max}` }, STUDIO_TARGET, many);
+    assert.equal(over.outcome, "layout_full");
+    assert.equal(over.items.length, max);
 
     const wide = new Map([["w", metre(9)]]);
     assert.equal(applyLayoutOp([], { op: "add", designId: "w" }, STUDIO_TARGET, wide).outcome, "no_space");

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { KOSHOY_DATA_DEFAULTS } from "./data.server";
 import type { ClientInput } from "./input";
 import { cabinetEngine } from "./engine";
-import type { LayoutItemView, PublicEvent } from "./events";
+import { KOSHOY_MAX_LAYOUT_ITEMS, type LayoutItemView, type PublicEvent } from "./events";
 import { readLayout } from "./layout.server";
 import { createMemoryKoshoyDb, createMemoryRoomDb, sampleReadyRoom } from "./memory-db";
 import { createKoshoyPricer, createMockSkuResolver } from "./pricing.server";
@@ -230,7 +230,7 @@ describe("koshoy room tools in the chat", () => {
     assert.ok(!shown.events.some((event) => event.type === "room_show"));
   });
 
-  it("removes a design, refuses a ninth one and re-settles after a wider edit", async () => {
+  it("removes a design, refuses one past the room limit and re-settles after a wider edit", async () => {
     const t = await setup();
     const a = await design(t, 960);
     const b = await design(t, 960);
@@ -253,13 +253,15 @@ describe("koshoy room tools in the chat", () => {
     const removed = await turn(t, "Çıkar", [[call("r1", "remove_from_room", { designId: a.id })], []]);
     assert.deepEqual(layouts(removed.events).at(-1)!.items.map((item) => item.designId), [b.id]);
 
-    for (let i = 0; i < 7; i += 1) {
+    for (let i = 0; i < KOSHOY_MAX_LAYOUT_ITEMS - 1; i += 1) {
       const extra = await design(t, 160);
       await turn(t, "Koy", [[call(`x${i}`, "place_in_room", { designId: extra.id, at: "free" })], []]);
     }
-    const ninth = await design(t, 160);
-    const full = await turn(t, "Koy", [[call("n1", "place_in_room", { designId: ninth.id, at: "free" })], []]);
-    assert.equal(results(full.bodies, 1)[0].payload.error, "layout_full");
+    const oneTooMany = await design(t, 160);
+    const full = await turn(t, "Koy", [[call("n1", "place_in_room", { designId: oneTooMany.id, at: "free" })], []]);
+    // Past the limit, or the wall is full first (this room's wall takes fewer than 12).
+    assert.ok(["layout_full", "no_space"].includes(String(results(full.bodies, 1)[0].payload.error)));
+    assert.ok(layouts(full.events).every((layout) => layout.items.length <= KOSHOY_MAX_LAYOUT_ITEMS));
   });
 
   it("sends the room photo once per room and model conversation", async () => {

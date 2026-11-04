@@ -7,6 +7,7 @@
  * pushes its neighbours). turn.server.ts calls these; it only offers the
  * tools while the room feature is configured.
  */
+import { KOSHOY_MAX_LAYOUT_ITEMS } from "./events";
 import {
   designSizes,
   gapAround,
@@ -50,7 +51,7 @@ const HINTS = {
   ...PLACE_ERROR_HINTS,
   no_floor: "Bu fotoğrafta zemin bulunamadı; müşteriden odanın zeminini de gösteren başka bir fotoğraf iste.",
   no_space: "Odada bu tasarım için boş yer yok; başka bir tasarımı odadan çıkarmayı ya da daha dar bir tasarım önermeyi düşün.",
-  layout_full: "Odada en çok 8 tasarım olabilir; önce birini odadan çıkarmak gerekir.",
+  layout_full: `Odada en çok ${KOSHOY_MAX_LAYOUT_ITEMS} tasarım olabilir; önce birini odadan çıkarmak gerekir.`,
   design_not_found: "Böyle bir tasarım yok.",
   not_placed: "Tasarım şu an odaya yerleştirilemedi; müşteriye elle sürükleyebileceğini söyle.",
   unchanged:

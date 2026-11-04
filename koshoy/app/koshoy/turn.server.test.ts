@@ -10,7 +10,7 @@ import type { KoshoyRoomDeps } from "./room.server";
 import { createKoshoyPricer, createMockSkuResolver } from "./pricing.server";
 import { KOSHOY_RULES, KOSHOY_SAFE_STOPPED_REPLY, KOSHOY_SAFE_TOPIC_REPLY } from "./rules";
 import { createKoshoyStore, type KoshoySessionState } from "./store.server";
-import { KOSHOY_MAX_HOPS, runKoshoyTurn, type KoshoyStreamFn } from "./turn.server";
+import { isChoiceQuestion, KOSHOY_MAX_HOPS, runKoshoyTurn, type KoshoyStreamFn } from "./turn.server";
 
 const SHOP = "koshoy.myshopify.com";
 type Hop = Array<{ event: string; data: unknown }>;
@@ -202,6 +202,27 @@ describe("koshoy turn loop", () => {
     assertNoLeak(events);
   });
 
+  it("plans a named product and a cabinet in the customer's own name (keson, dresuar; ClickUp z8qu5d7v7w)", async () => {
+    const ctx = await setup();
+    const plan = (callId: string, args: Record<string, unknown>) => ({ event: "tool_call", data: { callId, name: "plan_cabinet", arguments: args } });
+    const { stream, bodies } = scriptedStream([
+      [plan("c1", { kind: "komodin", product: "keson" })],
+      [plan("c2", { kind: "sifonyer", name: "konsol", targetWidthCm: 120, heightCm: 80, drawers: 2, door: false })],
+      [plan("c3", { kind: "komodin", name: "Bakay" })],
+      [{ event: "text", data: { text: "Hazır." } }],
+    ]);
+    const events = await turn(ctx, ctx.session, { type: "message", text: "bir keson ve konsol" }, { stream });
+    const labels = events.flatMap((event) => (event.type === "scene" ? [event.label] : []));
+    assert.ok(labels.includes("Keson 48 cm"), labels.join());
+    assert.ok(labels.some((label) => label.startsWith("Konsol ")), labels.join());
+    const third = (bodies[3].toolResults as Array<{ payload: Record<string, unknown> }>)[0].payload;
+    assert.equal(third.error, "invalid_name", "an internal part name is not a product name");
+    const kesonScene = events.find((event) => event.type === "scene" && event.label === "Keson 48 cm");
+    assert.ok(kesonScene && kesonScene.type === "scene");
+    assert.deepEqual(kesonScene.view.units[0].fittings.map((fit) => fit.kind), ["drawer160", "drawer160", "drawer160"]);
+    assertNoLeak(events);
+  });
+
   it("stops on ask_user and posts the choice as that call's tool result", async () => {
     const ctx = await setup();
     const first = scriptedStream([
@@ -349,6 +370,19 @@ describe("koshoy turn loop", () => {
     assert.match(String(pick.bodies[1].message), /ask_user ile tek başına sor/);
     assert.equal(events.filter((event) => event.type === "choice").length, 1);
     assertNoLeak(events);
+
+    // A pick question without chips ("Gardırobu 182,4 cm yap", Faz 0 4 Nov).
+    const height = await setup();
+    const pickHeight = scriptedStream([
+      [{ event: "text", data: { text: "Bu yükseklikte gövde yok. Hangisini tercih edersin?" } }],
+      [colorAsk("call_height")],
+    ]);
+    const heightEvents = await turn(height, height.session, { type: "message", text: "Gardırobu 182,4 cm yap" }, { stream: pickHeight.stream });
+    assert.equal(pickHeight.bodies.length, 2);
+    assert.equal(heightEvents.filter((event) => event.type === "choice").length, 1);
+    assert.equal(isChoiceQuestion("Rengini değiştirmek ister misin?"), false);
+    assert.equal(isChoiceQuestion("Hangi rengi istersin?"), true);
+    assert.equal(isChoiceQuestion("Şunlardan birini seçer misin?"), true);
 
     // A question sent back for asking beside another tool, then never asked.
     const alone = await setup();
