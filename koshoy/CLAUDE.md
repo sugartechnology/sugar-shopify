@@ -104,6 +104,22 @@ uygular), girişsiz 30 gün, hesaplı 180 gün.
    garanti, kurulum, teslim süresi, E1, tedarikçi adları, ürün kodları.
 5. **Şifre ve anahtarlar** `.env` ve Coolify'dadır; koda, loga, belgeye yazılmaz.
 
+## Dev hattı (aynı mağaza)
+
+- Canlı: Coolify `koshoy-studio` ← `feature/koshoy-backend`, `koshoy.sugartech.io`,
+  `shopify.app.toml` (Koshoy Studio, proxy `/apps/koshoy`).
+- Dev: ayrı Coolify app ← `dev`, `koshoy-dev.sugartech.io`, ayrı SQLite volume,
+  `shopify.app.koshoy-dev.toml` (Koshoy Dev, proxy `/apps/koshoy-dev` →
+  `https://koshoy-dev.sugartech.io/apps/koshoy`, route'lar aynı).
+- Akış: feature dalı → `dev`'e merge → dev temasının önizleme linkinde dene →
+  `feature/koshoy-backend`'e PR → canlı.
+- Yalnız dev'de set edilen env: `KOSHOY_BUNDLE_EXTRA_TAG=koshoy-dev` (paketler ayrı
+  bulunur), `KOSHOY_PREVIEW_THEME_ID` (telefon QR'ı dev temasını açar),
+  `KOSHOY_S3_PREFIX=koshoy-studio-dev/`. Dev, canlı tagservice gateway'ini kullanır.
+- Dev app'i mağazaya kurmadan ÖNCE dev veritabanında `ShopCredential` satırı olmalı;
+  yoksa kurulum tagservice'e yeni anahtar kaydeder ve canlının anahtarını ezebilir.
+- Canlı → dev veri kopyası yalnız okuyarak yapılır; döküm `_ciktilar` altına girmez.
+
 ## Yeni özellik eklerken (giriş, hesap, kayıtlı tasarım, entegrasyon…)
 
 Veritabanı, servis ya da dış entegrasyon gereken her iş **bu backend'de** yapılır;

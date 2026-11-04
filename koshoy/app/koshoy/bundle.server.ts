@@ -281,6 +281,15 @@ async function attachImage(
   }
 }
 
+/**
+ * Our tag, plus KOSHOY_BUNDLE_EXTRA_TAG when set (the dev line sets "koshoy-dev",
+ * so its bundles in the shared store are easy to find). Live leaves it unset.
+ */
+export function bundleTags(extra = process.env.KOSHOY_BUNDLE_EXTRA_TAG): string[] {
+  const tag = (extra ?? "").trim();
+  return tag && tag !== BUNDLE_TAG ? [BUNDLE_TAG, tag] : [BUNDLE_TAG];
+}
+
 async function createProduct(
   admin: KoshoyAdminGraphql,
   spec: BundleSpec,
@@ -291,7 +300,7 @@ async function createProduct(
     handle,
     productType: spec.productType,
     vendor: "Koshoy",
-    tags: [BUNDLE_TAG],
+    tags: bundleTags(),
   };
   type CreateData = {
     productCreate: {
