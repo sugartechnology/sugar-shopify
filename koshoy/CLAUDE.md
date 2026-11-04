@@ -113,7 +113,8 @@ uygular), girişsiz 30 gün, hesaplı 180 gün.
 | App proxy | `/apps/koshoy` → koshoy.sugartech.io | `/apps/koshoy` → koshoy-dev.sugartech.io |
 | Coolify | `koshoy-studio` ← `feature/koshoy-backend` | `koshoy-studio-dev` ← `dev` |
 
-- Akış: feature dalı → `dev`'e merge → dev mağazasında dene → `feature/koshoy-backend`'e PR → canlı.
+- Akış (her değişiklik): PR → `dev`'e merge → biz dev mağazasında deneriz → Bay Zengin
+  koshoy-dev.myshopify.com'da dener → onun onayı → `feature/koshoy-backend`'e PR → canlı.
 - Kod iki ortamda aynıdır; fark yalnız env'dedir (`KOSHOY_SHOPS`, Shopify anahtarları,
   `SHOPIFY_APP_URL`, `KOSHOY_S3_PREFIX=koshoy-studio-dev/`, kendi `KOSHOY_DATA_API_KEY`).
 - Gateway anahtarı mağaza adına bağlıdır (tagservice `registerKey` yalnız aynı mağazanın eski
