@@ -409,7 +409,7 @@ describe("koshoy studio handlers", () => {
     assert.ok(!JSON.stringify(doorTooShort).includes("door_too_short"));
   });
 
-  it("switches the door series and draws it (Mat kapak 18 mm), never naming shop parts", async () => {
+  it("switches the door series and draws it (Mat kapak), never naming shop parts", async () => {
     const ctx = makeCtx();
     const { session: token } = await openSession(ctx);
     const scene = await planGardirop(ctx, token);
@@ -423,7 +423,7 @@ describe("koshoy studio handlers", () => {
     const [view, , line] = body.events;
     assert.ok(view.type === "scene" && line.type === "text");
     assert.equal(view.view.frontSeries, "kapak-18");
-    assert.equal(line.text, "Panelden: Kapaklar mat kapak (18 mm) oldu.");
+    assert.equal(line.text, "Panelden: Kapaklar mat kapak oldu.");
     assert.ok(!/Aruuke|Acıbay/.test(JSON.stringify(body)));
   });
 

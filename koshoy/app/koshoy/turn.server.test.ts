@@ -1361,7 +1361,7 @@ describe("koshoy journey: room first, then product by product, then the cart", (
       stream: scriptedStream([[{ event: "text", data: { text: "Tamam." } }]]).stream,
     });
     const texts = picked.filter((event) => event.type === "text").map((event) => (event.type === "text" ? event.text : "")).join("");
-    assert.match(texts, /Kapak: Standart kapak \(16 mm\)\./);
+    assert.match(texts, /Kapak: Standart kapak\./);
     const summary = picked.find((event) => event.type === "room_summary");
     assert.ok(summary?.type === "room_summary");
     assert.deepEqual(summary.style[0], { label: "Bütçe", value: "Fiyata göre" });

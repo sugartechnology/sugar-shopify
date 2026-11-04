@@ -16,7 +16,7 @@
 export interface FrontSeries {
   /** Stored on the composition (`frontSeries`) and on KAPAK / CEKMECE_ON lines. */
   id: string;
-  /** What the customer hears (Fatih, 28 Oct: "Mat kapak (18 mm)"). */
+  /** What the customer hears, without the thickness (ClickUp z8qu5da8dg, 5 Nov: "Mat kapak"). */
   label: string;
   /** Door and drawer-front thickness. */
   thicknessMm: number;
@@ -26,9 +26,9 @@ export const CABINET_RULES = {
   /** Door series. A new series is one more row; the first row is the default. */
   frontSeries: [
     // Shop: Acıbay / Acıbay Çekmece.
-    { id: "kapak-16", label: "Standart kapak (16 mm)", thicknessMm: 16 },
+    { id: "kapak-16", label: "Standart kapak", thicknessMm: 16 },
     // Shop: Aruuke / Aruuke Çekmece (the 18 mm Matt Plus twin of the first).
-    { id: "kapak-18", label: "Mat kapak (18 mm)", thicknessMm: 18 },
+    { id: "kapak-18", label: "Mat kapak", thicknessMm: 18 },
   ] as readonly FrontSeries[],
 
   /** Hangers per body: max(1, floor((H − 48) / 1120)); 2304 → 2, 1984 → 1. */
