@@ -1,6 +1,6 @@
-# Koshoy Dev — the dev line of Koshoy Studio, installed in the SAME Koshoy store.
-# Storefront /apps/koshoy-dev/* → https://koshoy-dev.sugartech.io/apps/koshoy/*
-# (same backend routes as live; only the storefront path and the host differ).
+# Koshoy Dev — the dev line of Koshoy Studio, installed only in the dev store
+# koshoy-dev.myshopify.com (never in the live store 21tn4m-us).
+# Dev store /apps/koshoy/* → https://koshoy-dev.sugartech.io/apps/koshoy/* (same paths as live).
 # Live config stays in shopify.app.toml; never point this file at koshoy.sugartech.io.
 # https://shopify.dev/docs/apps/tools/cli/configuration
 
@@ -19,7 +19,7 @@ redirect_urls = [ "https://koshoy-dev.sugartech.io/auth/callback" ]
 
 [app_proxy]
 url = "https://koshoy-dev.sugartech.io/apps/koshoy"
-subpath = "koshoy-dev"
+subpath = "koshoy"
 prefix = "apps"
 
 [webhooks]

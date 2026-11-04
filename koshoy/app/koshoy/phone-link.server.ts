@@ -136,17 +136,8 @@ export async function createPhoneLink(
       roomId: null,
     },
   });
-  const url = `${await deps.storefrontOrigin()}${pagePath}${previewQuery()}#${KOSHOY_PHONE_FRAGMENT}=${token}`;
+  const url = `${await deps.storefrontOrigin()}${pagePath}#${KOSHOY_PHONE_FRAGMENT}=${token}`;
   return { id: row.id, url, qr: qrDataUrl(url), expiresInMs: KOSHOY_PHONE_LINK_TTL_MS };
-}
-
-/**
- * Dev line: the phone must open the same unpublished theme as the desktop, so the
- * link carries ?preview_theme_id=KOSHOY_PREVIEW_THEME_ID. Live leaves it unset.
- */
-export function previewQuery(themeId = process.env.KOSHOY_PREVIEW_THEME_ID): string {
-  const id = (themeId ?? "").trim();
-  return /^\d+$/.test(id) ? `?preview_theme_id=${id}` : "";
 }
 
 export function phoneLinkStatus(row: KoshoyPhoneLinkRow, now: number): PhoneLinkStatusView {

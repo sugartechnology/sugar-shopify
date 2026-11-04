@@ -104,24 +104,24 @@ uygular), girişsiz 30 gün, hesaplı 180 gün.
    garanti, kurulum, teslim süresi, E1, tedarikçi adları, ürün kodları.
 5. **Şifre ve anahtarlar** `.env` ve Coolify'dadır; koda, loga, belgeye yazılmaz.
 
-## Dev hattı (aynı mağaza)
+## Dev hattı (ayrı dev mağazası)
 
-- Canlı: Coolify `koshoy-studio` ← `feature/koshoy-backend`, `koshoy.sugartech.io`,
-  `shopify.app.toml` (Koshoy Studio, proxy `/apps/koshoy`).
-- Dev: ayrı Coolify app ← `dev`, `koshoy-dev.sugartech.io`, ayrı SQLite volume,
-  `shopify.app.koshoy-dev.toml` (Koshoy Dev, proxy `/apps/koshoy-dev` →
-  `https://koshoy-dev.sugartech.io/apps/koshoy`, route'lar aynı).
-- Akış: feature dalı → `dev`'e merge → dev temasının önizleme linkinde dene →
-  `feature/koshoy-backend`'e PR → canlı.
-- Yalnız dev'de set edilen env: `KOSHOY_BUNDLE_EXTRA_TAG=koshoy-dev` (paketler ayrı
-  bulunur), `KOSHOY_PREVIEW_THEME_ID` (telefon QR'ı dev temasını açar),
-  `KOSHOY_S3_PREFIX=koshoy-studio-dev/`, `KOSHOY_S3_NO_DELETE=1` (kopyalanan satırlar
-  canlının S3 dosyalarını gösterir; dev'de "Sil" onları silmesin). Dev, canlı tagservice
-  gateway'ini kullanır.
-- Dev'de `SHOPIFY_SERVICE_SECRET` YOKTUR: dev tagservice'e anahtar kaydedemez, canlının
-  anahtarını ezemez. Gateway anahtarı canlıdan kopyalanan `ShopCredential` satırından gelir;
-  bu yüzden Dev app'i mağazaya kurmadan ÖNCE veri kopyası yapılır.
-- Canlı → dev veri kopyası yalnız okuyarak yapılır; döküm `_ciktilar` altına girmez.
+| | Canlı | Dev |
+|---|---|---|
+| Mağaza | `21tn4m-us.myshopify.com` (koshoy.com) | `koshoy-dev.myshopify.com` (development store) |
+| Shopify app | Koshoy Studio, `shopify.app.toml` | Koshoy Dev, `shopify.app.koshoy-dev.toml` |
+| App proxy | `/apps/koshoy` → koshoy.sugartech.io | `/apps/koshoy` → koshoy-dev.sugartech.io |
+| Coolify | `koshoy-studio` ← `feature/koshoy-backend` | `koshoy-studio-dev` ← `dev` |
+
+- Akış: feature dalı → `dev`'e merge → dev mağazasında dene → `feature/koshoy-backend`'e PR → canlı.
+- Kod iki ortamda aynıdır; fark yalnız env'dedir (`KOSHOY_SHOPS`, Shopify anahtarları,
+  `SHOPIFY_APP_URL`, `KOSHOY_S3_PREFIX=koshoy-studio-dev/`, kendi `KOSHOY_DATA_API_KEY`).
+- Gateway anahtarı mağaza adına bağlıdır (tagservice `registerKey` yalnız aynı mağazanın eski
+  anahtarlarını kapatır). Koshoy Dev asla canlı mağazaya kurulmaz; kurulursa canlının anahtarı ölür.
+- Dev mağazasının ürünleri ve Akın'ın verisi canlıdan kopyalanır:
+  `scripts/dev-store-sync.sh` (önce ne değişeceğini gösterir, `--apply` ile yazar). Canlı
+  mağazaya yalnız okuma sorgusu gider; betik canlıya mutation göndermeyi kodda reddeder.
+  Akın veriyi değiştirince yeniden çalıştırılır.
 
 ## Yeni özellik eklerken (giriş, hesap, kayıtlı tasarım, entegrasyon…)
 
