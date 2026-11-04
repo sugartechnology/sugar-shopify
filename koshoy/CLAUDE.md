@@ -104,6 +104,26 @@ uygular), girişsiz 30 gün, hesaplı 180 gün.
    garanti, kurulum, teslim süresi, E1, tedarikçi adları, ürün kodları.
 5. **Şifre ve anahtarlar** `.env` ve Coolify'dadır; koda, loga, belgeye yazılmaz.
 
+## Dev hattı (ayrı dev mağazası)
+
+| | Canlı | Dev |
+|---|---|---|
+| Mağaza | `21tn4m-us.myshopify.com` (koshoy.com) | `koshoy-dev.myshopify.com` (development store) |
+| Shopify app | Koshoy Studio, `shopify.app.toml` | Koshoy Dev, `shopify.app.koshoy-dev.toml` |
+| App proxy | `/apps/koshoy` → koshoy.sugartech.io | `/apps/koshoy` → koshoy-dev.sugartech.io |
+| Coolify | `koshoy-studio` ← `feature/koshoy-backend` | `koshoy-studio-dev` ← `dev` |
+
+- Akış (her değişiklik): PR → `dev`'e merge → biz dev mağazasında deneriz → Bay Zengin
+  koshoy-dev.myshopify.com'da dener → onun onayı → `feature/koshoy-backend`'e PR → canlı.
+- Kod iki ortamda aynıdır; fark yalnız env'dedir (`KOSHOY_SHOPS`, Shopify anahtarları,
+  `SHOPIFY_APP_URL`, `KOSHOY_S3_PREFIX=koshoy-studio-dev/`, kendi `KOSHOY_DATA_API_KEY`).
+- Gateway anahtarı mağaza adına bağlıdır (tagservice `registerKey` yalnız aynı mağazanın eski
+  anahtarlarını kapatır). Koshoy Dev asla canlı mağazaya kurulmaz; kurulursa canlının anahtarı ölür.
+- Dev mağazasının ürünleri ve Akın'ın verisi canlıdan kopyalanır:
+  `scripts/dev-store-sync.sh` (önce ne değişeceğini gösterir, `--apply` ile yazar). Canlı
+  mağazaya yalnız okuma sorgusu gider; betik canlıya mutation göndermeyi kodda reddeder.
+  Akın veriyi değiştirince yeniden çalıştırılır.
+
 ## Yeni özellik eklerken (giriş, hesap, kayıtlı tasarım, entegrasyon…)
 
 Veritabanı, servis ya da dış entegrasyon gereken her iş **bu backend'de** yapılır;

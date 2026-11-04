@@ -1,0 +1,33 @@
+# Koshoy Dev — the dev line of Koshoy Studio, installed only in the dev store
+# koshoy-dev.myshopify.com (never in the live store 21tn4m-us).
+# Dev store /apps/koshoy/* → https://koshoy-dev.sugartech.io/apps/koshoy/* (same paths as live).
+# Live config stays in shopify.app.toml; never point this file at koshoy.sugartech.io.
+# https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "ec4b640763cca14fe8f1c704822867fb"
+name = "Koshoy Dev"
+application_url = "https://koshoy-dev.sugartech.io"
+embedded = true
+web_directories = ["."]
+extension_directories = []
+
+[access_scopes]
+scopes = "read_products,write_products,read_publications,write_publications"
+
+[auth]
+redirect_urls = [ "https://koshoy-dev.sugartech.io/auth/callback" ]
+
+[app_proxy]
+url = "https://koshoy-dev.sugartech.io/apps/koshoy"
+subpath = "koshoy"
+prefix = "apps"
+
+[webhooks]
+api_version = "2027-01"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+[build]
+automatically_update_urls_on_dev = false
