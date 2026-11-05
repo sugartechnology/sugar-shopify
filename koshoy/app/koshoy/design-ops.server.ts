@@ -23,6 +23,7 @@ import {
   type PlanResult,
 } from "./engine";
 import { frontSeriesOf } from "./cabinet-core";
+import { fitUnitWidths } from "./products";
 import { PRICE_PLACEHOLDER, toPublicEvent, type DesignSummary, type PublicEvent } from "./events";
 import { formatTl, type KoshoyPricer, type KoshoyQuote } from "./pricing.server";
 import { colorLabel } from "./shop-colors";
@@ -140,7 +141,11 @@ export function designSummaries(
   }));
 }
 
-export function sceneEvent(design: KoshoyDesign): PublicEvent | null {
+export function sceneEvent(
+  design: KoshoyDesign,
+  /** The product's body widths (data); the template's rule when missing. */
+  unitWidthsMm: readonly number[] = unitWidthsForKind(design.kind),
+): PublicEvent | null {
   return toPublicEvent({
     type: "scene",
     designId: design.id,
@@ -148,7 +153,7 @@ export function sceneEvent(design: KoshoyDesign): PublicEvent | null {
     kind: design.kind,
     label: design.label,
     view: design.composition,
-    unitWidthsMm: unitWidthsForKind(design.kind),
+    unitWidthsMm: [...unitWidthsMm],
     blocked: blockedAdds(design),
   });
 }
@@ -264,14 +269,18 @@ export async function createPlannedDesign(
   deps: KoshoyDesignDeps,
   session: KoshoySessionState,
   input: PlanInput,
+  /** The data's product (kinds document): its id and body-width rule. */
+  product?: { kind: string; unitWidthsMm: readonly number[] },
 ): Promise<{ design: KoshoyDesign; plan: PlanResult } | null> {
   const existing = await deps.store.listDesigns(session.id);
   if (existing.length >= KOSHOY_MAX_DESIGNS) return null;
   const plan = deps.engine.planCabinet(input);
+  const composition = product ? fitUnitWidths(plan.composition, product.unitWidthsMm) : plan.composition;
   const design = await deps.store.createDesign(session.id, {
     kind: input.kind,
-    label: plan.label || designLabel(input.kind, plan.composition),
-    composition: plan.composition,
+    product: product?.kind ?? null,
+    label: plan.label || designLabel(input.kind, composition),
+    composition,
   });
   session.activeDesignId = design.id;
   return { design, plan };
@@ -293,13 +302,20 @@ export async function applyDesignEdit(
   op: EditOp,
   /** The room style's crown (journey): "on" keeps the crown of a body that grows tall. */
   roomCrown: "" | "on" | "off" = "",
+  /** The product's body widths (data); the template's rule when missing. */
+  unitWidthsMm?: readonly number[],
 ): Promise<DesignEditResult> {
   const result = deps.engine.applyEditOp(design.composition, op, design.kind);
   if (!result.ok) {
     if (result.reason === "no_change") return { ok: true, design, changed: false, warnings: [] };
     return { ok: false, reason: result.reason };
   }
-  let composition = result.composition;
+  // One body set to a width the product does not allow (after the core snapped it) is refused.
+  if (op.action === "set_unit_width" && unitWidthsMm) {
+    const widthMm = result.composition.units[op.unit]?.widthMm;
+    if (widthMm !== undefined && !unitWidthsMm.includes(widthMm)) return { ok: false, reason: "width_not_allowed" };
+  }
+  let composition = unitWidthsMm ? fitUnitWidths(result.composition, unitWidthsMm) : result.composition;
   let warnings = result.warnings ?? [];
   if (roomCrown === "on" && warnings.includes("crown_removed")) {
     composition = keepCrowns(deps, design, composition);

@@ -17,7 +17,8 @@ import {
   type PlanInput,
 } from "./engine";
 import { PART_NAMES } from "./part-catalog";
-import { isProductName, namedProductPlan, type KoshoyDataDocs, type KoshoyNamedProduct } from "./data.server";
+import { isProductName, productPlan, type KoshoyDataKind } from "./data.server";
+import { findProduct, productOfDesign, productOrFallback } from "./products";
 import { bodyColorIds, colorIdInText, colorLabel } from "./shop-colors";
 import {
   errorEvent,
@@ -487,7 +488,7 @@ const SET_EXISTS_HINT =
 
 async function quoteAndPublish(ctx: TurnContext, design: KoshoyDesign, withScene: boolean) {
   const quote = await ctx.deps.pricer.quote(design.composition);
-  if (withScene) ctx.publish(sceneEvent(design));
+  if (withScene) ctx.publish(sceneEvent(design, productOfDesign(ctx.deps.data, design).unitWidthsMm));
   ctx.publish(priceEvent(design, quote));
   pricesIn(quote.display, ctx.prices);
   return quote;
@@ -532,7 +533,7 @@ const ALREADY_DECIDED_HINT =
   "Bu karar zaten verildi; tekrar sorma. Müşteri bunu değiştirmek isterse ask_style'ı change: true ile çağır.";
 
 interface PlannedItem {
-  kind: DesignKind;
+  product: KoshoyDataKind;
   count: number;
   widthMm?: number;
 }
@@ -547,36 +548,26 @@ function hasPartName(name: string): boolean {
   return PART_NAMES.some((row) => words.includes(row.name.toLocaleLowerCase("tr-TR").split(/\s+/)[0]) && row.name.split(/\s+/)[0] !== "Gardırop");
 }
 
-/** A named product of the data (keson, dresuar…) with the kind it is built on. */
-function findNamedProduct(data: KoshoyDataDocs, id: string): { kind: DesignKind; product: KoshoyNamedProduct } | null {
-  if (!id) return null;
-  for (const row of data.kinds) {
-    const product = row.products.find((item) => item.id === id);
-    if (product) return { kind: row.kind, product };
-  }
-  return null;
-}
-
 /**
- * Plan input for a named product or a cabinet the customer named himself
- * (ClickUp z8qu5d7v7w): their name on the label, sizes and drawers as asked.
- * null when the given name is not a clean product name.
+ * Plan input for a product of the data or a cabinet the customer named
+ * himself (ClickUp z8qu5d7v7w): their name on the label, sizes and drawers as
+ * asked. null when the given name is not a clean product name.
  */
-function customPlan(kind: DesignKind, product: KoshoyNamedProduct | undefined, args: Record<string, unknown>): Partial<PlanInput> | null {
+function customPlan(product: KoshoyDataKind, args: Record<string, unknown>): Partial<PlanInput> | null {
   const name = str(args.name).trim();
   if (name && (!isProductName(name) || checkReply(name, []).issues.length || hasPartName(name))) return null;
   const heightMm = widthMmFrom(args.heightCm);
   const depthMm = widthMmFrom(args.depthCm);
   const drawers = Number.isInteger(args.drawers) ? Math.min(Math.max(Number(args.drawers), 0), 8) : undefined;
   const door = typeof args.door === "boolean" ? args.door : undefined;
-  const base: Partial<PlanInput> = product ? namedProductPlan(kind, product) : {};
+  const base: Partial<PlanInput> = productPlan(product);
   const interior =
     drawers !== undefined || door !== undefined
       ? {
           fittings: drawers !== undefined
             ? Array<CabinFitKind>(drawers).fill("drawer160")
-            : (product?.fittings ?? []).filter((fit) => fit !== "shelf"),
-          hasDoor: door ?? product?.door ?? false,
+            : (product.build?.fittings ?? []).filter((fit) => fit !== "shelf"),
+          hasDoor: door ?? product.build?.door ?? false,
         }
       : base.interior;
   return {
@@ -600,20 +591,19 @@ function widthMmFrom(cm: unknown): number | undefined {
 }
 
 /**
- * One planned design per product. Kinds that stand together on one wall
+ * One planned design per product. Products that stand together on one wall
  * (joinSameKind, e.g. kitaplık) become one design as wide as all of them,
- * so the core splits it into equal bodies: 3 kitaplık → 3 × 64 cm.
+ * so it is split into equal bodies: 3 kitaplık → 3 × 64 cm.
  */
-function designsToPlan(ctx: TurnContext, items: ReadonlyArray<PlannedItem>): Array<{ kind: DesignKind; widthMm?: number }> {
-  const out: Array<{ kind: DesignKind; widthMm?: number }> = [];
+function designsToPlan(ctx: TurnContext, items: ReadonlyArray<PlannedItem>): Array<{ product: KoshoyDataKind; widthMm?: number }> {
+  const out: Array<{ product: KoshoyDataKind; widthMm?: number }> = [];
   for (const item of items) {
-    const join = ctx.deps.data.kinds.find((row) => row.kind === item.kind)?.joinSameKind === true;
-    if (join && item.count > 1) {
-      const single = item.widthMm ?? totalWidthMm(ctx.deps.engine.planCabinet({ kind: item.kind }).composition);
-      out.push({ kind: item.kind, widthMm: single * item.count });
+    if (item.product.joinSameKind && item.count > 1) {
+      const single = item.widthMm ?? totalWidthMm(ctx.deps.engine.planCabinet(productPlan(item.product)).composition);
+      out.push({ product: item.product, widthMm: single * item.count });
       continue;
     }
-    for (let i = 0; i < Math.max(0, item.count); i += 1) out.push({ kind: item.kind, widthMm: item.widthMm });
+    for (let i = 0; i < Math.max(0, item.count); i += 1) out.push({ product: item.product, widthMm: item.widthMm });
   }
   return out;
 }
@@ -625,21 +615,26 @@ function totalWidthMm(composition: { units: ReadonlyArray<{ widthMm: number }> }
 /** A new design in the room's style (colour, front, crown), counted as this turn's. */
 async function planStyledDesign(
   ctx: TurnContext,
-  kind: DesignKind,
+  product: KoshoyDataKind,
   targetWidthMm: number | undefined,
   color: CabinColorId | undefined,
   compartments?: number,
-  /** A named product's or the customer's own size, interior and name. */
-  extra: Partial<PlanInput> = {},
+  /** The customer's own size, interior and name; the product's when missing. */
+  extra: Partial<PlanInput> = productPlan(product),
 ) {
   const { session, deps } = ctx;
-  const created = await createPlannedDesign(deps, session, {
-    ...extra,
-    kind,
-    targetWidthMm: targetWidthMm ?? extra.targetWidthMm,
-    ...(compartments ? { compartments } : {}),
-    color: color ?? (session.journey.style.panel || session.brief.color || undefined),
-  });
+  const created = await createPlannedDesign(
+    deps,
+    session,
+    {
+      ...extra,
+      kind: product.template,
+      targetWidthMm: targetWidthMm ?? extra.targetWidthMm,
+      ...(compartments ? { compartments } : {}),
+      color: color ?? (session.journey.style.panel || session.brief.color || undefined),
+    },
+    product,
+  );
   if (!created) return null;
   const design = await styleDesign(deps, session.id, created.design, { ...session.journey.style, panel: "" });
   ctx.designIds.add(design.id);
@@ -764,15 +759,15 @@ export async function executeKoshoyTool(
   }
 
   if (call.name === "plan_cabinet") {
-    const named = findNamedProduct(deps.data, str(args.product));
-    const kind = named?.kind ?? oneOf(args.kind, DESIGN_KINDS);
-    if (!kind) return { payload: { ok: false, error: "unsupported_kind" } };
-    const extra = customPlan(kind, named?.product, args);
+    // "product" is the older name of the same argument (named products, 4 Nov).
+    const product = findProduct(deps.data, str(args.product)) ?? findProduct(deps.data, str(args.kind));
+    if (!product) return { payload: { ok: false, error: "unsupported_kind" } };
+    const extra = customPlan(product, args);
     if (!extra) return { payload: { ok: false, error: "invalid_name", hint: INVALID_NAME_HINT } };
     ctx.publish({ type: "status", key: "placing" });
     const created = await planStyledDesign(
       ctx,
-      kind,
+      product,
       widthMmFrom(args.targetWidthCm),
       oneOf(args.color, bodyColorIds()),
       compartmentsFrom(args.compartments),
@@ -783,7 +778,7 @@ export async function executeKoshoyTool(
     ctx.designIds.add(design.id);
     ctx.createdIds.add(design.id);
     ctx.summary = [`Senin için ${design.label} hazırladım.`, ...plan.notes.map((note) => `${note}.`)].join(" ");
-    deps.track?.("set_planned", { kind, count: 1 });
+    deps.track?.("set_planned", { kind: product.kind, count: 1 });
     const quote = await quoteAndPublish(ctx, design, true);
     ctx.publish(designsEvent(await deps.store.listDesigns(session.id), session.activeDesignId));
     // With a ready room the new design walks in on its own when there is space.
@@ -808,9 +803,9 @@ export async function executeKoshoyTool(
     if (!set) return { payload: { ok: false, error: "unsupported_room" } };
     const asked: PlannedItem[] = (Array.isArray(args.items) ? args.items : []).flatMap((raw) => {
       const row = asRecord(raw);
-      const kind = oneOf(row.kind, DESIGN_KINDS);
+      const product = findProduct(deps.data, str(row.kind));
       const count = Number.isInteger(row.count) ? Math.min(Math.max(Number(row.count), 1), 4) : 1;
-      return kind ? [{ kind, count, widthMm: widthMmFrom(row.widthCm) }] : [];
+      return product ? [{ product, count, widthMm: widthMmFrom(row.widthCm) }] : [];
     });
     // The set is planned once; later the model changes it or adds named products.
     if (!asked.length && (await deps.store.listDesigns(session.id)).length) {
@@ -821,8 +816,10 @@ export async function executeKoshoyTool(
     ctx.publish({ type: "status", key: "placing" });
     const planned: KoshoyDesign[] = [];
     const notes: string[] = [];
-    for (const item of designsToPlan(ctx, asked.length ? asked : set.items)) {
-      const created = await planStyledDesign(ctx, item.kind, item.widthMm, color);
+    // A room product deleted from the data since is built as "Dolap" (never an error).
+    const setItems = set.items.map((item) => ({ product: productOrFallback(deps.data, item.kind), count: item.count }));
+    for (const item of designsToPlan(ctx, asked.length ? asked : setItems)) {
+      const created = await planStyledDesign(ctx, item.product, item.widthMm, color);
       if (!created) {
         notes.push(DESIGN_LIMIT_HINT);
         break;
@@ -868,7 +865,7 @@ export async function executeKoshoyTool(
       ...designs.filter((design) => design.id === session.activeDesignId),
     ];
     for (const design of ordered) {
-      const result = await applyDesignEdit(deps, session.id, design, op);
+      const result = await applyDesignEdit(deps, session.id, design, op, "", productOfDesign(deps.data, design).unitWidthsMm);
       if (!result.ok || !result.changed) continue;
       changed += 1;
       ctx.journeyChanged = true;
@@ -886,7 +883,8 @@ export async function executeKoshoyTool(
     const op = parseEditOp(args.op);
     if (!op) return { payload: { ok: false, error: "invalid_op" } };
     ctx.publish({ type: "status", key: "placing" });
-    const result = await applyDesignEdit(deps, session.id, design, op, session.journey.style.crown);
+    const widths = productOfDesign(deps.data, design).unitWidthsMm;
+    const result = await applyDesignEdit(deps, session.id, design, op, session.journey.style.crown, widths);
     if (!result.ok) {
       // Product-language reason only; engine codes stay on the server.
       return { payload: { ok: false, error: "rejected", hint: editRejectHint(result.reason) } };
@@ -1095,7 +1093,7 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
       tools: koshoyTools(Boolean(roomContext), {
         handles: Boolean(deps.handles?.handles.length),
         measure: view.stage === "room_structure",
-        products: deps.data.kinds.flatMap((row) => row.products.map((product) => product.id)),
+        products: deps.data.kinds.map((row) => row.kind),
       }),
       thinkingLevel: "low",
     };

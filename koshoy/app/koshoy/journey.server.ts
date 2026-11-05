@@ -405,15 +405,15 @@ export async function stageCards(
 
 /* ---------------- model notes ---------------- */
 
-/** The questions a kind asks at one level, as a note for the model (data, kinds doc). */
-export function questionNote(data: KoshoyJourneyData, kinds: Iterable<DesignKind>, level: "room" | "product"): string {
+/** The questions products ask at one level, as a note for the model (data, kinds doc). */
+export function questionNote(data: KoshoyJourneyData, kinds: Iterable<string>, level: "room" | "product"): string {
   const lines: string[] = [];
   for (const kind of new Set(kinds)) {
     const row = data.kinds.find((item) => item.kind === kind);
     for (const question of row?.questions ?? []) {
       if (question.level !== level) continue;
       const answers = question.options.map((option) => `${option.label} → ${option.hint}`).join("; ");
-      lines.push(`${row?.label ?? DESIGN_KIND_LABELS[kind]}: "${question.question}" (${answers})`);
+      lines.push(`${row?.label ?? kind}: "${question.question}" (${answers})`);
     }
   }
   return lines.join(" | ");
@@ -467,7 +467,7 @@ export function stageNote(
       const pending = nextPendingDesign(journey, view.designs);
       const design = active && approvalOf(journey, active) === "pending" ? active : pending;
       if (!design) return "Aşama: ürün ürün onay.";
-      const questions = questionNote(data, [design.kind], "product");
+      const questions = questionNote(data, [design.product ?? design.kind], "product");
       return `Aşama: ürün ürün onay. Ekranda ${design.label} kartı var; onayı müşteri karttaki düğmelerle verir (sen "onayladım" deme). ${
         questions
           ? `Bu ürünün iç düzen sorusunu ask_user ile sor (cevaba göre edit_design): ${questions}`
