@@ -136,6 +136,40 @@ describe("koshoy photo items (removable furniture of the room photo)", () => {
     assert.deepEqual(rugs.map((item) => item.label), ["Halı (solda)", "Halı (sağda)"], "nothing in front joins them");
   });
 
+  it("lists a cabinet cut by a mirror door, or in two touching pieces, once (ClickUp z8qu5da96z)", () => {
+    const items = buildPhotoItems([
+      part(1, "wardrobe", [0.0, 0.1, 0.12, 0.9], 0.08, [3]),
+      part(2, "wardrobe", [0.2, 0.1, 0.32, 0.9], 0.07, [3]),
+      // The mirror door between the two halves touches both and spans the gap.
+      part(3, "mirror", [0.11, 0.15, 0.21, 0.85], 0.06, [1, 2]),
+      part(4, "cabinet", [0.6, 0.5, 0.75, 0.8], 0.03, [5]),
+      part(5, "cabinet", [0.75, 0.5, 0.9, 0.8], 0.03, [4]),
+    ]);
+    assert.deepEqual(
+      items.map((item) => [item.id, item.label, item.parts]),
+      [
+        ["1", "Gardırop", [1, 2]],
+        ["3", "Ayna", [3]],
+        ["4", "Dolap", [4, 5]],
+      ],
+    );
+    assert.deepEqual(items[0].box, [0.0, 0.1, 0.32, 0.9]);
+  });
+
+  it("numbers items with the same name and place, left to right", () => {
+    const items = buildPhotoItems([
+      part(1, "wardrobe", [0.15, 0.1, 0.3, 0.9], 0.1),
+      part(2, "wardrobe", [0.0, 0.1, 0.12, 0.9], 0.08),
+      part(3, "wardrobe", [0.7, 0.1, 0.9, 0.9], 0.07),
+      part(4, "sofa", [0.4, 0.5, 0.6, 0.8], 0.06),
+    ]);
+    assert.deepEqual(
+      items.map((item) => item.label),
+      ["Gardırop 2 (solda)", "Gardırop 1 (solda)", "Gardırop (sağda)", "Koltuk"],
+    );
+    assert.equal(new Set(items.map((item) => item.label)).size, items.length);
+  });
+
   it("reads the analysis field by field and tells an older analysis (no objects) apart", () => {
     assert.equal(parseAnalysisObjects(undefined), null);
     assert.equal(photoItemsFromAnalysis({ id: 1 }), null);
