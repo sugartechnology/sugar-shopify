@@ -8,11 +8,14 @@
  * - Small things (ATTACHED_CLASSES: cushion, vase, book…) are never listed
  *   alone; when one sits on a listed item it joins that item's `parts`.
  * - A rug or curtain cut into pieces by something in front of it (a coffee
- *   table on the rug) is one item: COVERING_CLASSES.
+ *   table on the rug) is one item: COVERING_CLASSES. So is a cabinet cut by a
+ *   mirror door or a chair in front, or two pieces of one that touch:
+ *   CABINET_CLASSES.
  * - The room itself (ROOM_CLASSES: wall, window, door…) and every class
  *   missing from the tables is never listed.
  * - Nothing under 0.5 % of the photo, the 12 largest, largest first.
- * - A name used more than once gets its place: "Koltuk (solda)".
+ * - A name used more than once gets its place: "Koltuk (solda)". When the
+ *   place is the same too, a number from left to right: "Gardırop 1 (solda)".
  */
 
 /** Analysis class name (ADE20K) → the name the customer sees. */
@@ -84,6 +87,15 @@ export const ATTACHED_CLASSES: readonly string[] = [
  * side by side with a side table between them are common and stay two.
  */
 export const COVERING_CLASSES: readonly string[] = ["rug", "curtain", "blind"];
+
+/**
+ * Cabinets: pieces of one class that touch, or that something in front cuts
+ * apart (a mirror door, a chair, a lamp), are one item. ClickUp z8qu5da96z:
+ * one wardrobe was listed twice as "Gardırop (solda)".
+ */
+export const CABINET_CLASSES: readonly string[] = [
+  "cabinet", "wardrobe", "chest of drawers", "buffet", "bookcase", "shelf", "case",
+];
 
 /**
  * The room itself and outdoor classes: never listed. The code does not read
@@ -227,7 +239,10 @@ function cutByFront(a: AnalysisObject, b: AnalysisObject, objects: readonly Anal
 }
 
 function toItemPieces(pieces: AnalysisObject[]): ItemPieces {
-  const main = pieces.reduce((largest, piece) => (piece.area > largest.area ? piece : largest));
+  // Largest; on equal areas the lower part number, so the id does not depend on the order.
+  const main = pieces.reduce((largest, piece) =>
+    piece.area > largest.area || (piece.area === largest.area && piece.id < largest.id) ? piece : largest,
+  );
   const box: Box = [
     Math.min(...pieces.map((piece) => piece.box[0])),
     Math.min(...pieces.map((piece) => piece.box[1])),
@@ -238,15 +253,22 @@ function toItemPieces(pieces: AnalysisObject[]): ItemPieces {
   return { pieces, main, box, area };
 }
 
-/** Every part with a label is an item, except that the pieces of a cut covering are one item. */
+/** Two pieces of one covering or cabinet that are one item. */
+function onePiece(a: AnalysisObject, b: AnalysisObject, objects: readonly AnalysisObject[]): boolean {
+  if (CABINET_CLASSES.includes(a.className) && touching(a, b)) return true;
+  return cutByFront(a, b, objects);
+}
+
+/** Every part with a label is an item, except that the pieces of a cut covering or cabinet are one item. */
 function itemPieces(objects: readonly AnalysisObject[]): ItemPieces[] {
   const groups: AnalysisObject[][] = [];
   for (const part of objects) {
     if (PHOTO_ITEM_LABELS[part.className] === undefined) continue;
-    const joined = COVERING_CLASSES.includes(part.className)
+    const joins = COVERING_CLASSES.includes(part.className) || CABINET_CLASSES.includes(part.className);
+    const joined = joins
       ? groups.filter(
           (group) =>
-            group[0].className === part.className && group.some((piece) => cutByFront(part, piece, objects)),
+            group[0].className === part.className && group.some((piece) => onePiece(part, piece, objects)),
         )
       : [];
     for (const group of joined) groups.splice(groups.indexOf(group), 1);
@@ -290,13 +312,38 @@ export function horizontalPlace(box: Box): HorizontalPlace {
   return "sağda";
 }
 
-/** Items sharing a name get their place added: "Koltuk (solda)", "Koltuk (sağda)". */
-function withPlaces(items: PhotoItem[]): PhotoItem[] {
+function countLabels(labels: readonly string[]): Map<string, number> {
   const counts = new Map<string, number>();
-  for (const item of items) counts.set(item.label, (counts.get(item.label) ?? 0) + 1);
-  return items.map((item) =>
-    (counts.get(item.label) ?? 0) > 1 ? { ...item, label: `${item.label} (${horizontalPlace(item.box)})` } : item,
-  );
+  for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
+  return counts;
+}
+
+/**
+ * Items sharing a name get their place added: "Koltuk (solda)", "Koltuk (sağda)".
+ * Items sharing the place too get a number, left to right: "Gardırop 1 (solda)",
+ * "Gardırop 2 (solda)". Every label on the card is different.
+ */
+function withPlaces(items: PhotoItem[]): PhotoItem[] {
+  const names = countLabels(items.map((item) => item.label));
+  const places = items.map((item) => ((names.get(item.label) ?? 0) > 1 ? horizontalPlace(item.box) : null));
+  const placed = countLabels(items.map((item, index) => `${item.label} ${places[index]}`));
+  const leftToRight = items
+    .map((item, index) => ({ index, left: item.box[0] }))
+    .sort((a, b) => a.left - b.left || a.index - b.index);
+  const numbers = new Map<number, number>();
+  const used = new Map<string, number>();
+  for (const { index } of leftToRight) {
+    const key = `${items[index].label} ${places[index]}`;
+    if ((placed.get(key) ?? 0) < 2) continue;
+    used.set(key, (used.get(key) ?? 0) + 1);
+    numbers.set(index, used.get(key)!);
+  }
+  return items.map((item, index) => {
+    const place = places[index];
+    if (!place) return item;
+    const number = numbers.get(index);
+    return { ...item, label: number ? `${item.label} ${number} (${place})` : `${item.label} (${place})` };
+  });
 }
 
 /** Removable items from the analysis parts: largest first, at most 12. */
