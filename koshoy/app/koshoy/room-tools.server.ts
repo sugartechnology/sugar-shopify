@@ -207,7 +207,9 @@ async function showOrRender(ctx: RoomToolContext, name: "show_in_room" | "render
   // The model never gets the photo through a tool, only whether one is ready.
   const designs = await ctx.store.listDesigns(ctx.session.id);
   const { layout, target, room } = await currentLayout(ctx.room, ctx.session, designs);
-  const problem = roomProblem(room, target);
+  // Without a photo the realistic picture is made in the draft room (ClickUp z8qu5daa0c).
+  const draft = !room && target.surface === "wall" && Boolean(target.draft);
+  const problem = name === "render_room" && draft ? null : roomProblem(room, target);
   if (problem) return { ok: false, error: problem, hint: HINTS[problem] };
 
   const notes: string[] = [];

@@ -128,18 +128,25 @@ async function previewTotal(
   return formatTl(cents);
 }
 
-function imageFor(data: KoshoyJourneyData, designs: readonly KoshoyDesign[], option: string): string | undefined {
-  const kinds = new Set<string>(designs.map((design) => design.kind));
+function imageFor(data: KoshoyJourneyData, kinds: ReadonlySet<string>, option: string): string | undefined {
   const match =
     data.images.find((image) => image.option === option && kinds.has(image.kind)) ??
     data.images.find((image) => image.option === option && image.kind === "*");
   return match?.url;
 }
 
+/** The product kinds of the room's set (data, rooms doc): the pictures before any product is built. */
+export function roomKinds(data: KoshoyJourneyData, room: string): string[] {
+  const set = data.rooms.find((item) => item.id === room || item.label === room);
+  return set ? set.items.map((item) => item.kind) : [];
+}
+
 /**
  * The choices of one style decision, as an info note: a picture per option
  * (when Akın's set has one) and the room's total with that option. Panel
  * colour shows no price (its difference is not shown, ClickUp z8qu5d7rdq).
+ * The style comes before the products (ClickUp z8qu5daa0c): with no product
+ * built yet there is no total, and the pictures follow the room's set kinds.
  * `value` is what the server applies when the customer picks it.
  */
 export async function styleChoices(
@@ -148,8 +155,10 @@ export async function styleChoices(
   data: KoshoyJourneyData,
   decision: StyleDecision,
   options: JourneyOptions = NO_HANDLES,
+  setKinds: readonly string[] = [],
 ): Promise<{ question: string; options: Array<ChoiceOption & { value: string }> }> {
   const question = DECISION_QUESTIONS[decision];
+  const kinds = new Set<string>(designs.length ? designs.map((design) => design.kind) : setKinds);
   const entries: Array<{ value: string; label: string; image?: string; style?: Partial<KoshoyStyle> }> = [];
   if (decision === "level") {
     for (const level of data.levels) {
@@ -158,7 +167,7 @@ export async function styleChoices(
   }
   if (decision === "panel") {
     for (const id of bodyColorIds()) {
-      entries.push({ value: id, label: colorLabel(id), image: imageFor(data, designs, `panel_${id}`) });
+      entries.push({ value: id, label: colorLabel(id), image: imageFor(data, kinds, `panel_${id}`) });
     }
   }
   if (decision === "front") {
@@ -166,7 +175,7 @@ export async function styleChoices(
       entries.push({
         value: series.id,
         label: series.label,
-        image: imageFor(data, designs, `front_${series.id}`),
+        image: imageFor(data, kinds, `front_${series.id}`),
         style: { front: series.id },
       });
     }
@@ -176,14 +185,14 @@ export async function styleChoices(
       entries.push({
         value,
         label: CROWN_LABELS[value],
-        image: imageFor(data, designs, `crown_${value}`),
+        image: imageFor(data, kinds, `crown_${value}`),
         style: { crown: value },
       });
     }
   }
   if (decision === "handle") {
     for (const handle of options.handles) {
-      entries.push({ value: handle.id, label: handle.label, image: imageFor(data, designs, `handle_${handle.id}`) });
+      entries.push({ value: handle.id, label: handle.label, image: imageFor(data, kinds, `handle_${handle.id}`) });
     }
   }
   const out: Array<ChoiceOption & { value: string }> = [];
@@ -194,7 +203,7 @@ export async function styleChoices(
       value: `style:${decision}:${entry.value}`,
     };
     if (entry.image) option.image = entry.image;
-    if (entry.style) option.price = await previewTotal(deps, designs, entry.style);
+    if (entry.style && designs.length) option.price = await previewTotal(deps, designs, entry.style);
     out.push(option);
   }
   return { question, options: out };
@@ -303,16 +312,27 @@ export function structureEvent(photo: boolean): PublicEvent | null {
   return toPublicEvent({ type: "structure", photo });
 }
 
+/** The room part of the summary (turn.server.ts): layout per wall and the room's ready picture. */
+export interface RoomSummaryRoom {
+  layout: Array<{ label: string; items: string[] }>;
+  renderId: string | null;
+}
+
+export const NO_SUMMARY_ROOM: RoomSummaryRoom = { layout: [], renderId: null };
+
 export async function roomSummaryEvent(
   deps: KoshoyDesignDeps,
   session: KoshoySessionState,
   designs: readonly KoshoyDesign[],
   data: KoshoyJourneyData,
   options: JourneyOptions = NO_HANDLES,
+  room: RoomSummaryRoom = NO_SUMMARY_ROOM,
 ): Promise<PublicEvent | null> {
   return toPublicEvent({
     type: "room_summary",
     items: designs.map((design) => ({ designId: design.id, label: design.label })),
+    layout: room.layout,
+    ...(room.renderId ? { renderId: room.renderId } : {}),
     style: styleLines(session.journey.style, data, options),
     total: await roomTotal(deps, designs),
     approved: session.journey.roomApprovedAt !== null,
@@ -390,11 +410,11 @@ export async function stageCards(
   session: KoshoySessionState,
   view: JourneyView,
   data: KoshoyJourneyData,
-  options: JourneyOptions & { photo: boolean },
+  options: JourneyOptions & { photo: boolean; room?: RoomSummaryRoom },
 ): Promise<PublicEvent[]> {
   let card: PublicEvent | null = null;
   if (view.stage === "room_structure") card = structureEvent(options.photo);
-  if (view.stage === "room_approval") card = await roomSummaryEvent(deps, session, view.designs, data, options);
+  if (view.stage === "room_approval") card = await roomSummaryEvent(deps, session, view.designs, data, options, options.room);
   if (view.stage === "product_approval") {
     const design = focusDesign(session, view);
     if (design) card = productCardEvent(session.journey, view.designs, design);
@@ -443,21 +463,23 @@ export function stageNote(
       if (journey.kind === "single") {
         return "Aşama: ürün. Müşteri tek bir ürün istiyor; ürünü öğren, dış ölçüyü değiştiren soruyu sor, plan_cabinet ile kur. Oda seti önerme.";
       }
+      return "Aşama: oda. Önce hangi oda olduğunu öğren (belli değilse ask_user ile sor) ve set_brief ile kaydet. Ürün kurma ve fiyat söyleme: önce odanın yapısı ve tarzı sorulacak.";
+    }
+    case "room_build": {
       const room = data.rooms.find((item) => item.id === session.brief.room || item.label === session.brief.room);
       const questions = room ? questionNote(data, room.items.map((item) => item.kind), "room") : "";
-      const set = view.designs.length
-        ? ""
-        : ` Oda belliyse setini tek cümleyle öner (müşteri ekler ya da çıkarır), sonra plan_room ile kur.${
-            questions ? ` Kurmadan önce ölçüyü değiştiren soruları ask_user ile tek tek sor (cevaba göre targetWidthCm): ${questions}` : ""
-          }`;
-      return `Aşama: oda. Oda belli değilse ask_user ile sor.${set}`;
+      return `Aşama: ürünler. Oda, yapı ve tarz belli; şimdi ürünleri kur. Odanın setini tek cümleyle öner (müşteri ekler ya da çıkarır), sonra plan_room ile kur.${
+        questions ? ` Kurmadan önce ölçüyü değiştiren soruları ask_user ile tek tek sor (cevaba göre targetWidthCm): ${questions}` : ""
+      }`;
     }
     case "room_structure":
-      return "Aşama: odanın yapısı. Ekranda fotoğraf / ölçü / ölçüsüz devam kartı var; müşterinin seçmesini bekle, başka soru sorma. Müşteri oda ölçüsünü sohbete yazarsa set_room_measure ile kaydet; kartı yeniden önerme.";
+      return "Aşama: odanın yapısı. Ekranda fotoğraf / ölçü / ölçüsüz devam kartı var; müşterinin seçmesini bekle, başka soru sorma, ürün kurma. Müşteri oda ölçüsünü sohbete yazarsa set_room_measure ile kaydet; kartı yeniden önerme.";
     case "room_style": {
       const next = view.missingStyle[0];
       const rest = view.missingStyle.slice(1).map((decision) => DECISION_NAMES[decision]).join(", ");
-      return `Aşama: tarz. Sıradaki karar: ${DECISION_NAMES[next]}; ask_style ile sor (seçenekleri, resimleri ve fiyatları sistem hazırlar). Önceki seçimi sistem zaten yazdı; özetleme, tek kısa cümle yeter.${rest ? ` Sonra: ${rest}.` : ""}`;
+      return `Aşama: tarz. Sıradaki karar: ${DECISION_NAMES[next]}; ask_style ile sor (seçenekleri, resimleri ve fiyatları sistem hazırlar). Önceki seçimi sistem zaten yazdı; özetleme, tek kısa cümle yeter.${rest ? ` Sonra: ${rest}.` : ""}${
+        view.designs.length ? "" : " Ürünler tarz bitince kurulur; şimdi ürün kurma."
+      }`;
     }
     case "room_approval":
       return journey.kind === "single"

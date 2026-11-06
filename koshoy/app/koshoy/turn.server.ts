@@ -49,6 +49,8 @@ import {
   settleRoomAfterEdit,
   type RoomToolContext,
 } from "./room-tools.server";
+import { currentLayout, layoutByWall } from "./layout.server";
+import { placedLeftToRight } from "./layout-solver";
 import {
   applyDesignEdit,
   createPlannedDesign,
@@ -82,10 +84,12 @@ import {
   focusDesign,
   stageCards,
   stageNote,
+  roomKinds,
   styleChoices,
   styleDesign,
   type JourneyOptions,
   type KoshoyJourneyData,
+  type RoomSummaryRoom,
 } from "./journey.server";
 
 export const KOSHOY_MAX_HOPS = 16;
@@ -528,7 +532,9 @@ function openDesignNote(label: string): string {
 
 const STYLE_DECISIONS: readonly StyleDecision[] = ["level", "panel", "front", "crown", "handle"];
 
-const STYLE_BEFORE_SET_HINT = "Tarz kararları ürünler kurulduktan sonra sorulur; önce odanın setini kur.";
+const STYLE_BEFORE_SET_HINT = "Tek ürünün tarz kararları ürün kurulduktan sonra sorulur; önce ürünü kur.";
+/** Products are built only after the room, its structure and its style (ClickUp z8qu5daa0c). */
+const BUILD_LATER_HINT = "Ürünler oda, yapı ve tarz belli olunca kurulur; şimdi kurma, aşama notundaki soruyla devam et. Fiyat söyleme.";
 
 const NO_HANDLES_HINT = "Kulp seçeneği yok; kulptan hiç söz etme, sıradaki karara geç.";
 
@@ -702,13 +708,16 @@ export async function executeKoshoyTool(
       return { payload: { ok: false, error: "no_handles", hint: NO_HANDLES_HINT } };
     }
     const designs = await deps.store.listDesigns(session.id);
-    if (!designs.length) return { payload: { ok: false, error: "no_designs", hint: STYLE_BEFORE_SET_HINT } };
+    // The room's style comes before its products (z8qu5daa0c); the one-product buyer's after its product.
+    if (!designs.length && session.journey.kind === "single") {
+      return { payload: { ok: false, error: "no_designs", hint: STYLE_BEFORE_SET_HINT } };
+    }
     // A decision already taken is asked again only when the customer wants to change it.
     const view = await journeyView(deps, session, deps.data, deps.handles);
     if (!view.missingStyle.includes(decision) && args.change !== true) {
       return { payload: { ok: false, error: "already_decided", hint: `${ALREADY_DECIDED_HINT} ${stageNote(view, session, deps.data)}` } };
     }
-    const choice = await styleChoices(deps, designs, deps.data, decision, deps.handles);
+    const choice = await styleChoices(deps, designs, deps.data, decision, deps.handles, roomKinds(deps.data, session.brief.room));
     if (choice.options.length < 2) return { payload: { ok: false, error: "no_choice" } };
     session.pendingAskUser = { id: call.id, tool: "ask_style", question: choice.question, options: choice.options };
     ctx.publish({
@@ -759,6 +768,11 @@ export async function executeKoshoyTool(
       options: pending.map(({ id, label }) => ({ id, label })),
     });
     return { payload: { ok: true, question, options }, askedUser: true };
+  }
+
+  if (call.name === "plan_cabinet" || call.name === "plan_room") {
+    const early = await buildTooEarly(ctx, call.name);
+    if (early) return { payload: { ok: false, error: "not_now", hint: `${BUILD_LATER_HINT} ${early}` } };
   }
 
   if (call.name === "plan_cabinet") {
@@ -976,6 +990,25 @@ async function runTool(call: KoshoyToolCall, ctx: TurnContext) {
 }
 
 /** The room tools' view of the turn; null while the room feature is off. */
+/**
+ * The room's first products wait for the room, its structure and its style:
+ * returns the stage note while that is not done yet, null when building is fine
+ * (the one-product buyer, a room that already has products, the build stage).
+ */
+async function buildTooEarly(ctx: TurnContext, tool: string): Promise<string | null> {
+  const { session, deps } = ctx;
+  if (session.journey.kind !== "room") return null;
+  const view = await journeyView(deps, session, deps.data, deps.handles);
+  if (view.designs.length || view.stage === "room_build") return null;
+  // One named product before any room is talked about ("2 metre gardırop"): the one-product buyer's fast path.
+  if (tool === "plan_cabinet" && !session.brief.room) {
+    session.journey.kind = "single";
+    ctx.journeyChanged = true;
+    return null;
+  }
+  return stageNote(view, session, deps.data);
+}
+
 function roomToolContext(ctx: TurnContext): RoomToolContext | null {
   const room = ctx.deps.room;
   return room ? { session: ctx.session, store: ctx.deps.store, room, publish: ctx.publish } : null;
@@ -1489,15 +1522,17 @@ async function publishStageCards(ctx: TurnContext) {
       await quoteAndPublish(ctx, design, true);
     }
   }
-  // With a room photo, the room approval shows the first realistic picture by itself, once (map v1.1 stage 6).
+  // The room approval shows the first realistic picture by itself, once (map v1.1 stage 6): in the
+  // room photo, or without one in the draft room of the rough measures (ClickUp z8qu5daa0c).
   const room = roomToolContext(ctx);
-  if (view.stage === "room_approval" && room && session.roomId && session.journey.autoRenderAt === null) {
+  if (view.stage === "room_approval" && room && session.journey.autoRenderAt === null) {
     const render = await runRoomTool(room, "render_room", { designId: session.activeDesignId ?? view.designs[0]?.id });
     if (render.ok === true) session.journey.autoRenderAt = Date.now();
   }
   const cards = await stageCards(deps, session, view, deps.data, {
     photo: Boolean(deps.room),
     handles: (deps.handles ?? NO_HANDLES).handles,
+    ...(view.stage === "room_approval" && room ? { room: await summaryRoom(room, view.designs) } : {}),
   });
   for (const card of cards) {
     const key = JSON.stringify(card);
@@ -1508,6 +1543,20 @@ async function publishStageCards(ctx: TurnContext) {
   ctx.stageAtStart = view.stage;
   session.journey.shownStage = view.stage;
   ctx.journeyChanged = false;
+}
+
+/**
+ * The room summary's layout per wall and its realistic picture: the newest
+ * ready render that shows the products standing in the room now, left to right.
+ */
+async function summaryRoom(room: RoomToolContext, designs: readonly KoshoyDesign[]): Promise<RoomSummaryRoom> {
+  const { layout, target } = await currentLayout(room.room, room.session, designs);
+  const placed = JSON.stringify(placedLeftToRight(layout));
+  const renders = await room.room.db.koshoyRender.findMany({ where: { sessionId: room.session.id } });
+  const ready = renders
+    .filter((render) => render.status === "ready" && render.designIds === placed)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return { layout: layoutByWall(layout, designs, target), renderId: ready[0]?.id ?? null };
 }
 
 /** Every design's scene and price (a room-wide style change), the active one last so it stays on screen. */

@@ -36,6 +36,13 @@ async function setup() {
   return { store, session, token, pricer };
 }
 
+/** Room, structure and style are known: the room's products may be built now (ClickUp z8qu5daa0c). */
+function readyToBuild(session: KoshoySessionState, room = "Yatak odası") {
+  session.brief.room = room;
+  session.journey.structure = "skip";
+  Object.assign(session.journey.style, { level: "en_iyisi", panel: "kumtasi", front: "kapak-18", crown: "on" });
+}
+
 async function turn(
   ctx: Awaited<ReturnType<typeof setup>>,
   session: KoshoySessionState,
@@ -135,6 +142,8 @@ describe("koshoy turn loop", () => {
         "designs",
         "status:thinking",
         "text",
+        // A product named first is the one-product buyer: its structure card follows (ClickUp z8qu5daa0c).
+        "structure",
         "done",
       ],
     );
@@ -275,6 +284,7 @@ describe("koshoy turn loop", () => {
     const ctx = await setup();
     const data = structuredClone(KOSHOY_DATA_DEFAULTS);
     data.rooms.push({ id: "eski", label: "Eski oda", synonyms: [], items: [{ kind: "silinen_urun", count: 1 }] });
+    readyToBuild(ctx.session, "Eski oda");
     const { stream } = scriptedStream([
       [{ event: "tool_call", data: { callId: "c1", name: "plan_room", arguments: { room: "eski" } } }],
       [{ event: "text", data: { text: "Hazır." } }],
@@ -547,7 +557,11 @@ describe("koshoy turn loop", () => {
     };
     const events = await turn(ctx, ctx.session, { type: "message", text: "Salon" }, { stream: looping });
     assert.equal(bodies.length, KOSHOY_MAX_HOPS);
-    assert.deepEqual(events.slice(-2), [{ type: "text", text: KOSHOY_SAFE_STOPPED_REPLY }, { type: "done" }]);
+    // The room is known now, so the structure card is up too (ClickUp z8qu5daa0c).
+    assert.deepEqual(events.filter((event) => event.type !== "structure").slice(-2), [
+      { type: "text", text: KOSHOY_SAFE_STOPPED_REPLY },
+      { type: "done" },
+    ]);
 
     const session = await ctx.store.findSession(ctx.token, SHOP);
     assert.ok(session);
@@ -956,6 +970,7 @@ describe("koshoy turn loop", () => {
       ],
       [{ event: "text", data: { text: "Yatak odan için seti hazırladım." } }],
     ]);
+    readyToBuild(ctx.session);
     const events = await turn(ctx, ctx.session, { type: "message", text: "Yatak odamı döşeyelim, kumtaşı olsun" }, { stream, room });
 
     const designs = await ctx.store.listDesigns(ctx.session.id);
@@ -1194,21 +1209,23 @@ describe("koshoy journey: room first, then product by product, then the cart", (
       return events;
     };
 
-    // 3 · what room: the set is planned; 4 · the structure card follows.
-    const planned = await run({ type: "message", text: "Yatak odamı döşeyelim", intent: "room", card: "yatak" }, [
-      tool("plan_room", { room: "yatak_odasi" }),
-      say("Yatak odan için seti hazırladım."),
+    // 3 · what room: nothing is built or priced yet (ClickUp z8qu5daa0c); 4 · the structure card follows.
+    const asked = await run({ type: "message", text: "Yatak odamı döşeyelim", intent: "room", card: "yatak" }, [
+      [...tool("set_brief", { room: "Yatak odası" }), ...tool("plan_room", { room: "yatak_odasi" })],
+      say("Önce odanın yapısına bakalım."),
     ]);
-    assert.deepEqual(cards(planned), [{ type: "structure", photo: false }]);
-    assert.ok(tracked.includes("card_clicked") && tracked.includes("set_planned"));
+    assert.deepEqual(cards(asked), [{ type: "structure", photo: false }]);
+    assert.deepEqual(await ctx.store.listDesigns(ctx.session.id), [], "no product on the first message");
+    assert.ok(!asked.some((event) => event.type === "price" || event.type === "scene"), "nothing priced");
+    assert.ok(tracked.includes("card_clicked") && tracked.includes("room_chosen"));
 
-    // Going on without measurements; style is asked next (level first).
+    // Going on without measurements; style is asked next (level first), still without products.
     const skipped = await run({ type: "journey", action: "structure_skip" }, [tool("ask_style", { decision: "level" })]);
     assert.equal(ctx.session.journey.structure, "skip");
     const level = skipped.find((event) => event.type === "choice");
     assert.ok(level?.type === "choice");
     assert.equal(level.options.length, 2);
-    assert.ok(level.options.every((option) => /TL$|\[FİYAT\]/.test(option.price ?? "")), "each level shows the room's total");
+    assert.ok(level.options.every((option) => option.price === undefined), "no total before the products exist");
 
     // "En iyisi olsun": crown and the matte front come by themselves; only the colour is left.
     const best = level.options.find((option) => option.label === "En iyisi olsun");
@@ -1218,15 +1235,20 @@ describe("koshoy journey: room first, then product by product, then the cart", (
       { level: ctx.session.journey.style.level, front: ctx.session.journey.style.front, crown: ctx.session.journey.style.crown },
       { level: "en_iyisi", front: "kapak-18", crown: "on" },
     );
-    let designs = await ctx.store.listDesigns(ctx.session.id);
-    assert.ok(designs.every((design) => design.composition.frontSeries === "kapak-18"));
-    const wardrobe = designs.find((design) => design.kind === "gardirop");
-    assert.ok(wardrobe?.composition.units.every((unit) => unit.hasCrown), "tall wardrobe crowned");
 
-    // The colour pick completes the style: the room summary appears.
+    // The colour pick completes the style: now the set is built, in that style, and the room summary appears.
     const panel = ctx.session.pendingAskUser?.options.find((option) => option.value === "style:panel:kumtasi");
     assert.ok(panel);
-    const summary = await run({ type: "choice", selected: panel.id }, [say("Oda özetin ekranda.")]);
+    const summary = await run({ type: "choice", selected: panel.id }, [
+      tool("plan_room", { room: "yatak_odasi" }),
+      say("Oda özetin ekranda."),
+    ]);
+    assert.ok(tracked.includes("set_planned"));
+    let designs = await ctx.store.listDesigns(ctx.session.id);
+    assert.ok(designs.every((design) => design.composition.frontSeries === "kapak-18"));
+    assert.ok(designs.every((design) => design.composition.units.every((unit) => unit.color === "kumtasi")));
+    const wardrobe = designs.find((design) => design.kind === "gardirop");
+    assert.ok(wardrobe?.composition.units.every((unit) => unit.hasCrown), "tall wardrobe crowned");
     const room = cards(summary).find((event) => event.type === "room_summary");
     assert.ok(room?.type === "room_summary");
     assert.equal(room.items.length, 4);
@@ -1518,9 +1540,10 @@ describe("koshoy journey: room measurement typed in the chat (ClickUp z8qu5da8cg
       });
       return { events, bodies };
     };
+    // The room is chosen; its structure is asked before any product is built (ClickUp z8qu5daa0c).
     const first = await run({ type: "message", text: "Yatak odamı döşeyelim", intent: "room", card: "yatak" }, [
-      tool("plan_room", { room: "yatak_odasi" }),
-      [{ event: "text", data: { text: "Yatak odan için seti hazırladım." } }],
+      tool("set_brief", { room: "Yatak odası" }),
+      [{ event: "text", data: { text: "Önce odanın yapısına bakalım." } }],
     ]);
     return { ctx, run, tracked, first };
   }

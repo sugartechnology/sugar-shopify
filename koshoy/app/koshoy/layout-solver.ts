@@ -69,6 +69,8 @@ export type LayoutTarget =
       line: WallLine;
       /** Empty stretches of the visible wall (furniture mask): new designs go there first. */
       free: readonly WallBounds[];
+      /** Studio only: the draft room drawn from the rough measures (no room photo). */
+      draft?: { ceilingM: number };
     }
   | { surface: "floor"; roomId: string; frame: FloorFrame };
 
@@ -94,16 +96,18 @@ const STUDIO_MAX_HALF_M = 25;
 export function fitStudioTarget(target: LayoutTarget, sizes: ReadonlyMap<string, DesignSize>): LayoutTarget {
   if (target.surface !== "wall" || target.roomId !== null) return target;
   const totalM = [...sizes.values()].reduce((sum, size) => sum + size.widthM, 0);
-  if (totalM <= target.bounds.toM - target.bounds.fromM) return target;
+  // The draft room's wall keeps a little room at its ends too, so the whole set stands on it.
+  const neededM = target.draft ? totalM + 2 * STUDIO_SPARE_M : totalM;
+  if (neededM <= target.bounds.toM - target.bounds.fromM) return target;
   const half = Math.min(totalM / 2 + STUDIO_SPARE_M, STUDIO_MAX_HALF_M);
   return { ...target, bounds: { fromM: -half, toM: half } };
 }
 
 /** What the storefront (and the 3D studio view) is told about the target. */
 export function targetView(target: LayoutTarget): LayoutTargetView {
-  return target.surface === "wall"
-    ? { surface: "wall", wall: { fromM: target.bounds.fromM, toM: target.bounds.toM } }
-    : { surface: "floor" };
+  if (target.surface === "floor") return { surface: "floor" };
+  const wall = { fromM: target.bounds.fromM, toM: target.bounds.toM };
+  return target.draft ? { surface: "wall", wall, draft: { ...target.draft } } : { surface: "wall", wall };
 }
 
 /** `free`: the room's empty wall stretches (room-measure.server.ts); they never reach the browser. */

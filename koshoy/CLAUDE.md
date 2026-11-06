@@ -35,7 +35,12 @@ Doğrudan Claude/OpenAI API'si kullanılmaz; LLM her zaman şirketin gateway'ind
 
 ## Müşteri yolculuğu ve Akın'ın verisi
 
-- Yolculuk (ClickUp z8qu5d7rd9): oda → yapı → tarz → oda onayı → ürün ürün onay → sepet. Durum
+- Yolculuk (ClickUp z8qu5d7rd9, sıra z8qu5daa0c): oda → yapı (fotoğraf / kaba ölçü / atla = 4 m duvar,
+  260 cm tavan) → tarz → ürünler kurulur (`room_build`; öncesinde plan_room/plan_cabinet reddedilir, ilk
+  mesajda adı geçen tek ürün tek ürün hızlı yoludur) → oda görseli + oda özeti (yerleşim duvar duvar) →
+  oda onayı → ürün ürün onay → sepet. Fotoğraf yoksa yerleşim taslak odadadır (`LayoutTarget.draft`,
+  `journey.ts draftRoomSize`); gerçekçi görsel aynı koshoy-render yolundan, boş taslak oda çekimi
+  `roomImageUrl` olarak gider (`render.server.ts`). Durum
   `journey.ts` (oturumun `state.journey`), kartlar ve düğmeler `journey.server.ts`, tur bağlantısı
   `turn.server.ts` (`runJourneyAction`, `publishStageCards`). Sepete yalnız onaylı ürün girer (`/cart`).
 - Ürünler (ClickUp z8qu5d3qan): her ürün `kinds` belgesinde bir satırdır (kimlik, yapım kalıbı, ad,

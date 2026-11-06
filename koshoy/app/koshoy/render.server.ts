@@ -87,14 +87,16 @@ export function renderView(row: KoshoyRenderRow): RenderView {
 }
 
 /**
- * Stores both captures and starts koshoy-render. `designs` are the cabinets
- * in the captures, left to right. A refused start is a failed render.
+ * Stores the captures and starts koshoy-render. `designs` are the cabinets
+ * in the captures, left to right. The room is the customer's photo, or
+ * without one the empty draft room the 3D view drew (`draftRoom`, ClickUp
+ * z8qu5daa0c): the same koshoy-render flow. A refused start is a failed render.
  */
 export async function startRender(
   deps: KoshoyRoomDeps,
   session: KoshoySessionState,
   input: {
-    room: KoshoyRoomRow;
+    room: { photo: KoshoyRoomRow } | { draftRoom: Uint8Array };
     designs: readonly KoshoyDesign[];
     composite: Uint8Array;
     cabinet: Uint8Array;
@@ -106,13 +108,20 @@ export async function startRender(
   const jpeg = (bytes: Uint8Array) => ({ bytes, contentType: "image/jpeg" });
   const compositeKey = await deps.files.put(`renders/${id}/composite.jpg`, jpeg(input.composite));
   const cabinetKey = await deps.files.put(`renders/${id}/cabinet.jpg`, jpeg(input.cabinet));
+  const photo = "photo" in input.room ? input.room.photo : null;
+  const roomKey = "draftRoom" in input.room
+    ? await deps.files.put(`renders/${id}/room.jpg`, jpeg(input.room.draftRoom))
+    : null;
   const link = (key: string) => deps.files.signedUrl(key, RENDER_LINK_SECONDS);
 
   let jobId: string | null = null;
   try {
+    // With items removed from the photo, the picture is made from the cleaned room (CONTRACT §2.9).
+    const roomImageUrl = photo
+      ? (await readyCleanPhotoUrl(deps.db, photo)) ?? (await link(photo.photoKey))
+      : await link(roomKey!);
     const started = await tagService.startRender({
-      // With items removed from the photo, the picture is made from the cleaned room (CONTRACT §2.9).
-      roomImageUrl: (await readyCleanPhotoUrl(deps.db, input.room)) ?? (await link(input.room.photoKey)),
+      roomImageUrl,
       compositeImageUrl: await link(compositeKey),
       cabinetImageUrl: await link(cabinetKey),
       cabinetDescription: input.description,
@@ -127,7 +136,8 @@ export async function startRender(
       id,
       sessionId: session.id,
       shop: session.shop,
-      roomId: input.room.id,
+      roomId: photo?.id ?? null,
+      roomKey,
       designIds: JSON.stringify(input.designs.map((design) => design.id)),
       status: jobId ? "processing" : "failed",
       error: jobId ? null : "render_failed",

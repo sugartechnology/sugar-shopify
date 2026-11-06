@@ -755,6 +755,41 @@ describe("koshoy room photo and render endpoints", () => {
     assert.equal(nothing.status, 400, "an empty room and no designId: nothing to draw");
   });
 
+  it("renders a room without a photo in its draft room (ClickUp z8qu5daa0c)", async () => {
+    const t = setup({ renderLimit: 100 });
+    const token = await openSession(t.ctx);
+    const design = await designFor(t, token);
+    const shots = { composite: jpegDataUrl(), cabinet: jpegDataUrl(), room: jpegDataUrl() };
+
+    // Before the structure is known there is no draft room to draw in.
+    const early = await handleKoshoyRender(post("render", { designId: design.id, ...shots }, token), t.ctx);
+    assert.equal(early.status, 400);
+
+    const session = await t.ctx.store.findSession(token, SHOP, t.ctx.customerId);
+    assert.ok(session);
+    session.journey.structure = "skip";
+    await t.ctx.store.saveSession(session);
+    const layout = await json(await handleKoshoyLayout(post("layout", { op: "add", designId: design.id }, token), t.ctx));
+    assert.deepEqual((layout.body.layout as { target: unknown }).target, {
+      surface: "wall",
+      wall: { fromM: -2, toM: 2 },
+      draft: { ceilingM: 2.6 },
+    });
+
+    const started = await json(await handleKoshoyRender(post("render", { designId: design.id, ...shots }, token), t.ctx));
+    assert.equal(started.status, 200);
+    const renderId = (started.body.render as { id: string }).id;
+    const [input] = t.tag.calls.renders;
+    assert.match(input.roomImageUrl, new RegExp(`renders/${renderId}/room\\.jpg\\?X-Amz-Expires=900&`));
+    const row = t.memory.renders.get(renderId)!;
+    assert.equal(row.roomId, null);
+    assert.equal(row.roomKey, `koshoy-studio/renders/${renderId}/room.jpg`);
+    assert.deepEqual(JSON.parse(row.designIds), [design.id]);
+
+    const noRoomShot = await handleKoshoyRender(post("render", { designId: design.id, composite: jpegDataUrl(), cabinet: jpegDataUrl() }, token), t.ctx);
+    assert.equal(noRoomShot.status, 400, "without a photo the empty draft room shot is required");
+  });
+
   it("re-settles the room when a panel edit widens a design", async () => {
     const t = setup();
     const token = await openSession(t.ctx);

@@ -178,7 +178,8 @@ describe("koshoy studio handlers", () => {
     assert.equal(resumed.session, token);
     assert.equal(resumed.activeDesignId, scene.designId);
     const types = (resumed.events as PublicEvent[]).map((event) => event.type);
-    assert.deepEqual(types.slice(-2), ["scene", "price"], "hydrates the active design");
+    // A product named first is the one-product buyer: its structure card comes back too.
+    assert.deepEqual(types.filter((type) => type !== "structure").slice(-2), ["scene", "price"], "hydrates the active design");
 
     const reset = (await (
       await handleKoshoySession(post("session", { reset: true }, { token }), ctx)
