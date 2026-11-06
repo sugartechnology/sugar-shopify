@@ -468,7 +468,7 @@ export function stageNote(
     case "room_build": {
       const room = data.rooms.find((item) => item.id === session.brief.room || item.label === session.brief.room);
       const questions = room ? questionNote(data, room.items.map((item) => item.kind), "room") : "";
-      return `Aşama: ürünler. Oda, yapı ve tarz belli; şimdi ürünleri kur. Odanın setini tek cümleyle öner (müşteri ekler ya da çıkarır), sonra plan_room ile kur.${
+      return `Aşama: ürünler. Oda, yapı ve tarz belli; şimdi ürünleri kur. Odanın setini tek cümleyle öner (müşteri ekler ya da çıkarır), sonra plan_room ile kur. Kurulunca ekranda oda özeti ve oda görseli çıkar (ürün kartı değil); ölçüden, duvardan ya da odanın boyutundan söz etme.${
         questions ? ` Kurmadan önce ölçüyü değiştiren soruları ask_user ile tek tek sor (cevaba göre targetWidthCm): ${questions}` : ""
       }`;
     }
