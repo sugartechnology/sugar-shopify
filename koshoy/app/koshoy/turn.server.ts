@@ -480,6 +480,9 @@ const ASK_ALONE_HINT =
 const ASK_AGAIN_NUDGE =
   "[Sistem notu] Müşteriye seçenek gösterilmedi; ekranda tıklayabileceği bir şey yok. Soruyu şimdi ask_user ile tek başına sor.";
 
+const STYLE_ASK_NUDGE =
+  "[Sistem notu] Müşteriye tarz seçenekleri gösterilmedi; ekranda tıklayabileceği bir şey yok. Sıradaki kararı şimdi ask_style ile tek başına sor, cümleyi tekrar yazma.";
+
 const SILENT_TURN_NUDGE =
   "[Sistem notu] Bu turda müşteriye hiçbir şey gösterilmedi. Müşterinin son cevabına göre devam et: gereken aracı çağır ya da kısa bir cevap yaz.";
 
@@ -998,10 +1001,13 @@ function publishText(ctx: TurnContext, raw: string) {
  * A turn must not leave the customer stuck (ClickUp z8qu5d671e): a question
  * that never reached the screen, a sentence that announces choices
  * ("…rengi seçebilirsin:") without them, or nothing at all. The model gets
- * one more hop to put it right.
+ * one more hop to put it right. In the style stage the next decision is
+ * always a choice, so a turn there ends with ask_style ("Sıradaki adım renk."
+ * with no colours, ClickUp z8qu5d7rdy).
  */
-function deadEndNudge(ctx: TurnContext, lastText: string): string | null {
+function deadEndNudge(ctx: TurnContext, lastText: string, stage: JourneyStage): string | null {
   if (ctx.shown.has("choice")) return null;
+  if (stage === "room_style") return STYLE_ASK_NUDGE;
   if (ctx.askMissed || /:\s*$/.test(lastText) || isChoiceQuestion(lastText)) return ASK_AGAIN_NUDGE;
   if (!ctx.textSent && !ctx.shown.has("scene")) return SILENT_TURN_NUDGE;
   return null;
@@ -1168,7 +1174,7 @@ async function runModelTurn(ctx: TurnContext, client: ClientInput) {
         followUp = undefined;
         continue;
       }
-      const nudge = nudged ? null : deadEndNudge(ctx, buffer);
+      const nudge = nudged ? null : deadEndNudge(ctx, buffer, view.stage);
       if (nudge) {
         nudged = true;
         message = nudge;
