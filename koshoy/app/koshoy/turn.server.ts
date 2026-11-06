@@ -644,6 +644,10 @@ async function planStyledDesign(
   const design = await styleDesign(deps, session.id, created.design, { ...session.journey.style, panel: "" });
   ctx.designIds.add(design.id);
   ctx.createdIds.add(design.id);
+  if (session.journey.roomApprovedAt !== null) {
+    session.journey.roomApprovedAt = null;
+    session.journey.roomApproval = null;
+  }
   ctx.journeyChanged = true;
   return { design, plan: created.plan };
 }
@@ -1454,6 +1458,10 @@ async function runJourneyAction(
   if (room) await runRoomTool(room, "remove_from_room", { designId: design.id });
   await deps.store.deleteDesign(session.id, design.id);
   delete journey.approvals[design.id];
+  if (journey.roomApprovedAt !== null) {
+    journey.roomApprovedAt = null;
+    journey.roomApproval = null;
+  }
   const left = designs.filter((item) => item.id !== design.id);
   if (session.activeDesignId === design.id) {
     session.activeDesignId = left[0]?.id ?? null;
@@ -1474,8 +1482,9 @@ async function publishStageCards(ctx: TurnContext) {
   const { session, deps } = ctx;
   await applyOnlyLevel(ctx);
   const view = await journeyView(deps, session, deps.data, deps.handles);
-  // Compared with the stage shown last, so a change made outside a turn (a panel edit) is caught too.
-  if (view.stage === session.journey.shownStage && !ctx.journeyChanged) return;
+  // Action cards (approval, product, cart) are always re-sent so their buttons stay active after a text message.
+  const hasActionCard = view.stage === "room_approval" || view.stage === "product_approval" || view.stage === "cart";
+  if (!hasActionCard && view.stage === session.journey.shownStage && !ctx.journeyChanged) return;
   if (ctx.stageAtStart === "room_style" && view.stage !== "room_style") deps.track?.("style_done");
   if (view.stage === "product_approval") {
     const design = focusDesign(session, view);

@@ -121,7 +121,7 @@ export function missingStyle(
   const { style } = journey;
   const level = options.levels.find((item) => item.id === style.level);
   const missing: StyleDecision[] = [];
-  if (!level && options.levels.length > 1) missing.push("level");
+  if (!level && style.level !== "skip" && options.levels.length > 1) missing.push("level");
   if (!style.panel) missing.push("panel");
   if (options.handles.length && !style.handle) missing.push("handle");
   if (!style.front && level?.front !== "auto") missing.push("front");

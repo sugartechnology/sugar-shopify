@@ -1148,8 +1148,10 @@ describe("koshoy journey: room first, then product by product, then the cart", (
     assert.equal(ctx.session.journey.structure, "skip");
     const level = skipped.find((event) => event.type === "choice");
     assert.ok(level?.type === "choice");
-    assert.equal(level.options.length, 2);
-    assert.ok(level.options.every((option) => /TL$|\[FİYAT\]/.test(option.price ?? "")), "each level shows the room's total");
+    assert.equal(level.options.length, 3);
+    const priced = level.options.filter((option) => option.price !== undefined);
+    assert.ok(priced.every((option) => /TL$|\[FİYAT\]/.test(option.price ?? "")), "each level shows the room's total");
+    assert.ok(level.options.some((option) => option.label === "Bütçe seçmek istemiyorum"), "skip option present");
 
     // "En iyisi olsun": crown and the matte front come by themselves; only the colour is left.
     const best = level.options.find((option) => option.label === "En iyisi olsun");
@@ -1174,8 +1176,10 @@ describe("koshoy journey: room first, then product by product, then the cart", (
     assert.equal(room.approved, false);
 
     // 6 · approving without signing in asks to save the room first; the model is not called.
+    // The room summary is also re-sent so its button stays active.
     const guest = await run({ type: "journey", action: "approve_room" }, [], null);
-    assert.deepEqual(cards(guest), [{ type: "login_required" }]);
+    assert.ok(cards(guest).some((event) => event.type === "login_required"));
+    assert.ok(cards(guest).some((event) => event.type === "room_summary"));
     assert.equal(ctx.session.journey.roomApprovedAt, null);
 
     // Signed in: approved; the first product's card comes up.
@@ -1230,10 +1234,15 @@ describe("koshoy journey: room first, then product by product, then the cart", (
       stream: scriptedStream([[{ event: "text", data: { text: "Çıkardım." } }]]).stream,
     });
     assert.equal(await ctx.store.getDesign(ctx.session.id, tv.id), null, "the removed product is gone");
-    const card = events.find((event) => event.type === "product_card");
-    assert.ok(card?.type === "product_card");
-    assert.equal(card.designId, komodin.id);
-    assert.equal(card.status, "pending", "changed after approval → decided again");
+    // Removing a product resets room approval; the room summary appears again.
+    assert.equal(ctx.session.journey.roomApprovedAt, null, "room approval reset after remove");
+    const summary = events.find((event) => event.type === "room_summary");
+    assert.ok(summary?.type === "room_summary", "room summary shown after removal");
+    assert.equal(summary.approved, false);
+    // komodin's version changed: once the room is re-approved it will be pending.
+    const updatedKomodin = await ctx.store.getDesign(ctx.session.id, komodin.id);
+    assert.ok(updatedKomodin);
+    assert.notEqual(updatedKomodin.version, komodin.version, "komodin version bumped");
   });
 
   it("lets the one-product buyer approve product and room topics in one step", async () => {

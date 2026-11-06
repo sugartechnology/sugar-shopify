@@ -155,6 +155,7 @@ export async function styleChoices(
     for (const level of data.levels) {
       entries.push({ value: level.id, label: level.label, style: levelStyle(level) });
     }
+    entries.push({ value: "skip", label: "Bütçe seçmek istemiyorum" });
   }
   if (decision === "panel") {
     for (const id of bodyColorIds()) {
@@ -237,6 +238,10 @@ export async function applyStyleDecision(
   let change: Partial<KoshoyStyle> = {};
   let summary = "";
   if (decision === "level") {
+    if (value === "skip") {
+      style.level = "skip";
+      return { ok: true, designs: [], summary: "Bütçe seçimi atlandı." };
+    }
     const level = data.levels.find((item) => item.id === value);
     if (!level) return { ok: false, designs: [], summary: "" };
     const before = data.levels.find((item) => item.id === style.level);
