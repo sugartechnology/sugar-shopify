@@ -211,6 +211,7 @@ describe("room delete", () => {
       sessionId: session.id,
       shop: SHOP,
       roomId: room.id,
+      roomKey: null,
       designIds: "[]",
       status: "ready",
       error: null,

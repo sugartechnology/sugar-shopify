@@ -27,6 +27,7 @@ import {
   layoutTarget,
   placedLeftToRight,
   settleItems,
+  STUDIO_TARGET,
   targetView,
   type DesignSize,
   type LayoutOp,
@@ -34,10 +35,35 @@ import {
   type LayoutState,
   type LayoutTarget,
 } from "./layout-solver";
+import { STUDIO_WALL_LINE } from "./room-layout";
 import { roomMeasuresNow } from "./room-clean.server";
 import { roundedCm } from "./room-measure.server";
 import { roomView, type KoshoyRoomDeps, type KoshoyRoomRow } from "./room.server";
 import type { KoshoyDesign } from "./store.server";
+import { draftRoomSize, type KoshoyJourney } from "./journey";
+
+/** What the layout needs of a session; the journey gives the draft room (no photo). */
+export interface LayoutSession {
+  id: string;
+  roomId: string | null;
+  journey?: KoshoyJourney;
+}
+
+/** The studio target of a session without a room photo: its draft room when the structure is known. */
+function studioTarget(session: LayoutSession): LayoutTarget {
+  const size = session.journey ? draftRoomSize(session.journey) : null;
+  if (!size) return STUDIO_TARGET;
+  const half = size.wallCm / 200;
+  return {
+    surface: "wall",
+    roomId: null,
+    bounds: { fromM: -half, toM: half },
+    frame: null,
+    line: STUDIO_WALL_LINE,
+    free: [],
+    draft: { ceilingM: size.ceilingCm / 100 },
+  };
+}
 
 export { KOSHOY_MAX_LAYOUT_ITEMS };
 
@@ -209,6 +235,41 @@ export function layoutFactsForModel(
   };
 }
 
+/** The room summary's layout (ClickUp z8qu5daa0c): one line per wall, products left to right. */
+export interface WallLineView {
+  label: string;
+  items: string[];
+}
+
+/**
+ * The layout as the room summary shows it: the wall (the photo's wall, the
+ * draft room's wall or the studio wall) with its products left to right,
+ * products standing free on the floor, then the ones that found no place.
+ */
+export function layoutByWall(
+  layout: LayoutState,
+  designs: readonly KoshoyDesign[],
+  target: LayoutTarget,
+): WallLineView[] {
+  const byId = new Map(designs.map((design) => [design.id, design]));
+  const wall: string[] = [];
+  const floor: string[] = [];
+  for (const designId of placedLeftToRight(layout)) {
+    const design = byId.get(designId);
+    const place = layout.items.find((item) => item.designId === designId)?.place;
+    if (!design || !place) continue;
+    (place.surface === "wall" && target.surface === "wall" ? wall : floor).push(design.label);
+  }
+  const waiting = layout.items
+    .filter((item) => item.place === null && byId.has(item.designId))
+    .map((item) => byId.get(item.designId)!.label);
+  const lines: WallLineView[] = [];
+  if (wall.length) lines.push({ label: "Duvar (soldan sağa)", items: wall });
+  if (floor.length) lines.push({ label: "Odanın içinde", items: floor });
+  if (waiting.length) lines.push({ label: "Yer bulunamadı", items: waiting });
+  return lines;
+}
+
 /**
  * Settles the saved layout onto `target` and applies `op` (if any), then
  * saves it as the next version. Every call saves, so the storefront always
@@ -239,7 +300,7 @@ export async function changeLayout(
 /** The session's ready room (if any) and where its layout stands; the studio wall grows to fit `designs`. */
 export async function sessionTarget(
   deps: KoshoyRoomDeps,
-  session: { id: string; roomId: string | null },
+  session: LayoutSession,
   designs: readonly KoshoyDesign[],
 ): Promise<{ target: LayoutTarget; room: KoshoyRoomRow | null }> {
   const row = session.roomId
@@ -248,7 +309,9 @@ export async function sessionTarget(
   const room = row?.status === "ready" ? row : null;
   // Items removed from the photo free their stretch of wall (CONTRACT §2.9).
   const free = room ? (await roomMeasuresNow(deps.db, room))?.free ?? [] : [];
-  return { target: fitStudioTarget(layoutTarget(room ? roomView(room) : null, free), designSizes(designs)), room };
+  const target = room ? layoutTarget(roomView(room), free) : studioTarget(session);
+  // A photo without a usable floor stays in the plain studio, as before.
+  return { target: fitStudioTarget(target, designSizes(designs)), room };
 }
 
 /**
@@ -257,7 +320,7 @@ export async function sessionTarget(
  */
 export async function currentLayout(
   deps: KoshoyRoomDeps,
-  session: { id: string; roomId: string | null },
+  session: LayoutSession,
   designs: readonly KoshoyDesign[],
 ): Promise<{ layout: LayoutState; target: LayoutTarget; room: KoshoyRoomRow | null }> {
   const { target, room } = await sessionTarget(deps, session, designs);
@@ -284,7 +347,7 @@ export function layoutScenes(layout: LayoutState, designs: readonly KoshoyDesign
  */
 export async function settleAfterResize(
   deps: KoshoyRoomDeps,
-  session: { id: string; roomId: string | null },
+  session: LayoutSession,
   designs: readonly KoshoyDesign[],
   before: KoshoyDesign,
   after: KoshoyDesign,
@@ -305,7 +368,7 @@ export async function settleAfterResize(
  */
 export async function enterRoom(
   deps: KoshoyRoomDeps,
-  session: { id: string; roomId: string | null; activeDesignId: string | null },
+  session: LayoutSession & { activeDesignId: string | null },
   designs: readonly KoshoyDesign[],
 ): Promise<{ layout: LayoutState; target: LayoutTarget }> {
   const { layout, target } = await currentLayout(deps, session, designs);

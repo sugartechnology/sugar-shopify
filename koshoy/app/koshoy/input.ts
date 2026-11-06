@@ -300,24 +300,37 @@ export function parseLayoutOp(body: unknown): LayoutOp | null {
   return null;
 }
 
-export interface RenderRequest {
-  roomId: string;
+export type RenderRequest = {
   /** Used only when the room layout is empty (CONTRACT v2: the layout decides what is drawn). */
   designId?: string;
-  /** photo + cabinet, same camera */
+  /** room + cabinet, same camera */
   composite: Uint8Array;
   /** cabinet alone on flat grey */
   cabinet: Uint8Array;
-}
+} & (
+  /** The customer's analysed room photo. */
+  | { roomId: string; draftRoom?: undefined }
+  /** No photo (ClickUp z8qu5daa0c): the empty draft room the 3D view drew, same camera. */
+  | { roomId?: undefined; draftRoom: Uint8Array }
+);
 
-/** POST /render {roomId, composite, cabinet, designId?}. */
+/** POST /render {roomId, composite, cabinet, designId?} or, without a photo, {room, composite, cabinet, designId?}. */
 export function parseRenderRequest(body: unknown): RenderRequest | null {
   const row = asRecord(body);
-  const roomId = parseOpaqueId(row.roomId);
   const composite = parseJpegDataUrl(row.composite);
   const cabinet = parseJpegDataUrl(row.cabinet);
-  if (!roomId || !composite || !cabinet) return null;
-  if (row.designId === undefined || row.designId === null) return { roomId, composite, cabinet };
-  const designId = parseOpaqueId(row.designId);
-  return designId ? { roomId, designId, composite, cabinet } : null;
+  if (!composite || !cabinet) return null;
+  let designId: string | undefined;
+  if (row.designId !== undefined && row.designId !== null) {
+    const id = parseOpaqueId(row.designId);
+    if (!id) return null;
+    designId = id;
+  }
+  const shots = { composite, cabinet, ...(designId ? { designId } : {}) };
+  if (row.roomId !== undefined && row.roomId !== null) {
+    const roomId = parseOpaqueId(row.roomId);
+    return roomId ? { ...shots, roomId } : null;
+  }
+  const draftRoom = parseJpegDataUrl(row.room);
+  return draftRoom ? { ...shots, draftRoom } : null;
 }

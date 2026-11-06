@@ -75,6 +75,8 @@ export type JourneyStage =
   | "room_what"
   | "room_structure"
   | "room_style"
+  /** Room, structure and style are known: the products are built now. */
+  | "room_build"
   | "room_approval"
   | "product_approval"
   | "cart";
@@ -171,13 +173,38 @@ export function journeyStage(
     missingStyle: readonly StyleDecision[];
   },
 ): JourneyStage {
-  if (!input.designs.length) return "room_what";
+  // The one-product buyer names the product first; its room topics follow (fast path).
+  if (journey.kind === "single" && !input.designs.length) return "room_what";
+  // The room: what room, its structure and its style come before any product
+  // is built or priced (ClickUp z8qu5daa0c).
   if (journey.kind === "room" && !input.room) return "room_what";
   if (!journey.structure && !input.hasRoomPhoto) return "room_structure";
   if (input.missingStyle.length) return "room_style";
+  if (!input.designs.length) return "room_build";
   if (journey.roomApprovedAt === null) return "room_approval";
   if (nextPendingDesign(journey, input.designs)) return "product_approval";
   return "cart";
+}
+
+/** "Atla" on the structure card: a room with a 4 m wall and a 260 cm ceiling (ClickUp z8qu5daa0c). */
+export const SKIPPED_ROOM = { wallCm: 400, ceilingCm: 260 } as const;
+/** The draft room's ceiling stays a believable room height whatever was typed. */
+const DRAFT_CEILING_CM = { min: 220, max: 450 } as const;
+
+/**
+ * The draft room drawn when there is no room photo: the customer's rough
+ * measures, or the default room when they skipped. null before the structure
+ * is known (or when it is a photo).
+ */
+export function draftRoomSize(journey: KoshoyJourney): { wallCm: number; ceilingCm: number } | null {
+  const sized = journey.structure === "measure" && journey.measure
+    ? { wallCm: journey.measure.wallCm, ceilingCm: journey.measure.ceilingCm ?? SKIPPED_ROOM.ceilingCm }
+    : journey.structure === "skip"
+      ? { ...SKIPPED_ROOM }
+      : null;
+  if (!sized) return null;
+  const ceilingCm = Math.min(Math.max(sized.ceilingCm, DRAFT_CEILING_CM.min), DRAFT_CEILING_CM.max);
+  return { wallCm: sized.wallCm, ceilingCm };
 }
 
 /** Drops approvals of designs that no longer exist (the store keeps the rest). */
@@ -249,7 +276,7 @@ export function parseJourney(raw: unknown): KoshoyJourney {
       };
     }
   }
-  const stages: readonly string[] = ["room_what", "room_structure", "room_style", "room_approval", "product_approval", "cart"];
+  const stages: readonly string[] = ["room_what", "room_structure", "room_style", "room_build", "room_approval", "product_approval", "cart"];
   if (typeof row.shownStage === "string" && stages.includes(row.shownStage)) {
     journey.shownStage = row.shownStage as JourneyStage;
   }

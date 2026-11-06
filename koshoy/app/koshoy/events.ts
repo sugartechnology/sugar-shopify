@@ -116,6 +116,8 @@ export interface LayoutItemView {
 export interface LayoutTargetView {
   surface: "wall" | "floor";
   wall?: { fromM: number; toM: number };
+  /** No room photo: the studio draws a draft room this high (floor, walls, a window, a door). */
+  draft?: { ceilingM: number };
 }
 
 /** Designs that may stand in one layout (room or studio). */
@@ -160,10 +162,14 @@ export type PublicEvent =
   | {
       type: "room_summary";
       items: JourneyItemView[];
+      /** Where the products stand, per wall, left to right (ClickUp z8qu5daa0c). */
+      layout: Array<{ label: string; items: string[] }>;
       style: Array<{ label: string; value: string }>;
       total: string;
       approved: boolean;
       single: boolean;
+      /** A ready realistic picture of this room (GET /render-file). */
+      renderId?: string;
     }
   /** Stage 7: the product being decided on, with the progress of the room. */
   | {
@@ -358,7 +364,12 @@ export function toLayoutTarget(raw: unknown): LayoutTargetView | null {
   if (!wall) return { surface: "wall" };
   const fromM = metres(wall.fromM);
   const toM = metres(wall.toM);
-  return fromM !== null && toM !== null && toM > fromM ? { surface: "wall", wall: { fromM, toM } } : null;
+  if (fromM === null || toM === null || toM <= fromM) return null;
+  const draft = asRecord(row.draft);
+  const ceilingM = draft ? metres(draft.ceilingM) : null;
+  return ceilingM !== null && ceilingM >= 2 && ceilingM <= 5
+    ? { surface: "wall", wall: { fromM, toM }, draft: { ceilingM } }
+    : { surface: "wall", wall: { fromM, toM } };
 }
 
 export function toDesignSummary(raw: unknown): DesignSummary | null {
@@ -534,14 +545,23 @@ export function toPublicEvent(raw: unknown): PublicEvent | null {
         const value = shortText(pair?.value, 80);
         return name && value ? { label: name, value } : null;
       });
-      if (!items?.length || !style || !isValidPriceDisplay(row.total)) return null;
+      const walls = list(row.layout ?? [], (raw) => {
+        const wall = asRecord(raw);
+        const name = shortText(wall?.label, 80);
+        const names = list(wall?.items, (item) => shortText(item, 160));
+        return name && names?.length ? { label: name, items: names.slice(0, 12) } : null;
+      });
+      if (!items?.length || !style || !walls || !isValidPriceDisplay(row.total)) return null;
+      const renderId = opaqueId(row.renderId);
       return {
         type: "room_summary",
         items,
+        layout: walls.slice(0, 8),
         style,
         total: row.total,
         approved: row.approved === true,
         single: row.single === true,
+        ...(renderId ? { renderId } : {}),
       };
     }
     case "product_card": {

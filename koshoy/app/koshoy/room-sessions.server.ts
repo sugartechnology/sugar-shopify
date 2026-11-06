@@ -45,7 +45,7 @@ export interface KoshoyRoomSessionsDb {
   koshoyRender: {
     findMany(args: {
       where: { sessionId: string };
-    }): Promise<Array<Pick<KoshoyRenderRow, "compositeKey" | "cabinetKey" | "resultKey">>>;
+    }): Promise<Array<Pick<KoshoyRenderRow, "compositeKey" | "cabinetKey" | "resultKey" | "roomKey">>>;
     deleteMany(args: { where: { sessionId: string } }): Promise<{ count: number }>;
   };
   /** Rows go with their KoshoyRoom (cascade); only the job ids are read here. */
@@ -228,7 +228,7 @@ export async function deleteRoomSession(
   ]);
   const fileKeys = [
     ...rooms.map((room) => room.photoKey),
-    ...renders.flatMap((render) => [render.compositeKey, render.cabinetKey, render.resultKey]),
+    ...renders.flatMap((render) => [render.compositeKey, render.cabinetKey, render.resultKey, render.roomKey]),
   ].filter((key): key is string => Boolean(key));
   const cleanFolders = cleans
     .map((clean) => cleanJobFolder(clean.jobId))

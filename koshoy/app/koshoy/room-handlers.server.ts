@@ -40,6 +40,7 @@ import {
   roomView,
   startRoom,
   type KoshoyRoomDeps,
+  type KoshoyRoomRow,
   type RoomFileName,
 } from "./room.server";
 import type { KoshoyDesign, KoshoyStore } from "./store.server";
@@ -203,7 +204,7 @@ async function renderedDesigns(
   room: KoshoyRoomDeps,
   store: KoshoyStore,
   sessionId: string,
-  roomId: string,
+  roomId: string | null,
   designId: string | undefined,
 ): Promise<KoshoyDesign[] | null> {
   const designs = await store.listDesigns(sessionId);
@@ -231,19 +232,31 @@ export async function handleKoshoyRender(
     const input = parseRenderRequest(body);
     if (!input) return koshoyStudioError("invalid_input");
 
-    const room = await ctx.room.db.koshoyRoom.findFirst({
-      where: { id: input.roomId, sessionId: session.id },
-    });
-    if (!room) return koshoyStudioError("not_found");
-    const designs = await renderedDesigns(ctx.room, ctx.store, session.id, room.id, input.designId);
+    let roomInput: { photo: KoshoyRoomRow } | { draftRoom: Uint8Array };
+    if (input.roomId) {
+      const room = await ctx.room.db.koshoyRoom.findFirst({
+        where: { id: input.roomId, sessionId: session.id },
+      });
+      if (!room) return koshoyStudioError("not_found");
+      if (room.status !== "ready") return koshoyStudioError("invalid_input");
+      roomInput = { photo: room };
+    } else {
+      // No photo: only while the session's layout stands in its draft room (ClickUp z8qu5daa0c).
+      const { target, room } = await sessionTarget(ctx.room, session, await ctx.store.listDesigns(session.id));
+      if (room || target.surface !== "wall" || !target.draft) return koshoyStudioError("invalid_input");
+      if (!input.draftRoom) return koshoyStudioError("invalid_input");
+      roomInput = { draftRoom: input.draftRoom };
+    }
+    const roomId = "photo" in roomInput ? roomInput.photo.id : null;
+    const designs = await renderedDesigns(ctx.room, ctx.store, session.id, roomId, input.designId);
     if (!designs) return koshoyStudioError("not_found");
-    if (!designs.length || room.status !== "ready") return koshoyStudioError("invalid_input");
+    if (!designs.length) return koshoyStudioError("invalid_input");
     if (!ctx.limits.render.hit(koshoyClientKey(ctx.shop, request))) {
       return koshoyStudioError("rate_limited");
     }
 
     const render = await startRender(ctx.room, session, {
-      room,
+      room: roomInput,
       designs,
       composite: input.composite,
       cabinet: input.cabinet,

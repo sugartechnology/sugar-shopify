@@ -347,7 +347,7 @@ function toolList(withHandle: boolean, products: readonly string[]) {
     {
       name: "render_room",
       description:
-        "Start a realistic picture of the customer's room with every design standing in it; it appears in the chat when ready. If the result says there is no room photo, ask the customer to upload one.",
+        "Start a realistic picture of the customer's room with every design standing in it; it appears in the chat when ready. Without a room photo it is made in a draft room from the customer's rough measures. If the result says there is no room photo, ask the customer to upload one or to give rough measures.",
       strict: false,
       parameters: {
         type: "object",

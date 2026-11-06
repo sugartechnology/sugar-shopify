@@ -174,7 +174,10 @@ model KoshoyRender {
   id           String   @id
   sessionId    String
   shop         String
-  roomId       String
+  /// KoshoyRoom of the photo; null = no photo, made in the draft room (roomKey)
+  roomId       String?
+  /// Sugar S3 key of the empty draft room capture (no photo, ClickUp z8qu5daa0c)
+  roomKey      String?
   /// JSON: ids of the designs drawn, left to right
   designIds    String
   /// processing | ready | failed

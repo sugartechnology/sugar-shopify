@@ -65,7 +65,10 @@ export interface KoshoyRenderRow {
   id: string;
   sessionId: string;
   shop: string;
-  roomId: string;
+  /** null = no photo: made in the draft room (roomKey) */
+  roomId: string | null;
+  /** Sugar S3 key of the empty draft room capture */
+  roomKey: string | null;
   /** JSON: ids of the designs drawn, left to right */
   designIds: string;
   status: string;
