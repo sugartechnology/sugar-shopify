@@ -273,7 +273,7 @@ export function layoutScenes(layout: LayoutState, designs: readonly KoshoyDesign
   const inLayout = new Set(layout.items.map((item) => item.designId));
   return designs
     .filter((design) => inLayout.has(design.id))
-    .map(sceneEvent)
+    .map((design) => sceneEvent(design))
     .filter((event): event is PublicEvent => event !== null);
 }
 

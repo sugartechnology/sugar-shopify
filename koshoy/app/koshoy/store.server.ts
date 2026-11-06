@@ -55,6 +55,7 @@ export interface KoshoyDesignRow {
   id: string;
   sessionId: string;
   kind: string;
+  product?: string | null;
   label: string;
   version: number;
   composition: string;
@@ -94,7 +95,7 @@ export interface KoshoyDb {
     create(args: {
       data: Pick<
         KoshoyDesignRow,
-        "id" | "sessionId" | "kind" | "label" | "version" | "composition"
+        "id" | "sessionId" | "kind" | "product" | "label" | "version" | "composition"
       >;
     }): Promise<KoshoyDesignRow>;
     findMany(args: {
@@ -170,7 +171,10 @@ export interface KoshoySessionState {
 
 export interface KoshoyDesign {
   id: string;
+  /** Construction template (core). */
   kind: DesignKind;
+  /** Product id of the data (kinds document); null on designs saved before 5 Nov. */
+  product?: string | null;
   label: string;
   version: number;
   composition: CabinComposition;
@@ -214,7 +218,7 @@ export interface KoshoyStore {
   getDesign(sessionId: string, designId: string): Promise<KoshoyDesign | null>;
   createDesign(
     sessionId: string,
-    input: { kind: DesignKind; label: string; composition: CabinComposition },
+    input: { kind: DesignKind; product?: string | null; label: string; composition: CabinComposition },
   ): Promise<KoshoyDesign>;
   /** Optimistic update; null when `design.version` is no longer current. */
   updateDesign(
@@ -326,6 +330,7 @@ function toDesign(row: KoshoyDesignRow): KoshoyDesign | null {
   return {
     id: row.id,
     kind: row.kind as DesignKind,
+    product: row.product ?? null,
     label: row.label,
     version: row.version,
     composition,
@@ -471,6 +476,7 @@ export function createKoshoyStore(
       const design: KoshoyDesign = {
         id: randomOpaqueId(),
         kind: input.kind,
+        product: input.product ?? null,
         label: input.label,
         version: 1,
         composition: input.composition,
@@ -480,6 +486,7 @@ export function createKoshoyStore(
           id: design.id,
           sessionId,
           kind: design.kind,
+          product: design.product ?? null,
           label: design.label,
           version: design.version,
           composition: JSON.stringify(design.composition),

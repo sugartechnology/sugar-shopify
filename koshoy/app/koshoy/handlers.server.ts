@@ -70,6 +70,7 @@ import {
   setTotalEvent,
   type KoshoyDesignDeps,
 } from "./design-ops.server";
+import { productOfDesign } from "./products";
 
 export interface KoshoyRequestContext extends KoshoyDesignDeps {
   shop: string;
@@ -368,7 +369,7 @@ export async function handleKoshoySession(
       : [...session.events];
     if (active) {
       const quote = await ctx.pricer.quote(active.composition);
-      events.push(sceneEvent(active), priceEvent(active, quote));
+      events.push(await productScene(ctx, active), priceEvent(active, quote));
     }
     const room = await sessionRoom(ctx, session);
     // The designs standing in the room (or the studio), each with its scene.
@@ -531,11 +532,20 @@ export async function handleKoshoyTurn(
 
 /* ---------------- POST /edit ---------------- */
 
+/** The design's scene with its product's body widths (data, kinds document). */
+async function productScene(ctx: KoshoyRequestContext, design: KoshoyDesign) {
+  return sceneEvent(design, await productWidths(ctx, design));
+}
+
+async function productWidths(ctx: KoshoyRequestContext, design: KoshoyDesign): Promise<readonly number[]> {
+  return productOfDesign(await ctx.journeyData(), design).unitWidthsMm;
+}
+
 async function rejectedEdit(ctx: KoshoyRequestContext, design: KoshoyDesign): Promise<Response> {
   const quote = await ctx.pricer.quote(design.composition);
   return koshoyJson({
     ok: false,
-    events: publicEvents([errorEvent("edit_rejected"), sceneEvent(design), priceEvent(design, quote)]),
+    events: publicEvents([errorEvent("edit_rejected"), await productScene(ctx, design), priceEvent(design, quote)]),
   });
 }
 
@@ -568,7 +578,8 @@ export async function handleKoshoyEdit(
     if (!design) return koshoyErrorResponse("invalid_input");
     if (design.version !== ref.version) return rejectedEdit(ctx, design);
 
-    const result = await applyDesignEdit(ctx, session.id, design, op, session.journey.style.crown);
+    const widths = await productWidths(ctx, design);
+    const result = await applyDesignEdit(ctx, session.id, design, op, session.journey.style.crown, widths);
     if (!result.ok) {
       const latest =
         result.reason === "stale" ? await ctx.store.getDesign(session.id, design.id) : design;
@@ -576,7 +587,7 @@ export async function handleKoshoyEdit(
     }
 
     const quote = await ctx.pricer.quote(result.design.composition);
-    const events: unknown[] = [sceneEvent(result.design), priceEvent(result.design, quote)];
+    const events: unknown[] = [sceneEvent(result.design, widths), priceEvent(result.design, quote)];
     if (result.changed && ctx.room) {
       // A wider (or narrower) cabinet pushes its neighbours in the room as little as possible.
       const designs = await ctx.store.listDesigns(session.id);
@@ -652,7 +663,7 @@ export async function handleKoshoySelect(
       ok: true,
       events: publicEvents([
         designsEvent(designs, design.id),
-        sceneEvent(design),
+        await productScene(ctx, design),
         priceEvent(design, quote),
       ]),
     });

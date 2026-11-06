@@ -12,8 +12,9 @@ import {
   validateRooms,
   validateScope,
   validateTexts,
+  type KoshoyDataKind,
 } from "./data.server";
-import { DESIGN_KINDS } from "./engine";
+import { CABIN_WIDTHS_MM, DESIGN_KIND_LABELS, DESIGN_KINDS } from "./engine";
 import { createMemoryDataDb } from "./memory-data-db";
 import { KOSHOY_SCOPE } from "./rules";
 
@@ -40,8 +41,8 @@ describe("koshoy data defaults", () => {
     assert.deepEqual(KOSHOY_DATA_DEFAULTS.rooms.find((room) => room.id === "calisma_odasi")?.items, [{ kind: "kitaplik", count: 3 }]);
   });
 
-  it("kinds cover every design kind; only kitaplik joins the same kind", () => {
-    assert.deepEqual(KOSHOY_DATA_DEFAULTS.kinds.map((row) => row.kind), [...DESIGN_KINDS]);
+  it("kinds: every template, then keson and dresuar as their own rows; only kitaplik joins the same kind", () => {
+    assert.deepEqual(KOSHOY_DATA_DEFAULTS.kinds.map((row) => row.kind), [...DESIGN_KINDS, "keson", "dresuar"]);
     assert.deepEqual(
       KOSHOY_DATA_DEFAULTS.kinds.filter((row) => row.joinSameKind).map((row) => row.kind),
       ["kitaplik"],
@@ -60,7 +61,7 @@ describe("koshoy data defaults", () => {
 describe("koshoy data validators", () => {
   it("rooms: unknown kind, bad count, duplicate id and empty items are named by row", () => {
     const result = validateRooms([
-      { id: "salon", label: "Salon", synonyms: [], items: [{ kind: "dolap", count: 1 }] },
+      { id: "salon", label: "Salon", synonyms: [], items: [{ kind: "Dolap!", count: 1 }] },
       { id: "salon", label: "Salon 2", synonyms: [], items: [{ kind: "kitaplik", count: 5 }] },
       { id: "Yatak Odası", label: "", synonyms: [], items: [] },
     ]);
@@ -92,8 +93,8 @@ describe("koshoy data validators", () => {
     const errors = errorsOf(result);
     assert.ok(errors.some((e) => e.includes("soru 1 (q)") && e.includes('"level"')));
     assert.ok(errors.some((e) => e.includes("soru 1 (q)") && e.includes('"options" 2–4')));
-    assert.ok(errors.some((e) => e.startsWith("Tür 2 (gardirop)") && e.includes("iki kez")));
-    assert.ok(errors.some((e) => e.startsWith("Tür 2 (gardirop)") && e.includes('"joinSameKind"')));
+    assert.ok(errors.some((e) => e.startsWith("Ürün 2 (gardirop)") && e.includes("iki kez")));
+    assert.ok(errors.some((e) => e.startsWith("Ürün 2 (gardirop)") && e.includes('"joinSameKind"')));
   });
 
   it("levels: forbidden price words and bad choices fail", () => {
@@ -184,7 +185,7 @@ describe("koshoy data store", () => {
     docs.set("rooms", {
       key: "rooms",
       version: 3,
-      json: JSON.stringify([{ id: "salon", label: "Salon", synonyms: [], items: [{ kind: "kanepe", count: 1 }] }]),
+      json: JSON.stringify([{ id: "salon", label: "Salon", synonyms: [], items: [{ kind: "kitaplik", count: 9 }] }]),
       updatedAt: new Date(),
     });
     docs.set("texts", { key: "texts", version: 1, json: "{not json", updatedAt: new Date() });
@@ -233,30 +234,75 @@ describe("koshoy data store", () => {
   });
 });
 
-describe("named products in kinds (keson, dresuar; ClickUp z8qu5d7v7w)", () => {
+describe("products as their own rows (ClickUp z8qu5d3qan)", () => {
   const kinds = () => structuredClone(KOSHOY_DATA_DEFAULTS.kinds);
-  it("defaults have keson on komodin and dresuar on şifonyer, and they validate", () => {
+  const row = (rows: KoshoyDataKind[], id: string) => rows.find((item) => item.kind === id)!;
+
+  it("keson and dresuar are rows on the komodin and şifonyer templates, and they validate", () => {
     const rows = kinds();
-    assert.equal(rows.find((row) => row.kind === "komodin")?.products[0]?.id, "keson");
-    assert.equal(rows.find((row) => row.kind === "sifonyer")?.products[0]?.id, "dresuar");
+    assert.equal(row(rows, "keson").template, "komodin");
+    assert.equal(row(rows, "dresuar").template, "sifonyer");
     assert.equal(validateKinds(rows).ok, true);
   });
-  it("an old document without products still validates", () => {
-    const rows = kinds().map(({ products: _products, ...row }) => row);
-    const result = validateKinds(rows);
-    assert.ok(result.ok);
-    assert.ok(result.ok && result.value.every((row) => row.products.length === 0));
+
+  it("the kitaplık 64 cm rule is data now: its default is today's code rule", () => {
+    assert.deepEqual(row(kinds(), "kitaplik").unitWidthsMm, [320, 480, 640]);
+    assert.deepEqual(row(kinds(), "gardirop").unitWidthsMm, [...CABIN_WIDTHS_MM]);
   });
-  it("refuses a product that does not build or a bad name", () => {
+
+  it("reads the old form: named products under their template row become rows", () => {
+    const old = DESIGN_KINDS.map((kind) => ({
+      kind,
+      label: DESIGN_KIND_LABELS[kind],
+      synonyms: [],
+      joinSameKind: kind === "kitaplik",
+      questions: [],
+      products:
+        kind === "komodin"
+          ? [{ id: "keson", label: "Keson", synonyms: [], widthMm: 480, heightMm: 544, depthMm: 480, fittings: ["drawer160", "drawer160", "drawer160"], door: false, note: "" }]
+          : [],
+    }));
+    const result = validateKinds(old);
+    assert.ok(result.ok, errorsOf(result).join(" | "));
+    const keson = row(result.value, "keson");
+    assert.equal(keson.template, "komodin");
+    assert.deepEqual(keson.build?.fittings, ["drawer160", "drawer160", "drawer160"]);
+    assert.deepEqual(row(result.value, "kitaplik").unitWidthsMm, [320, 480, 640], "missing rule = the template's");
+  });
+
+  it("a new product is a data entry: any id on a template, built before it is saved", () => {
+    const rows = [
+      ...kinds(),
+      { kind: "konsol", template: "sifonyer", label: "Konsol", synonyms: [], questions: [], build: { widthMm: 960, heightMm: 864, depthMm: 320, fittings: ["drawer160"], door: true } },
+    ];
+    const result = validateKinds(rows);
+    assert.ok(result.ok, errorsOf(result).join(" | "));
+    assert.equal(row(result.value, "konsol").joinSameKind, false);
+  });
+
+  it("refuses what would break the shop, row by row", () => {
     const rows = kinds();
-    const keson = rows.find((row) => row.kind === "komodin")!.products[0];
-    keson.fittings = Array(9).fill("drawer160");
-    const tooMany = validateKinds(rows);
-    assert.equal(tooMany.ok, false);
-    assert.ok(!tooMany.ok && tooMany.errors.some((error) => /kurulamıyor/.test(error)));
+    row(rows, "keson").build!.fittings = Array(9).fill("drawer160");
+    assert.ok(errorsOf(validateKinds(rows)).some((error) => error.startsWith("Ürün 11 (keson)") && /kurulamıyor/.test(error)));
+
     const named = kinds();
-    named.find((row) => row.kind === "komodin")!.products[0].label = "Keson <b>";
+    row(named, "keson").label = "Keson <b>";
     assert.equal(validateKinds(named).ok, false);
+
+    const wide = kinds();
+    row(wide, "kitaplik").unitWidthsMm = [320, 480, 640, 960];
+    assert.ok(errorsOf(validateKinds(wide)).some((error) => error.includes('"unitWidthsMm"') && error.includes("960")));
+
+    const narrow = kinds();
+    row(narrow, "gardirop").unitWidthsMm = [480, 640];
+    assert.ok(errorsOf(validateKinds(narrow)).some((error) => error.includes("320 ve 480")));
+
+    const noTemplate = [...kinds(), { kind: "konsol", label: "Konsol", synonyms: [], questions: [] }];
+    assert.ok(errorsOf(validateKinds(noTemplate)).some((error) => error.includes('"template"')));
+
+    const twice = [...kinds(), { ...row(kinds(), "keson") }];
+    assert.ok(errorsOf(validateKinds(twice)).some((error) => error.includes("iki kez")));
+
     assert.equal(isProductName("Keson"), true);
     assert.equal(isProductName("Keson 2"), false);
   });

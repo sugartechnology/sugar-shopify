@@ -74,12 +74,13 @@ export function koshoyInstructions(input: KoshoyInstructionInput): string {
   const context = koshoyModelContext(input);
   const { data, journey } = input;
   const inScope = data.kinds.map((row) => row.label).join(", ");
-  const named = data.kinds.flatMap((row) =>
-    row.products.map((product) => {
-      const also = product.synonyms.length ? ` (${product.synonyms.join(", ")})` : "";
-      return `${product.label}${also}: plan_cabinet product "${product.id}"${product.note ? `; ${product.note}` : ""}`;
-    }),
-  );
+  // Products with their own size and interior (keson, dresuar…) or a note for the assistant.
+  const named = data.kinds
+    .filter((row) => row.build || row.note)
+    .map((row) => {
+      const also = row.synonyms.length ? ` (${row.synonyms.join(", ")})` : "";
+      return `${row.label}${also}: plan_cabinet kind "${row.kind}"${row.note ? `; ${row.note}` : ""}`;
+    });
   const outOfScope = data.scope.outOfScope.join(", ");
   const measure = journey.measure
     ? `Müşterinin kendi ölçüsü (yalnız ürünleri sığdırmak için; müşteriye söyleme): duvar ${journey.measure.wallCm} cm${

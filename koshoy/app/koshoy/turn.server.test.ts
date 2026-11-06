@@ -48,6 +48,7 @@ async function turn(
     upstreamGraceMs?: number;
     room?: KoshoyRoomDeps;
     customerId?: string | null;
+    data?: typeof KOSHOY_DATA_DEFAULTS;
   } = {},
 ) {
   const events: PublicEvent[] = [];
@@ -61,7 +62,7 @@ async function turn(
       apiKey: "shop-key",
       mock: options.mock ?? false,
       stream: options.stream,
-      data: KOSHOY_DATA_DEFAULTS,
+      data: options.data ?? KOSHOY_DATA_DEFAULTS,
       customerId: options.customerId === undefined ? "c1" : options.customerId,
       signal: options.signal,
       timeoutMs: options.timeoutMs,
@@ -223,6 +224,64 @@ describe("koshoy turn loop", () => {
     assert.ok(kesonScene && kesonScene.type === "scene");
     assert.deepEqual(kesonScene.view.units[0].fittings.map((fit) => fit.kind), ["drawer160", "drawer160", "drawer160"]);
     assertNoLeak(events);
+  });
+
+  it("builds products from the data: a new row and its own width rule (ClickUp z8qu5d3qan)", async () => {
+    const ctx = await setup();
+    const data = structuredClone(KOSHOY_DATA_DEFAULTS);
+    // Akın adds "Konsol" and allows the wardrobe only 32 / 48 / 64 cm bodies; no code change.
+    data.kinds.push({
+      kind: "konsol",
+      template: "sifonyer",
+      label: "Konsol",
+      synonyms: [],
+      joinSameKind: false,
+      questions: [],
+      unitWidthsMm: [320, 480, 640, 800, 960],
+      build: { widthMm: 960, heightMm: 864, depthMm: 320, fittings: ["drawer160"], door: true },
+      note: "",
+    });
+    data.kinds.find((row) => row.kind === "gardirop")!.unitWidthsMm = [320, 480, 640];
+    const call = (callId: string, name: string, args: Record<string, unknown>) => ({ event: "tool_call", data: { callId, name, arguments: args } });
+    const { stream, bodies } = scriptedStream([
+      [call("c1", "plan_cabinet", { kind: "konsol" })],
+      [call("c2", "plan_cabinet", { kind: "gardirop", targetWidthCm: 192 })],
+      [{ event: "text", data: { text: "Hazır." } }],
+    ]);
+    const events = await turn(ctx, ctx.session, { type: "message", text: "konsol ve gardırop" }, { stream, data });
+    const tools = (bodies[0].tools as Array<{ name: string; parameters: { properties: Record<string, { enum?: string[] }> } }>);
+    assert.ok(tools.find((tool) => tool.name === "plan_cabinet")!.parameters.properties.kind.enum!.includes("konsol"));
+    const scenes = events.flatMap((event) => (event.type === "scene" ? [event] : []));
+    const konsol = scenes.find((scene) => scene.label === "Konsol 96 cm");
+    assert.ok(konsol, scenes.map((scene) => scene.label).join());
+    const wardrobe = scenes.find((scene) => scene.label.startsWith("Gardırop"));
+    assert.deepEqual(wardrobe?.view.units.map((unit) => unit.widthMm), [640, 640, 640], "192 → 3 × 64, the widest allowed first");
+    assert.deepEqual(wardrobe?.unitWidthsMm, [320, 480, 640], "the panel offers only the allowed widths");
+    const designs = await ctx.store.listDesigns(ctx.session.id);
+    assert.deepEqual(designs.map((design) => [design.kind, design.product]), [["sifonyer", "konsol"], ["gardirop", "gardirop"]]);
+
+    // A panel width the product does not allow is refused, even though the template takes it.
+    const edit = scriptedStream([
+      [call("c3", "edit_design", { op: { action: "set_unit_width", unit: 0, widthMm: 960 } })],
+      [{ event: "text", data: { text: "Tamam." } }],
+    ]);
+    await turn(ctx, ctx.session, { type: "message", text: "ilk gövde 96 olsun" }, { stream: edit.stream, data });
+    const refused = (edit.bodies[1].toolResults as Array<{ payload: Record<string, unknown> }>)[0].payload;
+    assert.equal(refused.ok, false);
+    assertNoLeak(events);
+  });
+
+  it("a room product deleted from the data is built as Dolap", async () => {
+    const ctx = await setup();
+    const data = structuredClone(KOSHOY_DATA_DEFAULTS);
+    data.rooms.push({ id: "eski", label: "Eski oda", synonyms: [], items: [{ kind: "silinen_urun", count: 1 }] });
+    const { stream } = scriptedStream([
+      [{ event: "tool_call", data: { callId: "c1", name: "plan_room", arguments: { room: "eski" } } }],
+      [{ event: "text", data: { text: "Hazır." } }],
+    ]);
+    const events = await turn(ctx, ctx.session, { type: "message", text: "eski oda" }, { stream, data });
+    const labels = events.flatMap((event) => (event.type === "scene" ? [event.label] : []));
+    assert.ok(labels.some((label) => label.startsWith("Dolap ")), labels.join());
   });
 
   it("stops on ask_user and posts the choice as that call's tool result", async () => {

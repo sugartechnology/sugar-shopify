@@ -46,17 +46,18 @@ Anahtar dosyaya, belgeye, mesaja yazılmaz.
 | Bilinmeyen alan | Hata değil, atılır |
 | Eksik alan | Hata |
 
-### Ürün türleri (`kind`)
+### Ürün kimlikleri (`kind`)
 
-`gardirop`, `komodin`, `sifonyer`, `tv_unitesi`, `kitaplik`, `vestiyer`,
-`kiler`, `ayakkabilik`, `banyo_dolabi`, `cok_amacli_dolap`
+`kinds` belgesindeki her ürünün `kind` değeri. Başlangıçta yapım kalıplarının adları
+(`gardirop`, `komodin`, `sifonyer`, `tv_unitesi`, `kitaplik`, `vestiyer`, `kiler`,
+`ayakkabilik`, `banyo_dolabi`, `cok_amacli_dolap`) ve `keson`, `dresuar`; Akın ekledikçe artar.
 
 ## rooms
 
 | Alan | Kural |
 |---|---|
 | liste | 1–30 oda, `id` tekrar etmez |
-| `items` | 1–6 ürün, her tür bir kez |
+| `items` | 1–6 ürün, her ürün bir kez; `kind` = `kinds` belgesindeki ürün kimliği (listede yoksa "Dolap" kurulur) |
 | `count` | 1–4 |
 
 ```json
@@ -75,61 +76,75 @@ Anahtar dosyaya, belgeye, mesaja yazılmaz.
 
 ## kinds
 
+Her ürün bir satırdır (ClickUp z8qu5d3qan). Yeni ürün eklemek veri girişidir, kod değişikliği değil.
+Kodda yalnız **yapım kalıpları** kalır: `gardirop`, `komodin`, `sifonyer`, `tv_unitesi`, `kitaplik`,
+`vestiyer`, `kiler`, `ayakkabilik`, `banyo_dolabi`, `cok_amacli_dolap` (gövde, çekmece, raf, askı nasıl kurulur).
+
 | Alan | Kural |
 |---|---|
-| `kind` | Listede en çok bir kez |
-| `joinSameKind` | `true`: aynı türden birkaç tane yan yana tek parça durur |
-| `questions` | En çok 6 soru |
+| `kind` | Ürünün kimliği (küçük harf, Türkçe harfsiz). **Hiç değişmez**; adı değiştirmek için `label` değişir. Listede bir kez; en çok 60 ürün |
+| `template` | Hangi yapım kalıbıyla kurulduğu (yukarıdaki 10'dan biri). Kalıp satırlarında (`kind` kalıp adıysa) yazılmaz |
+| `label` | Müşteriye görünen ad; sekmede, sohbette, sepette ve siparişte görünür. Yeni ürünlerde yalnız harf ve boşluk, en çok 30 |
+| `synonyms` | Müşterinin kullandığı başka sözcükler |
+| `joinSameKind` | `true`: bu üründen birkaç tane yan yana tek parça durur (kitaplık). Yazılmazsa `false` |
+| `questions` | En çok 6 soru (aşağıda) |
+| `unitWidthsMm` | Bu ürünün tek gövdesinin olabileceği genişlikler (mm). Yazılmazsa kalıbın kuralı. 320 ve 480 her zaman olmalı; kalıbın izin verdiğinden genişi olamaz (kitaplık en çok 640: raf sarkar). Toplam genişlik önce en genişiyle doldurulur: 192 cm kitaplık = 64 + 64 + 64 |
+| `build` | İsteğe bağlı: ürünün kendi ölçüsü ve içi. Yoksa kalıbın ölçüsü ve seviyeleri kullanılır |
+| `build.widthMm` / `heightMm` / `depthMm` | Varsayılan dış ölçü (mm); yükseklik ve derinlik katalog ölçüsü olmalı |
+| `build.fittings` | Her gövdenin içi, alttan üste: `drawer160` (küçük çekmece), `drawer320` (büyük çekmece), `shelf`, `hanger` |
+| `build.door` | Çekmecelerin üstündeki alana kapak |
+| `note` | Asistana kısa not (ör. "tekerleği yok"), en çok 160 |
+
+Sorular:
+
+| Alan | Kural |
+|---|---|
 | `level` | `room`: dış ölçüyü değiştirir, oda onayından önce sorulur. `product`: iç düzen, ürün ürün onayda sorulur. |
 | `options` | 2–4 seçenek |
 | `hint` | Asistana kısa talimat, müşteri görmez. En çok 120 karakter. |
-| `products` | İsteğe bağlı, en çok 10. Bu türün kurallarıyla kurulan **adlı ürünler** (ör. komodin altında "Keson", şifonyer altında "Dresuar"). Adı sekmede, sohbette, sepette ve siparişte görünür. |
-| `products[].id` | Asistanın kullandığı kimlik (küçük harf, Türkçe harfsiz) |
-| `products[].label` | Müşteriye görünen ad; yalnız harf ve boşluk, en çok 30 |
-| `products[].widthMm` / `heightMm` / `depthMm` | Varsayılan dış ölçü (mm); yükseklik ve derinlik katalog ölçüsü olmalı |
-| `products[].fittings` | Her gövdenin içi, alttan üste: `drawer160` (küçük çekmece), `drawer320` (büyük çekmece), `shelf`, `hanger` |
-| `products[].door` | Çekmecelerin üstündeki alana kapak |
-| `products[].note` | Asistana kısa not (ör. "tekerleği yok"), en çok 160 |
 
-Adlı ürün kaydedilmeden önce kurulur: iç düzen sığmazsa ya da kapak katalog ölçüsüne oturmazsa kaydedilmez, hata söylenir.
+Her ürün kaydedilmeden önce kurulur: iç düzen sığmazsa, kapak katalog ölçüsüne oturmazsa ya da
+gövdeler izinli genişliklere bölünemezse belge kaydedilmez, hata satır satır söylenir; site eski
+hâliyle çalışmaya devam eder.
+
+Silinen bir ürün: o ürünle kaydedilmiş tasarımlar kalıbının kuralıyla açılmaya devam eder; bir oda
+setinde (`rooms.items`) adı kalırsa "Dolap" olarak kurulur. Kimlik silmek yerine ürünü listeden
+çıkarmak yeterlidir.
+
+Eski biçim (5 Kasım'a kadar): kalıp satırının altındaki `products` listesi hâlâ okunur; her biri
+kendi satırı olur.
 
 ```json
 [
   {
-    "kind": "ayakkabilik",
-    "label": "Ayakkabılık",
-    "synonyms": ["ayakkabı dolabı"],
-    "joinSameKind": false,
+    "kind": "kitaplik",
+    "label": "Kitaplık",
+    "synonyms": [],
+    "joinSameKind": true,
+    "unitWidthsMm": [320, 480, 640],
     "questions": [
       {
-        "id": "kutu",
+        "id": "raf_icerigi",
         "level": "product",
-        "question": "Ayakkabılar kutuda mı duruyor?",
+        "question": "Raflarda çoğunlukla ne duracak?",
         "options": [
-          { "id": "kutuda", "label": "Kutuda", "hint": "derinlik 48 cm" },
-          { "id": "kutusuz", "label": "Kutusuz", "hint": "derinlik 32 cm" }
+          { "id": "kitap", "label": "Kitap", "hint": "raf aralığı sık" },
+          { "id": "kutu_dekor", "label": "Kutu ve dekor", "hint": "raf aralığı geniş" }
         ]
       }
-    ],
-    "products": []
+    ]
   },
   {
-    "kind": "komodin",
-    "label": "Komodin",
-    "synonyms": [],
-    "joinSameKind": false,
-    "questions": [],
-    "products": [
-      {
-        "id": "keson",
-        "label": "Keson",
-        "synonyms": ["masa altı çekmece"],
-        "widthMm": 480, "heightMm": 544, "depthMm": 480,
-        "fittings": ["drawer160", "drawer160", "drawer160"],
-        "door": false,
-        "note": "Masa altına ya da yanına giren çekmeceli dolap; tekerleği yok, bazalı."
-      }
-    ]
+    "kind": "keson",
+    "template": "komodin",
+    "label": "Keson",
+    "synonyms": ["masa altı çekmece"],
+    "build": {
+      "widthMm": 480, "heightMm": 544, "depthMm": 480,
+      "fittings": ["drawer160", "drawer160", "drawer160"],
+      "door": false
+    },
+    "note": "Masa altına ya da yanına giren çekmeceli dolap; tekerleği yok, bazalı."
   }
 ]
 ```
@@ -178,7 +193,7 @@ Adlı ürün kaydedilmeden önce kurulur: iç düzen sığmazsa ya da kapak kata
 | Alan | Kural |
 |---|---|
 | liste | En çok 200 resim, aynı `kind` + `option` bir kez |
-| `kind` | Bir tür ya da `*` (bütün türler) |
+| `kind` | Bir ürün kimliği ya da `*` (bütün ürünler) |
 | `option` | `crown_on`, `crown_off`, `front_<seri>` (ör. `front_kapak-18`), `panel_<ad>`, `handle_<ad>` |
 | `url` | Yalnız `https://image-s3.sm.mncdn.com/...` |
 

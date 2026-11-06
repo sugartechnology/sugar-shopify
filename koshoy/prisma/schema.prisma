@@ -77,6 +77,8 @@ model KoshoyDesign {
   sessionId   String
   session     KoshoySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   kind        String
+  /// Product id of Akın's data (kinds document); null on older designs.
+  product     String?
   label       String
   version     Int           @default(1)
   /// JSON: CabinComposition

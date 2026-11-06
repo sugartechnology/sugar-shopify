@@ -14,11 +14,16 @@ import prisma from "../db.server";
 import {
   cabinetEngine,
   CABIN_FIT_KINDS,
+  CABIN_WIDTHS_MM,
   DESIGN_KIND_LABELS,
   DESIGN_KINDS,
+  unitWidthsForKind,
   type CabinFitKind,
   type DesignKind,
+  type PlanInput as PlanCabinetInput,
 } from "./engine";
+import { isDesignKind } from "./cabinet-core";
+import { fitUnitWidths } from "./products";
 import { KOSHOY_SCOPE } from "./rules";
 import { colorIdOf, DEFAULT_COLOR_LOOKS, shopColorKey, type ColorLook } from "./shop-colors";
 
@@ -36,7 +41,8 @@ export interface KoshoyDataRoom {
   label: string;
   /** Other words customers use for the room ("oturma odası" for salon). */
   synonyms: string[];
-  items: { kind: DesignKind; count: number }[];
+  /** Product ids (kinds doc); an id no longer in the data is built as "Dolap". */
+  items: { kind: string; count: number }[];
 }
 
 export interface KoshoyQuestionOption {
@@ -54,27 +60,32 @@ export interface KoshoyQuestion {
   options: KoshoyQuestionOption[];
 }
 
+/**
+ * One product the assistant can design (ClickUp z8qu5d3qan): every product is
+ * its own row. Built on a construction template of the core (gardirop,
+ * komodin…); the row brings the name and the rules, so a new product is a
+ * data entry, not a code change.
+ */
 export interface KoshoyDataKind {
-  kind: DesignKind;
+  /** Stable id the assistant, rooms and designs use. Never renamed; the label is. */
+  kind: string;
+  /** Construction template it is built on (cabinet-core). The template rows use their own id. */
+  template: DesignKind;
+  /** Customer-facing name, shown on the tab, in the chat, the cart and the order. */
   label: string;
   synonyms: string[];
-  /** Several of this kind in a room stand side by side as one piece. */
+  /** Several of this product in a room stand side by side as one piece. */
   joinSameKind: boolean;
   questions: KoshoyQuestion[];
-  /**
-   * Named products built on this kind's rules (ClickUp z8qu5d7v7w): "Keson" on
-   * komodin, "Dresuar" on şifonyer. The customer's name stays on the tab, in
-   * the chat, the cart and the order. Missing = none.
-   */
-  products: KoshoyNamedProduct[];
+  /** Body widths this product may use (mm), from the catalog widths; always holds 320 and 480. */
+  unitWidthsMm: number[];
+  /** Own default size and interior; null = the template's sizes and levels. */
+  build: KoshoyProductBuild | null;
+  /** Short note for the assistant, e.g. "masa altına girer, tekerlek yok". */
+  note: string;
 }
 
-export interface KoshoyNamedProduct {
-  /** Stable id the assistant uses (plan_cabinet product). */
-  id: string;
-  /** Customer-facing name, e.g. "Keson". */
-  label: string;
-  synonyms: string[];
+export interface KoshoyProductBuild {
   /** Default outer size (mm); the core snaps it to the catalog. */
   widthMm: number;
   heightMm: number;
@@ -82,8 +93,6 @@ export interface KoshoyNamedProduct {
   /** Interior of each body, bottom → top: drawer160 / drawer320 / shelf / hanger. */
   fittings: CabinFitKind[];
   door: boolean;
-  /** Short note for the assistant, e.g. "masa altına girer, tekerlek yok". */
-  note: string;
 }
 
 /** auto: comes by itself and the customer is told; ask: asked with both totals. */
@@ -114,8 +123,8 @@ export interface KoshoyDataTexts {
 }
 
 export interface KoshoyDataImage {
-  /** "*" = every kind. */
-  kind: DesignKind | "*";
+  /** A product id, "*" = every product. */
+  kind: string;
   /** crown_on, crown_off, front_<series>, panel_<x>, handle_<x> */
   option: string;
   url: string;
@@ -228,46 +237,49 @@ const DEFAULT_QUESTIONS: Partial<Record<DesignKind, KoshoyQuestion[]>> = {
   ],
 };
 
-/** Named products in the default data (Fatih, 4 Nov: keson and dresuar). */
-const DEFAULT_PRODUCTS: Partial<Record<DesignKind, KoshoyNamedProduct[]>> = {
-  komodin: [
-    {
-      id: "keson",
-      label: "Keson",
-      synonyms: ["masa altı çekmece", "ofis çekmecesi"],
-      widthMm: 480,
-      heightMm: 544,
-      depthMm: 480,
-      fittings: ["drawer160", "drawer160", "drawer160"],
-      door: false,
-      note: "Masa altına ya da yanına giren çekmeceli dolap; tekerleği yok, bazalı.",
-    },
-  ],
-  sifonyer: [
-    {
-      id: "dresuar",
-      label: "Dresuar",
-      synonyms: ["konsol"],
-      widthMm: 960,
-      heightMm: 864,
-      depthMm: 320,
-      fittings: ["drawer160", "drawer160"],
-      door: true,
-      note: "Antrede duvar önüne konan sığ dolap; üstte çekmece, altta kapak.",
-    },
-  ],
-};
+/** Products of their own on a template (Fatih, 4 Nov: keson and dresuar). */
+const DEFAULT_OWN_PRODUCTS: KoshoyDataKind[] = [
+  {
+    kind: "keson",
+    template: "komodin",
+    label: "Keson",
+    synonyms: ["masa altı çekmece", "ofis çekmecesi"],
+    joinSameKind: false,
+    questions: [],
+    unitWidthsMm: [...CABIN_WIDTHS_MM],
+    build: { widthMm: 480, heightMm: 544, depthMm: 480, fittings: ["drawer160", "drawer160", "drawer160"], door: false },
+    note: "Masa altına ya da yanına giren çekmeceli dolap; tekerleği yok, bazalı.",
+  },
+  {
+    kind: "dresuar",
+    template: "sifonyer",
+    label: "Dresuar",
+    synonyms: ["konsol"],
+    joinSameKind: false,
+    questions: [],
+    unitWidthsMm: [...CABIN_WIDTHS_MM],
+    build: { widthMm: 960, heightMm: 864, depthMm: 320, fittings: ["drawer160", "drawer160"], door: true },
+    note: "Antrede duvar önüne konan sığ dolap; üstte çekmece, altta kapak.",
+  },
+];
 
 export const KOSHOY_DATA_DEFAULTS: KoshoyDataDocs = {
   rooms: DEFAULT_ROOMS,
-  kinds: DESIGN_KINDS.map((kind) => ({
-    kind,
-    label: DESIGN_KIND_LABELS[kind],
-    synonyms: [],
-    joinSameKind: kind === "kitaplik",
-    questions: DEFAULT_QUESTIONS[kind] ?? [],
-    products: DEFAULT_PRODUCTS[kind] ?? [],
-  })),
+  kinds: [
+    ...DESIGN_KINDS.map((kind) => ({
+      kind,
+      template: kind,
+      label: DESIGN_KIND_LABELS[kind],
+      synonyms: [],
+      joinSameKind: kind === "kitaplik",
+      questions: DEFAULT_QUESTIONS[kind] ?? [],
+      // Today's code rule (kitaplık: one body at most 64 cm) is the data's starting value.
+      unitWidthsMm: [...unitWidthsForKind(kind)],
+      build: null,
+      note: "",
+    })),
+    ...DEFAULT_OWN_PRODUCTS,
+  ],
   levels: [
     { id: "en_iyisi", label: "En iyisi olsun", name: "En iyisi", crown: "auto", front: "auto" },
     { id: "fiyatina_bakarak", label: "Fiyatına bakarak seçeyim", name: "Fiyata göre", crown: "ask", front: "ask" },
@@ -403,7 +415,7 @@ export function validateRooms(value: unknown): KoshoyDataResult<KoshoyDataRoom[]
     const items = readList(errors, where, "items", row.items, 1, 6).map((rawItem, itemIndex) => {
       const item = asRecord(rawItem);
       const itemWhere = `${where}, ürün ${itemIndex + 1}`;
-      const kind = readOneOf(errors, itemWhere, "kind", item.kind, DESIGN_KINDS);
+      const kind = readSlug(errors, itemWhere, "kind", item.kind);
       noteDuplicate(errors, kinds, itemWhere, "kind", typeof item.kind === "string" ? item.kind : "");
       return { kind, count: readInteger(errors, itemWhere, "count", item.count, 1, 4) };
     });
@@ -439,96 +451,166 @@ function readQuestion(errors: string[], where: string, raw: unknown): KoshoyQues
   };
 }
 
+/** Most product rows in the kinds document. */
+const MAX_PRODUCTS = 60;
+
 export function validateKinds(value: unknown): KoshoyDataResult<KoshoyDataKind[]> {
   const errors: string[] = [];
-  if (!Array.isArray(value)) return { ok: false, errors: ["kinds bir liste olmalı: [ {tür}, {tür} ]."] };
-  const seenKinds = new Set<string>();
-  const productIds = new Set<string>();
-  const kinds = readList(errors, "kinds", "", value, 1, DESIGN_KINDS.length).map((raw, index) => {
+  if (!Array.isArray(value)) return { ok: false, errors: ["kinds bir liste olmalı: [ {ürün}, {ürün} ]."] };
+  const rows: KoshoyDataKind[] = [];
+  const ids = new Set<string>();
+  readList(errors, "kinds", "", value, 1, MAX_PRODUCTS).forEach((raw, index) => {
     const row = asRecord(raw);
-    const where = rowName("Tür", index, row.kind);
-    const kind = readOneOf(errors, where, "kind", row.kind, DESIGN_KINDS);
-    noteDuplicate(errors, seenKinds, where, "kind", typeof row.kind === "string" ? row.kind : "");
-    const questionIds = new Set<string>();
-    const questions = readList(errors, where, "questions", row.questions, 0, 6).map((rawQuestion, qIndex) => {
-      const questionWhere = `${where}, ${rowName("soru", qIndex, asRecord(rawQuestion).id)}`;
-      const question = readQuestion(errors, questionWhere, rawQuestion);
-      noteDuplicate(errors, questionIds, questionWhere, "id", question.id);
-      return question;
-    });
-    const products = (row.products === undefined ? [] : readList(errors, where, "products", row.products, 0, 10)).map(
-      (rawProduct, pIndex) => {
-        const productWhere = `${where}, ${rowName("ürün", pIndex, asRecord(rawProduct).id)}`;
-        const product = readNamedProduct(errors, productWhere, kind, rawProduct);
-        noteDuplicate(errors, productIds, productWhere, "id", product.id);
-        return product;
-      },
-    );
-    return {
-      kind,
-      label: readText(errors, where, "label", row.label, 60),
-      synonyms: readTextList(errors, where, "synonyms", row.synonyms, 20, 40),
-      joinSameKind: readBoolean(errors, where, "joinSameKind", row.joinSameKind),
-      questions,
-      products,
-    };
+    const where = rowName("Ürün", index, row.kind);
+    const kind = readSlug(errors, where, "kind", row.kind);
+    // The template rows (gardirop…) are their own template; any other id names one.
+    const template = isDesignKind(kind) && row.template === undefined
+      ? kind
+      : readOneOf(errors, where, "template", row.template, DESIGN_KINDS);
+    noteDuplicate(errors, ids, where, "kind", kind);
+    rows.push(readProductRow(errors, where, kind, template, row));
+    // Old form (until 5 Nov): named products listed under their template row.
+    if (row.products !== undefined) {
+      readList(errors, where, "products", row.products, 0, 10).forEach((rawProduct, pIndex) => {
+        const product = asRecord(rawProduct);
+        const productWhere = `${where}, ${rowName("ürün", pIndex, product.id)}`;
+        const id = readSlug(errors, productWhere, "id", product.id);
+        noteDuplicate(errors, ids, productWhere, "kind", id);
+        rows.push(readProductRow(errors, productWhere, id, template, legacyProductRow(product)));
+      });
+    }
   });
-  return result(errors, kinds);
+  if (rows.length > MAX_PRODUCTS) errors.push(`kinds: en çok ${MAX_PRODUCTS} ürün olabilir.`);
+  return result(errors, rows);
+}
+
+/** An old `products[]` entry in the shape of a product row. */
+function legacyProductRow(product: Record<string, unknown>): Record<string, unknown> {
+  const { widthMm, heightMm, depthMm, fittings, door, ...rest } = product;
+  return { ...rest, joinSameKind: false, questions: [], build: { widthMm, heightMm, depthMm, fittings, door } };
+}
+
+/**
+ * One product row. It must build as written: the core plans it and the
+ * interior has to fit whole (no part trimmed, the door on a catalog size),
+ * so a data change can never give the customer a broken product.
+ */
+function readProductRow(
+  errors: string[],
+  where: string,
+  kind: string,
+  template: DesignKind,
+  row: Record<string, unknown>,
+): KoshoyDataKind {
+  const before = errors.length;
+  // A product of its own needs a clean name for the tab and the cart; a template
+  // row keeps its older, freer label (until 5 Nov) and is named by the template then.
+  const own = kind !== template;
+  const label = readText(errors, where, "label", row.label, own ? 30 : 60);
+  if (own && label && !isProductName(label)) errors.push(`${where}: "label" yalnız harf ve boşluk olabilir (en çok 30).`);
+  const questionIds = new Set<string>();
+  const questions = readList(errors, where, "questions", row.questions ?? [], 0, 6).map((rawQuestion, qIndex) => {
+    const questionWhere = `${where}, ${rowName("soru", qIndex, asRecord(rawQuestion).id)}`;
+    const question = readQuestion(errors, questionWhere, rawQuestion);
+    noteDuplicate(errors, questionIds, questionWhere, "id", question.id);
+    return question;
+  });
+  const product: KoshoyDataKind = {
+    kind,
+    template,
+    label,
+    synonyms: readTextList(errors, where, "synonyms", row.synonyms ?? [], 20, 40),
+    joinSameKind: row.joinSameKind === undefined ? false : readBoolean(errors, where, "joinSameKind", row.joinSameKind),
+    questions,
+    unitWidthsMm: readUnitWidths(errors, where, template, row.unitWidthsMm),
+    build: row.build === undefined || row.build === null ? null : readBuild(errors, where, row.build),
+    note: row.note === undefined || row.note === "" ? "" : readText(errors, where, "note", row.note, 160),
+  };
+  if (errors.length === before) {
+    const problems = buildProblems(product);
+    if (problems.length) errors.push(`${where}: bu ölçüyle kurulamıyor (${problems.join("; ")}).`);
+  }
+  return product;
+}
+
+/**
+ * Body widths of a product. Missing = the template's rule. The template's
+ * rule is the outer bound (shelves sag over a wider kitaplık body), and 320
+ * and 480 always stay, so every total width can still be split into bodies.
+ */
+function readUnitWidths(errors: string[], where: string, template: DesignKind, value: unknown): number[] {
+  const allowed = unitWidthsForKind(template);
+  if (value === undefined) return [...allowed];
+  const widths = readList(errors, where, "unitWidthsMm", value, 2, CABIN_WIDTHS_MM.length).map((item) =>
+    typeof item === "number" ? item : NaN,
+  );
+  const wrong = widths.filter((width) => !allowed.includes(width));
+  if (wrong.length) {
+    errors.push(`${where}: "unitWidthsMm" yalnız şu ölçüler olabilir: ${allowed.join(", ")} (gelen: ${wrong.join(", ")}).`);
+  }
+  if (!widths.includes(320) || !widths.includes(480)) {
+    errors.push(`${where}: "unitWidthsMm" içinde 320 ve 480 her zaman olmalı.`);
+  }
+  return [...new Set(widths)].sort((a, b) => a - b);
+}
+
+function readBuild(errors: string[], where: string, value: unknown): KoshoyProductBuild {
+  const row = asRecord(value);
+  const buildWhere = `${where}, build`;
+  return {
+    widthMm: readInteger(errors, buildWhere, "widthMm", row.widthMm, 320, 6000),
+    heightMm: readInteger(errors, buildWhere, "heightMm", row.heightMm, 224, 2304),
+    depthMm: readInteger(errors, buildWhere, "depthMm", row.depthMm, 320, 640),
+    fittings: readList(errors, buildWhere, "fittings", row.fittings, 0, 12).map((item, index) =>
+      readOneOf(errors, buildWhere, `fittings ${index + 1}`, item, CABIN_FIT_KINDS),
+    ),
+    door: readBoolean(errors, buildWhere, "door", row.door),
+  };
+}
+
+/**
+ * What goes wrong when the product is built as written (empty = it builds):
+ * a size moved off the catalog, an interior that does not fit, a lost door,
+ * or a body wider than the product allows.
+ */
+export function buildProblems(product: KoshoyDataKind): string[] {
+  const plan = cabinetEngine.planCabinet(productPlan(product));
+  const problems = plan.notes.filter((note) => !note.startsWith("Genişlik"));
+  if (product.build?.door && plan.composition.units.some((unit) => !unit.hasDoor)) problems.push("kapak sığmıyor");
+  const composition = fitUnitWidths(plan.composition, product.unitWidthsMm);
+  if (composition.units.some((unit) => !product.unitWidthsMm.includes(unit.widthMm))) {
+    problems.push("gövde genişlikleri izinli ölçülere bölünemiyor");
+  }
+  return problems;
+}
+
+/** The plan input of a product; `overrides` are the customer's wishes. */
+export function productPlan(
+  product: KoshoyDataKind,
+  overrides: { targetWidthMm?: number; heightMm?: number; depthMm?: number } = {},
+): PlanCabinetInput {
+  const build = product.build;
+  return {
+    kind: product.template,
+    name: isProductName(product.label) ? product.label : DESIGN_KIND_LABELS[product.template],
+    ...(build
+      ? {
+          targetWidthMm: overrides.targetWidthMm ?? build.widthMm,
+          heightMm: overrides.heightMm ?? build.heightMm,
+          depthMm: overrides.depthMm ?? build.depthMm,
+          interior: { fittings: build.fittings, hasDoor: build.door },
+        }
+      : {
+          ...(overrides.targetWidthMm ? { targetWidthMm: overrides.targetWidthMm } : {}),
+          ...(overrides.heightMm ? { heightMm: overrides.heightMm } : {}),
+          ...(overrides.depthMm ? { depthMm: overrides.depthMm } : {}),
+        }),
+  };
 }
 
 /** A product name that may appear on a tab, in the cart and the order. */
 export function isProductName(value: string): boolean {
   return /^[\p{L}][\p{L} ]{1,29}$/u.test(value);
-}
-
-/**
- * One named product. It must build as written: the core plans it and the
- * interior has to fit whole (no part trimmed, the door on a catalog size),
- * so a data change can never give the customer a broken product.
- */
-function readNamedProduct(errors: string[], where: string, kind: DesignKind, raw: unknown): KoshoyNamedProduct {
-  const row = asRecord(raw);
-  const label = readText(errors, where, "label", row.label, 30);
-  if (label && !isProductName(label)) errors.push(`${where}: "label" yalnız harf ve boşluk olabilir (en çok 30).`);
-  const fittings = readList(errors, where, "fittings", row.fittings, 0, 12).map((item, index) =>
-    readOneOf(errors, where, `fittings ${index + 1}`, item, CABIN_FIT_KINDS),
-  );
-  const product: KoshoyNamedProduct = {
-    id: readSlug(errors, where, "id", row.id),
-    label,
-    synonyms: readTextList(errors, where, "synonyms", row.synonyms ?? [], 10, 40),
-    widthMm: readInteger(errors, where, "widthMm", row.widthMm, 320, 6000),
-    heightMm: readInteger(errors, where, "heightMm", row.heightMm, 224, 2304),
-    depthMm: readInteger(errors, where, "depthMm", row.depthMm, 320, 640),
-    fittings,
-    door: readBoolean(errors, where, "door", row.door),
-    note: row.note === undefined ? "" : readText(errors, where, "note", row.note, 160),
-  };
-  if (!errors.length) {
-    const plan = cabinetEngine.planCabinet(namedProductPlan(kind, product));
-    const problems = plan.notes.filter((note) => !note.startsWith("Genişlik"));
-    const doorLost = product.door && plan.composition.units.some((unit) => !unit.hasDoor);
-    if (problems.length || doorLost) {
-      errors.push(`${where}: bu ölçüyle kurulamıyor (${[...problems, ...(doorLost ? ["kapak sığmıyor"] : [])].join("; ")}).`);
-    }
-  }
-  return product;
-}
-
-/** The plan input of a named product; `overrides` are the customer's wishes. */
-export function namedProductPlan(
-  kind: DesignKind,
-  product: KoshoyNamedProduct,
-  overrides: { targetWidthMm?: number; heightMm?: number; depthMm?: number } = {},
-) {
-  return {
-    kind,
-    name: product.label,
-    targetWidthMm: overrides.targetWidthMm ?? product.widthMm,
-    heightMm: overrides.heightMm ?? product.heightMm,
-    depthMm: overrides.depthMm ?? product.depthMm,
-    interior: { fittings: product.fittings, hasDoor: product.door },
-  };
 }
 
 export function validateLevels(value: unknown): KoshoyDataResult<KoshoyDataLevel[]> {
@@ -594,11 +676,10 @@ export function validateImages(value: unknown): KoshoyDataResult<KoshoyDataImage
   const errors: string[] = [];
   if (!Array.isArray(value)) return { ok: false, errors: ["images bir liste olmalı: [ {resim}, {resim} ]."] };
   const pairs = new Set<string>();
-  const kinds = ["*", ...DESIGN_KINDS] as const;
   const images = readList(errors, "images", "", value, 0, 200).map((raw, index) => {
     const row = asRecord(raw);
     const where = `Resim ${index + 1}`;
-    const kind = readOneOf(errors, where, "kind", row.kind, kinds);
+    const kind = row.kind === "*" ? "*" : readSlug(errors, where, "kind", row.kind);
     const option = typeof row.option === "string" ? row.option : "";
     if (!IMAGE_OPTION.test(option)) {
       errors.push(`${where}: "option" crown_on, crown_off, front_…, panel_… ya da handle_… olmalı.`);

@@ -38,6 +38,10 @@ Doğrudan Claude/OpenAI API'si kullanılmaz; LLM her zaman şirketin gateway'ind
 - Yolculuk (ClickUp z8qu5d7rd9): oda → yapı → tarz → oda onayı → ürün ürün onay → sepet. Durum
   `journey.ts` (oturumun `state.journey`), kartlar ve düğmeler `journey.server.ts`, tur bağlantısı
   `turn.server.ts` (`runJourneyAction`, `publishStageCards`). Sepete yalnız onaylı ürün girer (`/cart`).
+- Ürünler (ClickUp z8qu5d3qan): her ürün `kinds` belgesinde bir satırdır (kimlik, yapım kalıbı, ad,
+  gövde genişlikleri, isteğe bağlı kendi ölçüsü ve içi). Kodda yalnız yapım kalıpları kalır
+  (`cabinet-core/templates.ts`). Satırın çözümü ve genişlik kuralı `products.ts`; tasarım hangi
+  üründen kurulduğunu `KoshoyDesign.product`'ta tutar.
 - Akın'ın verisi (odalar, türler + soruları, seviyeler, metinler, resimler, kapsam) kodda değil,
   Koshoy veritabanındadır (`data.server.ts`, varsayılanlar `KOSHOY_DATA_DEFAULTS`). Değiştirme yolu
   veri API'sidir: `docs/veri-api.md` (`/api/koshoy/data`, anahtar `KOSHOY_DATA_API_KEY`). Bozuk veri

@@ -147,6 +147,8 @@ const SET_ROOM_MEASURE_TOOL = {
 };
 
 function toolList(withHandle: boolean, products: readonly string[]) {
+  // Product ids come from the data (kinds document); the templates when it gives none.
+  const kinds = products.length ? products : DESIGN_KINDS;
   return [
     {
       name: "set_brief",
@@ -194,15 +196,12 @@ function toolList(withHandle: boolean, products: readonly string[]) {
     {
       name: "plan_cabinet",
       description:
-        "Create a NEW design for one product. The server picks sizes and interior from templates and snaps to the catalog; never invent sizes. A named product from the system facts (product) brings its own size and interior. For a cabinet not in the list, pass the closest kind plus the customer's name for it (name) and the sizes and interior the customer gave. Returns the design summary, snapping notes and the price text.",
+        "Create a NEW design for one product. The server picks sizes and interior from the product and snaps to the catalog; never invent sizes. For a cabinet not in the list, pass the closest kind plus the customer's name for it (name) and the sizes and interior the customer gave. Returns the design summary, snapping notes and the price text.",
       strict: false,
       parameters: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: [...DESIGN_KINDS] },
-          ...(products.length
-            ? { product: { type: "string", enum: [...products], description: "Named product id from the system facts (e.g. keson)" } }
-            : {}),
+          kind: { type: "string", enum: [...kinds], description: "Product id from the system facts (e.g. gardirop, keson)" },
           name: {
             type: "string",
             description: "The customer's name for a cabinet that is not in the list (\"Konsol\"): letters only, at most 30. It is shown on the tab and in the cart.",
@@ -239,7 +238,7 @@ function toolList(withHandle: boolean, products: readonly string[]) {
             items: {
               type: "object",
               properties: {
-                kind: { type: "string", enum: [...DESIGN_KINDS] },
+                kind: { type: "string", enum: [...kinds] },
                 count: { type: "integer", minimum: 1, maximum: 4 },
                 widthCm: { type: "number", description: "Total width of one such product, from the customer's answer" },
               },
