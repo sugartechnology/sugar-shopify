@@ -271,6 +271,25 @@ export function layoutByWall(
 }
 
 /**
+ * The room summary's room part (ClickUp z8qu5daa0c): the layout per wall and
+ * the newest ready realistic picture that shows the products standing in the
+ * room now, left to right. Used by the turn and by /session (resume).
+ */
+export async function summaryRoomFor(
+  deps: KoshoyRoomDeps,
+  session: LayoutSession,
+  designs: readonly KoshoyDesign[],
+): Promise<{ layout: WallLineView[]; renderId: string | null }> {
+  const { layout, target } = await currentLayout(deps, session, designs);
+  const placed = JSON.stringify(placedLeftToRight(layout));
+  const renders = await deps.db.koshoyRender.findMany({ where: { sessionId: session.id } });
+  const ready = renders
+    .filter((render) => render.status === "ready" && render.designIds === placed)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return { layout: layoutByWall(layout, designs, target), renderId: ready[0]?.id ?? null };
+}
+
+/**
  * Settles the saved layout onto `target` and applies `op` (if any), then
  * saves it as the next version. Every call saves, so the storefront always
  * gets an answer newer than its own guess (a refused drag snaps back).

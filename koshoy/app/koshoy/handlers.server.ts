@@ -54,6 +54,7 @@ import { handleChoices, publicColors } from "./shop-colors";
 import type { KoshoyJourneyEvent } from "./journey-events.server";
 import {
   currentLayout,
+  summaryRoomFor,
   layoutEvent,
   layoutScenes,
   layoutView,
@@ -385,7 +386,14 @@ export async function handleKoshoySession(
     // The current stage's card (structure, room summary, product, cart), rebuilt from the state.
     const data = await ctx.journeyData();
     const view = await journeyView(ctx, session, data, handleChoices());
-    events.push(...(await stageCards(ctx, session, view, data, { photo: Boolean(ctx.room), ...handleChoices() })));
+    const summaryRoom = ctx.room && view.stage === "room_approval" ? await summaryRoomFor(ctx.room, session, designs) : undefined;
+    events.push(
+      ...(await stageCards(ctx, session, view, data, {
+        photo: Boolean(ctx.room),
+        ...handleChoices(),
+        ...(summaryRoom ? { room: summaryRoom } : {}),
+      })),
+    );
 
     return koshoyJson(
       {
@@ -609,7 +617,15 @@ export async function handleKoshoyEdit(
       const view = await journeyView(ctx, session, data, handleChoices());
       const lostApproval = approvalOf(session.journey, design) !== "pending";
       if (view.stage !== session.journey.shownStage || lostApproval) {
-        events.push(...(await stageCards(ctx, session, view, data, { photo: Boolean(ctx.room), ...handleChoices() })));
+        const summaryRoom =
+          ctx.room && view.stage === "room_approval" ? await summaryRoomFor(ctx.room, session, view.designs) : undefined;
+        events.push(
+          ...(await stageCards(ctx, session, view, data, {
+            photo: Boolean(ctx.room),
+            ...handleChoices(),
+            ...(summaryRoom ? { room: summaryRoom } : {}),
+          })),
+        );
         session.journey.shownStage = view.stage;
       }
     }

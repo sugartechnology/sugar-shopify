@@ -49,8 +49,7 @@ import {
   settleRoomAfterEdit,
   type RoomToolContext,
 } from "./room-tools.server";
-import { currentLayout, layoutByWall } from "./layout.server";
-import { placedLeftToRight } from "./layout-solver";
+import { summaryRoomFor } from "./layout.server";
 import {
   applyDesignEdit,
   createPlannedDesign,
@@ -89,7 +88,6 @@ import {
   styleDesign,
   type JourneyOptions,
   type KoshoyJourneyData,
-  type RoomSummaryRoom,
 } from "./journey.server";
 
 export const KOSHOY_MAX_HOPS = 16;
@@ -1533,7 +1531,7 @@ async function publishStageCards(ctx: TurnContext) {
   const cards = await stageCards(deps, session, view, deps.data, {
     photo: Boolean(deps.room),
     handles: (deps.handles ?? NO_HANDLES).handles,
-    ...(view.stage === "room_approval" && room ? { room: await summaryRoom(room, view.designs) } : {}),
+    ...(view.stage === "room_approval" && room ? { room: await summaryRoomFor(room.room, session, view.designs) } : {}),
   });
   for (const card of cards) {
     const key = JSON.stringify(card);
@@ -1544,20 +1542,6 @@ async function publishStageCards(ctx: TurnContext) {
   ctx.stageAtStart = view.stage;
   session.journey.shownStage = view.stage;
   ctx.journeyChanged = false;
-}
-
-/**
- * The room summary's layout per wall and its realistic picture: the newest
- * ready render that shows the products standing in the room now, left to right.
- */
-async function summaryRoom(room: RoomToolContext, designs: readonly KoshoyDesign[]): Promise<RoomSummaryRoom> {
-  const { layout, target } = await currentLayout(room.room, room.session, designs);
-  const placed = JSON.stringify(placedLeftToRight(layout));
-  const renders = await room.room.db.koshoyRender.findMany({ where: { sessionId: room.session.id } });
-  const ready = renders
-    .filter((render) => render.status === "ready" && render.designIds === placed)
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  return { layout: layoutByWall(layout, designs, target), renderId: ready[0]?.id ?? null };
 }
 
 /** Every design's scene and price (a room-wide style change), the active one last so it stays on screen. */
