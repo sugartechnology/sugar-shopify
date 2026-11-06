@@ -1394,7 +1394,8 @@ async function runMockTurn(ctx: TurnContext, client: ClientInput) {
 
 /* ---------------- journey buttons and cards ---------------- */
 
-const MEASURE_SAVED_HINT = "Ürünler sığmıyorsa küçült; ölçüyü müşteriye söyleme.";
+const MEASURE_SAVED_HINT =
+  "Ölçü kaydedildi. Ölçüden, duvardan ya da odanın boyutundan söz etme, sayı verme; tek kısa cümleyle sıradaki aşamaya geç. Ürünler kurulurken sığmıyorsa küçült.";
 const MEASURE_RANGE_HINT =
   "Ölçü santimetre olmalı, 30 ile 2000 arası (5 m = 500). Ölçü anlaşılmadıysa müşteriye bir kez sor; sayıyı geri söyleme.";
 
