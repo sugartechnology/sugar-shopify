@@ -23,5 +23,10 @@ description: How Koshoy Studio (sugar-shopify/koshoy) reaches production — Coo
 ## Gizli değerler
 - Coolify env'lerinde: `SHOPIFY_API_SECRET` (Koshoy Studio'nun kendi secret'ı), `SHOPIFY_SERVICE_SECRET` (tagservice servis şifresi). Değerleri sohbete/loga yazma.
 
+## Onay: dev'e kadar sormadan, canlıya sorarak (Fatih, 5 Kasım)
+- `dev`'e kadar her şey sormadan yapılır: dal, PR (`dev`'e), `dev`'e merge, dev deploy (`koshoy-studio-dev`), koshoy-dev.myshopify.com'da deneme.
+- Canlıya giden her adım için önce Fatih'e sorulur ve açık onayı beklenir: `feature/koshoy-backend`'e (ya da temada `release`'e, 3D'de `normod`'a) merge, canlı deploy.
+- Canlıya PR açılabilir; merge Fatih'in onayıyla yapılır.
+
 ## Çalışma şekli
 - Her adımdan önce ne yapılacağını kullanıcıya tek cümleyle söyle, sonra yap, sonra kısaca sonucu bildir.
