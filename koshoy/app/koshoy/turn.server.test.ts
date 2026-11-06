@@ -1296,6 +1296,35 @@ describe("koshoy journey: room first, then product by product, then the cart", (
     assert.equal(answer.bodies[0].message, undefined, "the pick is the tool result, not a later message");
   });
 
+  it("shows the next style options in the same reply, without waiting for 'Devam edelim' (ClickUp z8qu5d7rdy)", async () => {
+    const ctx = await setup();
+    await ctx.store.createDesign(ctx.session.id, {
+      kind: "kitaplik",
+      label: "Kitaplık",
+      composition: cabinetEngine.planCabinet({ kind: "kitaplik" }).composition,
+    });
+    Object.assign(ctx.session.journey, { kind: "single", structure: "skip" });
+    const levelAsk = scriptedStream([[{ event: "tool_call", data: { callId: "s1", name: "ask_style", arguments: JSON.stringify({ decision: "level" }) } }]]);
+    const asked = await turn(ctx, ctx.session, { type: "message", text: "Devam" }, { stream: levelAsk.stream });
+    const level = asked.find((event) => event.type === "choice");
+    assert.ok(level?.type === "choice");
+    const byPrice = level.options.find((option) => option.label === "Fiyatına bakarak seçeyim");
+    assert.ok(byPrice);
+
+    // The model only announces the colour step; the system sends it back once.
+    const pick = scriptedStream([
+      [{ event: "text", data: { text: "Fiyatına bakarak seçelim. Sıradaki adım renk." } }],
+      [{ event: "tool_call", data: { callId: "s2", name: "ask_style", arguments: JSON.stringify({ decision: "panel" }) } }],
+    ]);
+    const events = await turn(ctx, ctx.session, { type: "choice", selected: byPrice.id }, { stream: pick.stream });
+    assert.equal(ctx.session.journey.style.level, "fiyatina_bakarak");
+    assert.equal(pick.bodies.length, 2);
+    assert.match(String(pick.bodies[1].message), /ask_style/);
+    const colours = events.filter((event) => event.type === "choice");
+    assert.equal(colours.length, 1, "the colour options are on screen in the same reply");
+    assertNoLeak(events);
+  });
+
   it("brings a 'later' product back, and never offers a product already in the cart again", async () => {
     const ctx = await setup();
     const make = (kind: "komodin" | "sifonyer") =>
