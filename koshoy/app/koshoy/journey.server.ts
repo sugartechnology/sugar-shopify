@@ -192,7 +192,12 @@ export async function styleChoices(
   }
   if (decision === "handle") {
     for (const handle of options.handles) {
-      entries.push({ value: handle.id, label: handle.label, image: imageFor(data, kinds, `handle_${handle.id}`) });
+      entries.push({
+        value: handle.id,
+        label: handle.label,
+        image: imageFor(data, kinds, `handle_${handle.id}`),
+        style: { handle: handle.id },
+      });
     }
   }
   const out: Array<ChoiceOption & { value: string }> = [];
